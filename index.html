@@ -46,6 +46,67 @@
         pointer-events: none;
         user-select: none;
       }
+      #addsource {
+        position: fixed;
+        left: 16px;
+        bottom: 14px;
+        font: 10px ui-monospace, monospace;
+        color: #6d6d6d;
+        background: none;
+        border: 1px solid #2c2c2c;
+        padding: 6px 14px;
+        letter-spacing: 0.2em;
+        cursor: pointer;
+        z-index: 20;
+      }
+      #addsource:hover {
+        color: #cfcfcf;
+        border-color: #4a4a4a;
+      }
+      #preview {
+        position: fixed;
+        left: 16px;
+        bottom: 52px;
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        z-index: 15;
+      }
+      #preview-canvas {
+        display: none;
+        width: 96px;
+        height: auto;
+        border: 1px solid #262626;
+        image-rendering: auto;
+      }
+      #preview-meta {
+        font: 10px/1.7 ui-monospace, monospace;
+        color: #5c5c5c;
+        letter-spacing: 0.08em;
+        white-space: pre;
+      }
+      #dropzone {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 50;
+        pointer-events: none;
+      }
+      #dropzone div {
+        border: 1px dashed #4a4a4a;
+        padding: 34px 56px;
+        font: 12px ui-monospace, monospace;
+        color: #bdbdbd;
+        letter-spacing: 0.35em;
+        text-align: center;
+        line-height: 2.2;
+      }
+      #filepicker {
+        display: none;
+      }
       #hint {
         position: fixed;
         left: 50%;
@@ -63,6 +124,16 @@
     <div id="devhud"></div>
     <div id="statelabel">RECONSTRUCT</div>
     <div id="hint">DRAG ORBIT / SCROLL ZOOM</div>
+    <div id="preview">
+      <canvas id="preview-canvas"></canvas>
+      <div id="preview-meta"></div>
+    </div>
+    <button id="addsource">ADD SOURCE</button>
+    <input id="filepicker" type="file"
+      accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.glb,.gltf,.obj,.stl,.ply" />
+    <div id="dropzone">
+      <div>DROP SOURCE<br><span style="letter-spacing:0.18em; color:#666;">PNG · JPG · WEBP · GLB · GLTF · OBJ · STL · PLY</span></div>
+    </div>
     <div id="credit">DEVELOPED BY MEHRAN AHMADI © 2026</div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
