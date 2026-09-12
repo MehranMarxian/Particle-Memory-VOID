@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VOID / PARTICLE MEMORY</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      #stage {
+        width: 100%;
+        height: 100%;
+      }
+      #devhud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        font: 11px/1.6 ui-monospace, monospace;
+        color: #9a9a9a;
+        white-space: pre;
+        pointer-events: none;
+        user-select: none;
+      }
+      #hint {
+        position: fixed;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        font: 11px ui-monospace, monospace;
+        color: #555;
+        letter-spacing: 0.15em;
+        user-select: none;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-B3A1y8XR.js"></script>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="devhud"></div>
+    <div id="hint">PHASE 1 TEST SCENE — DRAG TO ORBIT / SCROLL TO ZOOM / [H] MATRIX</div>
+  </body>
+</html>
