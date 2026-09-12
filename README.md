@@ -1,11 +1,14 @@
 # VOID / PARTICLE MEMORY
 
+_Developed by Mehran Ahmadi © 2026_
+
 A generative particle application. Sources (images, 3D models, point clouds) become
 particle memories that reconstruct, dissolve, and remember themselves again through
 a Particle Life system.
 
-**Status: Phase 1 complete** — particle engine + spatial acceleration + species
-matrix + GPU point rendering + test scene.
+**Status: Phase 2 complete** — particle engine + spatial acceleration + species
+matrix + GPU point rendering + memory state system (RECONSTRUCT → ALIVE → DRIFT →
+VOID → REMEMBER) with smooth transitions and irregular automatic timing.
 
 ## Run
 
@@ -16,11 +19,31 @@ npm test           # vitest (engine, grid, matrix, memory, perf)
 npm run build      # production build to dist/
 ```
 
-## Phase 1 test scene
+## Phase 2 demo scene
+
+A synthetic source (a tilted torus surface) stands in for real sources until the
+Phase 3 loaders land. Every particle carries one torus point as its `targetPosition`;
+particles are born scattered and half-forgetful. The automatic memory cycle then runs:
+
+```
+RECONSTRUCT → ALIVE → DRIFT → VOID → REMEMBER → ...
+```
 
 - Drag to orbit, scroll to zoom.
-- `H` cycles interaction matrices, `R` randomizes the matrix.
-- HUD (top-left): particle count, FPS, per-step simulation time, active matrix.
+- `1`–`5` force a memory state, `A` toggles the automatic cycle,
+  `H` cycles interaction matrices, `R` randomizes the matrix.
+- HUD (top-left): particle count, FPS, sim ms, memory strength, MEMORY↔LIFE blend.
+- The state name is shown top-right.
+
+### Memory states (`src/memory/MemorySystem.ts`)
+
+- Data-driven, JSON-serializable state configs (blend, memoryStrength, decay,
+  chaos, regain, duration range).
+- Smoothstep transitions between states (default 4–7 s, configurable); manual
+  switches never snap — they start from the current interpolated values.
+- Automatic timing jitters durations per state so the cycle never feels looped.
+- DRIFT decays per-particle memory stochastically; REMEMBER gradually regains it
+  (`ParticleEngine.regainMemory`).
 
 ## Architecture
 
@@ -28,8 +51,9 @@ npm run build      # production build to dist/
 src/
   types/       shared interfaces (ParticleTarget, EngineParams, ...)
   particles/   ParticleEngine (SoA buffers), SpatialGrid, InteractionMatrix
+  memory/      MemorySystem — states, transitions, MEMORY<->LIFE blend
   rendering/   ParticleRenderer (THREE.Points + ShaderMaterial)
-  app/         entry / test scene (later: editor, fullscreen, cycle)
+  app/         entry / demo scene (later: editor, fullscreen, cycle)
   utils/       math helpers
 tests/         vitest suites (non-rendering logic + perf)
 ```

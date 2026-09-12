@@ -28,8 +28,8 @@ export class ParticleRenderer {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       uniforms: {
-        uSize: { value: 1.6 },
-        uOpacity: { value: 0.45 },
+        uSize: { value: 1.4 },
+        uOpacity: { value: 0.32 },
       },
       vertexShader: /* glsl */ `
         attribute vec3 aColor;

@@ -26,6 +26,26 @@
         pointer-events: none;
         user-select: none;
       }
+      #statelabel {
+        position: fixed;
+        right: 16px;
+        top: 14px;
+        font: 11px ui-monospace, monospace;
+        color: #d8d8d8;
+        letter-spacing: 0.4em;
+        pointer-events: none;
+        user-select: none;
+      }
+      #credit {
+        position: fixed;
+        right: 16px;
+        bottom: 14px;
+        font: 10px ui-monospace, monospace;
+        color: #3f3f3f;
+        letter-spacing: 0.12em;
+        pointer-events: none;
+        user-select: none;
+      }
       #hint {
         position: fixed;
         left: 50%;
@@ -41,7 +61,9 @@
   <body>
     <div id="stage"></div>
     <div id="devhud"></div>
-    <div id="hint">PHASE 1 TEST SCENE — DRAG TO ORBIT / SCROLL TO ZOOM / [H] MATRIX</div>
+    <div id="statelabel">RECONSTRUCT</div>
+    <div id="hint">DRAG ORBIT / SCROLL ZOOM</div>
+    <div id="credit">DEVELOPED BY MEHRAN AHMADI © 2026</div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

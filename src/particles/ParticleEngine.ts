@@ -302,4 +302,13 @@ export class ParticleEngine {
   restoreMemory(): void {
     this.memoryPerParticle.fill(1);
   }
+
+  /** Gradually bring forgotten particles back to full memory (REMEMBER). */
+  regainMemory(dt: number, rate: number): void {
+    if (rate <= 0) return;
+    const m = this.memoryPerParticle;
+    for (let i = 0; i < this.count; i++) {
+      if (m[i] < 1) m[i] = Math.min(1, m[i] + rate * dt);
+    }
+  }
 }
