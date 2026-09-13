@@ -3,6 +3,8 @@ import { ParticleEngine } from "@/particles/ParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer } from "@/rendering/ParticleRenderer";
+import { TrailPass } from "@/rendering/TrailPass";
+import { defaultVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -97,6 +99,7 @@ function buildFromSource(sample: FlatSource): void {
   }
   engine = next;
   particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
+  particleRenderer.markColorsDirty();
   scene.add(particleRenderer.points);
 }
 
@@ -112,6 +115,24 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x000000, 0.02);
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 2.5, 16);
+
+// --- Visual style (Phase 4) ---------------------------------------------
+const visual: VisualSettings = defaultVisualSettings();
+{
+  // URL overrides — also the eventual screensaver config path.
+  const search = new URLSearchParams(location.search);
+  const color = search.get("color");
+  if (color === "source" || color === "mono") visual.colorMode = color === "source" ? "source" : "monochrome";
+  const trails = search.get("trails");
+  if (trails !== null) visual.trails = trails !== "0";
+  const dof = search.get("dof");
+  if (dof !== null) visual.dof = dof === "0" ? 0 : Math.min(1, Math.max(0, Number(dof) || 0.25));
+}
+const trailPass = new TrailPass(
+  renderer3d,
+  Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
+  Math.floor(window.innerHeight * renderer3d.getPixelRatio())
+);
 
 let azimuth = 0;
 let elevation = 0.5;
@@ -281,6 +302,15 @@ window.addEventListener("keydown", (e) => {
     activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
   } else if (key === "A") {
     memory.auto = !memory.auto;
+  } else if (key === "C") {
+    visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
+    flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
+  } else if (key === "T") {
+    visual.trails = !visual.trails;
+    flashHint(`TRAILS: ${visual.trails ? "ON" : "OFF"}`, 3);
+  } else if (key === "D") {
+    visual.dof = visual.dof > 0 ? 0 : 0.25;
+    flashHint(`DEPTH OF FIELD: ${visual.dof > 0 ? "ON" : "OFF"}`, 3);
   } else if (e.key === "]" || e.key === "+") {
     setDensity(densityIndex + 1);
   } else if (e.key === "[") {
@@ -338,15 +368,31 @@ function frame(now: number): void {
   }
 
   azimuth += dt * 0.02;
+  // Slow vertical breathing on top of user elevation — the camera drifts
+  // like a held breath rather than a turntable.
+  const breathe = Math.sin(now * 0.00012) * 0.05;
   camera.position.set(
-    radius * Math.cos(elevation) * Math.sin(azimuth),
-    radius * Math.sin(elevation),
-    radius * Math.cos(elevation) * Math.cos(azimuth)
+    radius * Math.cos(elevation + breathe) * Math.sin(azimuth),
+    radius * Math.sin(elevation + breathe),
+    radius * Math.cos(elevation + breathe) * Math.cos(azimuth)
   );
   camera.lookAt(0, 0, 0);
 
   particleRenderer?.update();
-  renderer3d.render(scene, camera);
+  // Keep perceived exposure constant: afterimage accumulation divides the
+  // per-frame energy by (1 - decay), so scale opacity down when trails are on.
+  const effective = { ...visual };
+  if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
+  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius);
+  if (visual.trails) {
+    trailPass.enabled = true;
+    trailPass.decay = visual.trailDecay;
+    trailPass.render(scene, camera);
+  } else {
+    trailPass.enabled = false;
+    renderer3d.setClearColor(0x000000, 1);
+    renderer3d.render(scene, camera);
+  }
 
   frames++;
   if (now - lastFpsTime > 500) {
@@ -354,13 +400,15 @@ function frame(now: number): void {
     frames = 0;
     lastFpsTime = now;
     hud.textContent =
-      `VOID / PARTICLE MEMORY — phase 3\n` +
+      `VOID / PARTICLE MEMORY — phase 4\n` +
       `source: ${currentSourceName} (${currentSourceDetail})\n` +
       `particles: ${engine.count}   fps: ${fps}   sim: ${(engine.lastStepTime * 1000).toFixed(1)}ms\n` +
       `memory: ${memory.memoryStrength.toFixed(2)}   blend: ${memory.blend.toFixed(2)}   ` +
       `auto: ${memory.auto ? "on" : "off"}\n` +
+      `vis: ${visual.colorMode === "monochrome" ? "mono" : "color"}   ` +
+      `trails: ${visual.trails ? "on" : "off"}   dof: ${visual.dof > 0 ? "on" : "off"}\n` +
       `matrix: ${matrixIndex + 1}/${matrices.length}   ` +
-      `[ ] density  [1-5] states  [A] auto  [H] matrix  [R] randomize`;
+      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [H] matrix  [R] randomize`;
   }
   if (hintTimer > 0) {
     hintTimer -= dt;
@@ -373,4 +421,8 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer3d.setSize(window.innerWidth, window.innerHeight);
+  trailPass.setSize(
+    Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
+    Math.floor(window.innerHeight * renderer3d.getPixelRatio())
+  );
 });

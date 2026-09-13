@@ -6,9 +6,11 @@ A generative particle application. Sources (images, 3D models, point clouds) bec
 particle memories that reconstruct, dissolve, and remember themselves again through
 a Particle Life system.
 
-**Status: Phase 3 complete** — particle engine + spatial acceleration + species
+**Status: Phase 4 complete** — particle engine + spatial acceleration + species
 matrix + GPU point rendering + memory state system (RECONSTRUCT → ALIVE → DRIFT →
-VOID → REMEMBER) + source loaders (image, PLY, GLB/GLTF, OBJ, STL).
+VOID → REMEMBER) + source loaders (image, PLY, GLB/GLTF, OBJ, STL) + the visual
+layer (soft halo sprites, monochrome/source color modes, depth-of-field, fog,
+afterimage motion trails, exposure-compensated glow).
 
 ## Run
 
@@ -18,6 +20,22 @@ npm run dev        # http://localhost:5173
 npm test           # vitest (engine, grid, matrix, memory, perf)
 npm run build      # production build to dist/
 ```
+
+## Phase 4 — the visual layer
+
+All style is data-driven through `VisualSettings` (clamped, unit-tested,
+serializable — the Phase 5 UI and screensaver config will drive it directly):
+
+- **Sprites** — soft core + faint halo in one shader (no post bloom).
+- **Color modes** — `monochrome` (default; BT.709 luminance through a
+  restrained cool tint) and `source` (raw source colors).
+- **Depth** — exponential fog toward black, optional depth-of-field
+  (off-focus particles grow and fade), camera focus tracks orbit radius.
+- **Trails** — afterimage ping-pong pass; opacity is automatically scaled
+  by `(1 − decay)` so exposure stays constant as trail length changes.
+- **Camera** — slow azimuth drift plus a vertical breathing oscillation.
+- URL overrides: `?color=source|mono&trails=0|1&dof=0|1`.
+- Keys: `C` color mode, `T` trails, `D` depth-of-field.
 
 ## Phase 3 — source loaders
 
