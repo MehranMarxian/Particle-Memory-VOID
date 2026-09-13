@@ -44,6 +44,43 @@
   height: 14px;
   border-radius: 50%;
 }
+#panel #panel-state {
+  color: #8f8f8f;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+}
+#panel #panel-footer {
+  border-top: 1px solid #161616;
+  padding: 7px 10px 9px;
+}
+#panel #panel-stats {
+  color: #5f5f5f;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+#panel #panel-status {
+  color: #9a9a9a;
+  min-height: 12px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#panel #panel-status.error {
+  color: #c96a6a;
+}
+#panel .credit {
+  margin-top: 6px;
+}
+#panel .credit a {
+  color: #565656;
+  text-decoration: none;
+  letter-spacing: 0.14em;
+  font-size: 9px;
+}
+#panel .credit a:hover {
+  color: #b5b5b5;
+}
 #panel .panel-head .panel-toggle {
   background: none;
   border: 1px solid #2c2c2c;

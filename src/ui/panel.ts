@@ -32,6 +32,10 @@ export interface PanelApi {
   setSourceInfo(name: string, kind: string, detail: string, count: number): void;
   setCount(count: number): void;
   setActivePreset(name: string | null): void;
+  setState(name: string): void;
+  setStats(text: string): void;
+  setHint(text: string, seconds: number, sticky: boolean): void;
+  clearHint(): void;
   toggleVisible(): void;
   refresh(): void;
 }
@@ -324,10 +328,26 @@ export function createPanel(opts: {
   mkAct("FULLSCREEN", () => callbacks.onFullscreen());
   actBody.appendChild(actGrid);
 
+  // Footer: stats, transient status, credit.
+  const footer = document.createElement("div");
+  footer.id = "panel-footer";
+  const stats = document.createElement("div");
+  stats.id = "panel-stats";
+  stats.textContent = "—";
+  const status = document.createElement("div");
+  status.id = "panel-status";
+  const credit = document.createElement("div");
+  credit.className = "credit";
+  credit.innerHTML =
+    '<a href="https://mehran-ahmadi.com/" target="_blank" rel="noopener">DEVELOPED BY MEHRAN AHMADI © 2026</a>';
+  footer.append(stats, status, credit);
+  panel.appendChild(footer);
+
   // Visibility toggle.
   const head = document.createElement("div");
   head.className = "panel-head";
-  head.innerHTML = '<span class="brand"><img src="/icons/void-64.png" alt="" />VOID</span>';
+  head.innerHTML =
+    '<span class="brand"><img src="/icons/void-64.png" alt="" />VOID</span><span id="panel-state">RECONSTRUCT</span>';
   const hideBtn = document.createElement("button");
   hideBtn.className = "panel-toggle";
   hideBtn.textContent = "HIDE";
@@ -355,6 +375,26 @@ export function createPanel(opts: {
     },
     setActivePreset(name) {
       for (const [pname, btn] of presetBtns) btn.classList.toggle("on", pname === name);
+    },
+    setState(name) {
+      const el = document.getElementById("panel-state");
+      if (el) el.textContent = name;
+    },
+    setStats(text) {
+      stats.textContent = text;
+    },
+    setHint(text, seconds, sticky) {
+      status.textContent = text;
+      status.classList.toggle("error", sticky);
+      window.clearTimeout((status as unknown as { t?: number }).t);
+      if (!sticky) {
+        (status as unknown as { t?: number }).t = window.setTimeout(() => {
+          status.textContent = "";
+        }, seconds * 1000);
+      }
+    },
+    clearHint() {
+      status.textContent = "";
     },
     toggleVisible() {
       setPanelVisible(panel.style.display !== "none");

@@ -368,9 +368,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
 buildFromSource(makeTorusSource(currentCount));
 
 // --- HUD / UI elements ------------------------------------------------------
-const hud = document.getElementById("devhud")!;
-const stateLabel = document.getElementById("statelabel")!;
-const hint = document.getElementById("hint")!;
+// Overlay elements were folded into the panel (Phase 5.5).
 const dropzone = document.getElementById("dropzone")!;
 const previewCanvas = document.getElementById("preview-canvas") as HTMLCanvasElement;
 const previewMeta = document.getElementById("preview-meta")!;
@@ -387,13 +385,11 @@ function flashHint(text: string, seconds = 4, sticky = false): void {
   // Sticky hints (errors) are never overwritten by routine messages.
   if (hintSticky && !sticky) return;
   hintSticky = sticky;
-  hint.textContent = text;
-  hint.style.color = sticky ? "#c96a6a" : "#888";
-  hintTimer = seconds;
+  panelApi?.setHint(text, seconds, sticky);
 }
 
 memory.onStateChange = (name) => {
-  stateLabel.textContent = name;
+  panelApi?.setState(name);
 };
 
 // --- Source loading -----------------------------------------------------------
@@ -508,7 +504,7 @@ window.addEventListener("keydown", (e) => {
     activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
   } else if (key === "A") {
     memory.active = memory.auto = !memory.auto;
-    stateLabel.textContent = memory.active ? memory.state : "MANUAL";
+    panelApi?.setState(memory.active ? memory.state : "MANUAL");
   } else if (key === "S") {
     void toggleScreensaver();
   } else if (key === "P") {
@@ -592,7 +588,7 @@ let activeMatrix = matrix;
         activePreset = name;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
-        stateLabel.textContent = "MANUAL";
+        panelApi?.setState("MANUAL");
         if (applyPreset(def, params, visual, matrix)) {
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
@@ -606,7 +602,7 @@ let activeMatrix = matrix;
         pushHistory();
         activePreset = null;
         memory.active = memory.auto = false;
-        stateLabel.textContent = "MANUAL";
+        panelApi?.setState("MANUAL");
         randomizeParams(params, matrix, (Math.random() * 1e9) | 0);
         engine.configureGrid(params);
         panelApi?.refresh();
@@ -623,7 +619,7 @@ let activeMatrix = matrix;
         engine.configureGrid(params);
         activePreset = null;
         memory.active = memory.auto = false;
-        stateLabel.textContent = "MANUAL";
+        panelApi?.setState("MANUAL");
         panelApi?.refresh();
         panelApi?.setActivePreset(null);
         flashHint("UNDONE", 2);
@@ -658,7 +654,7 @@ let activeMatrix = matrix;
         matrixIndex = 0;
         activePreset = null;
         memory.active = memory.auto = false;
-        stateLabel.textContent = "MANUAL";
+        panelApi?.setState("MANUAL");
         currentCount = DENSITY_LEVELS[2];
         densityIndex = 2;
         engine.configureGrid(params);
@@ -671,12 +667,12 @@ let activeMatrix = matrix;
       onReconstruct() {
         memory.setState("RECONSTRUCT");
         engine.restoreMemory();
-        stateLabel.textContent = memory.state;
+        panelApi?.setState(memory.state);
         flashHint("RECONSTRUCT", 2);
       },
       onRelease() {
         memory.setState("VOID");
-        stateLabel.textContent = memory.state;
+        panelApi?.setState(memory.state);
         flashHint("RELEASE", 2);
       },
       onFullscreen() {
@@ -694,7 +690,7 @@ let activeMatrix = matrix;
         scheduleSave();
       },
       onToggleCycle() {
-        stateLabel.textContent = memory.active ? memory.state : "MANUAL";
+        panelApi?.setState(memory.active ? memory.state : "MANUAL");
       },
     },
   });
@@ -721,11 +717,9 @@ const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
   memory.active = memory.auto = true;
-  stateLabel.textContent = memory.state;
   persistNow();
 };
 saver.onExit = () => {
-  stateLabel.textContent = memory.state;
   persistNow();
 };
 attachIdleCursorHiding(document, 4000);
@@ -839,23 +833,17 @@ function frameInner(now: number): void {
     fps = Math.round((frames * 1000) / (now - lastFpsTime));
     frames = 0;
     lastFpsTime = now;
-    hud.textContent =
-      `VOID / PARTICLE MEMORY — phase 4\n` +
-      `source: ${currentSourceName} (${currentSourceDetail})\n` +
-      `particles: ${engine.count}   fps: ${fps}   sim: ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]\n` +
-      `memory: ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   ` +
-      `blend: ${memory.blend.toFixed(2)}   ` +
-      `auto: ${memory.auto ? "on" : "off"}\n` +
-      `vis: ${visual.colorMode === "monochrome" ? "mono" : "color"}   ` +
-      `trails: ${visual.trails ? "on" : "off"}   dof: ${visual.dof > 0 ? "on" : "off"}\n` +
-      `matrix: ${matrixIndex + 1}/${matrices.length}   ` +
-      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [R] randomize`;
+    panelApi?.setStats(
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]\n` +
+      `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}\n` +
+      `keys: [ ] density  [1-5] states  [A] cycle  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [P] panel  [F] fullscreen  [R] randomize`
+    );
   }
   if (hintTimer > 0) {
     hintTimer -= dt;
     if (hintTimer <= 0) {
       hintSticky = false;
-      hint.textContent = "DRAG ORBIT / SCROLL ZOOM";
+      panelApi?.clearHint();
     }
   }
 }
