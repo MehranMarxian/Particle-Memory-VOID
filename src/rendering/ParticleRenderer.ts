@@ -75,8 +75,9 @@ export class ParticleRenderer {
           col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.94, 0.97, 1.04), uMonochrome);
           vec2 uv = gl_PointCoord - 0.5;
           float d = length(uv);
-          float core = smoothstep(0.5, 0.06, d);
-          float halo = smoothstep(0.5, 0.0, d) * uGlow * 0.35;
+          // Crisp focused core; the halo only carries the glow outward.
+          float core = 1.0 - smoothstep(0.22, 0.40, d);
+          float halo = exp(-d * 7.0) * uGlow * 0.3;
           float alpha = (core + halo) * uOpacity * vFade;
           if (alpha < 0.004) discard;
           gl_FragColor = vec4(col, alpha);

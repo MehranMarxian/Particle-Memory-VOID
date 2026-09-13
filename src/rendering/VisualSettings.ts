@@ -27,13 +27,13 @@ export interface VisualSettings {
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
-  particleSize: 1.5,
-  glow: 0.7,
-  opacity: 0.34,
-  trails: true,
-  trailDecay: 0.55,
+  particleSize: 1.35,
+  glow: 0.45,
+  opacity: 0.55,
+  trails: false,
+  trailDecay: 0.4,
   colorMode: "monochrome",
-  dof: 0.25,
+  dof: 0.15,
   fogDensity: 0.02,
 });
 

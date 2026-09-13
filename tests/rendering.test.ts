@@ -7,10 +7,10 @@ import {
 } from "@/rendering/VisualSettings";
 
 describe("visual settings", () => {
-  it("defaults are sane and monochrome-first", () => {
+  it("defaults are sane, sharp and monochrome-first", () => {
     const s = defaultVisualSettings();
     expect(s.colorMode).toBe("monochrome");
-    expect(s.trails).toBe(true);
+    expect(s.trails).toBe(false); // trails off by default — crisp memory
     expect(s.particleSize).toBeGreaterThan(0);
     expect(s.opacity).toBeLessThanOrEqual(1);
   });

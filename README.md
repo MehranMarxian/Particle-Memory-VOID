@@ -21,6 +21,25 @@ npm test           # vitest (engine, grid, matrix, memory, perf)
 npm run build      # production build to dist/
 ```
 
+## GPU simulation
+
+`src/particles/gpu/GpuParticleEngine.ts` — the pragmatic hybrid division:
+
+- **CPU** rebuilds the spatial grid each step (a ~0.5 ms counting sort — the
+  one stage WebGL2 can't do portably without scatter atomics) and packs it
+  into float textures.
+- **GPU** does everything O(n·neighbors): species forces, memory springs,
+  curl turbulence, integration — as position/velocity texture ping-pong
+  via `GPUComputationRenderer`, with formulas identical to the CPU engine
+  (semi-implicit Euler order preserved).
+- One readback per frame feeds the grid and the render buffer.
+- Falls back to the CPU engine automatically when WebGL2 or
+  `EXT_color_buffer_float` is missing; `G` switches backends live,
+  carrying the current memory state across.
+
+Measured in the dev VM: 12k particles 3 fps (CPU) → 60 fps (GPU); sim cost
+at 32k stays ~7 ms.
+
 ## Phase 4 — the visual layer
 
 All style is data-driven through `VisualSettings` (clamped, unit-tested,

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ParticleEngine } from "@/particles/ParticleEngine";
+import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer } from "@/rendering/ParticleRenderer";
@@ -15,12 +16,29 @@ import {
   type SourceHandle,
 } from "@/sources";
 
+/** The subset of engine behavior the app layer needs (CPU or GPU backend). */
+interface SimEngine {
+  count: number;
+  positions: Float32Array;
+  velocities: Float32Array;
+  colors: Float32Array;
+  targets: Float32Array;
+  species: Uint8Array;
+  memoryPerParticle: Float32Array;
+  lastStepTime: number;
+  configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
+  step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
+  regainMemory(dt: number, rate: number): void;
+}
+
 const DENSITY_LEVELS = [4000, 8000, 12000, 20000, 32000, 50000];
 
 // --- Global state --------------------------------------------------------
 let densityIndex = 2;
 let currentCount = DENSITY_LEVELS[densityIndex];
-let engine: ParticleEngine;
+let engine!: SimEngine;
+let engineMode: "auto" | "gpu" | "cpu" = "auto";
+let activeBackend: "gpu" | "cpu" = "cpu";
 let particleRenderer: ParticleRenderer | null = null;
 let currentSourceName = "synthetic torus";
 let currentSourceDetail = "synthetic memory";
@@ -70,13 +88,9 @@ function makeTorusSource(count: number): FlatSource {
 }
 
 // --- Engine construction ---------------------------------------------------
-function buildFromSource(sample: FlatSource): void {
-  const count = sample.count;
-  const seed = (Math.random() * 1e9) | 0;
+function createCpuEngine(sample: FlatSource, count: number, seed: number, rng: () => number): ParticleEngine {
   const next = new ParticleEngine(count, 4, seed);
-  const rng = mulberry32(seed ^ 0x9e3779b9);
   for (let i = 0; i < count; i++) {
-    // Born scattered and half-forgetful: reconstruction must be visible.
     const r = 11 * Math.cbrt(rng());
     const theta = rng() * Math.PI * 2;
     const phi = Math.acos(2 * rng() - 1);
@@ -91,16 +105,112 @@ function buildFromSource(sample: FlatSource): void {
     next.colors[i * 3 + 1] = sample.colors[i * 3 + 1];
     next.colors[i * 3 + 2] = sample.colors[i * 3 + 2];
   }
+  return next;
+}
+
+function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: () => number): GpuParticleEngine {
+  const positions = new Float32Array(count * 3);
+  const memory = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const r = 11 * Math.cbrt(rng());
+    const theta = rng() * Math.PI * 2;
+    const phi = Math.acos(2 * rng() - 1);
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
+    memory[i] = 0.35 + 0.65 * rng();
+  }
+  return GpuParticleEngine.create(
+    renderer3d,
+    count,
+    4,
+    sample.positions,
+    sample.colors,
+    positions,
+    memory
+  );
+}
+
+function buildFromSource(sample: FlatSource): void {
+  const count = sample.count;
+  const seed = (Math.random() * 1e9) | 0;
+  const rng = mulberry32(seed ^ 0x9e3779b9);
+
+  let next: SimEngine;
+  let backend: "gpu" | "cpu" = "cpu";
+  if (engineMode !== "cpu") {
+    try {
+      next = createGpuEngine(sample, count, seed, rng);
+      backend = "gpu";
+    } catch (err) {
+      if (engineMode === "gpu") {
+        flashHint(`GPU UNAVAILABLE: ${(err as Error).message}`, 6);
+        return;
+      }
+      next = createCpuEngine(sample, count, seed, rng);
+    }
+  } else {
+    next = createCpuEngine(sample, count, seed, rng);
+  }
   next.configureGrid(params);
 
+  if (engine && "dispose" in engine) (engine as unknown as { dispose: () => void }).dispose();
   if (particleRenderer) {
     scene.remove(particleRenderer.points);
     particleRenderer.dispose();
   }
   engine = next;
+  activeBackend = backend;
   particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
   particleRenderer.markColorsDirty();
   scene.add(particleRenderer.points);
+}
+
+function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
+  engineMode = mode;
+  // Rebuild from the current targets so the memory survives the switch.
+  const sample: FlatSource = {
+    count: engine.count,
+    positions: engine.targets.slice(),
+    colors: engine.colors.slice(),
+    normals: new Float32Array(engine.count * 3),
+    weights: new Float32Array(engine.count),
+  };
+  // Current positions (mid-life) are kept: copy live state, not a rebirth.
+  const old = engine;
+  const oldPositions = engine.positions.slice();
+  const oldMemory = engine.memoryPerParticle.slice();
+  const seed = (Math.random() * 1e9) | 0;
+  const rng = mulberry32(seed ^ 0x9e3779b9);
+  let next: SimEngine;
+  let backend: "gpu" | "cpu" = "cpu";
+  if (mode !== "cpu") {
+    try {
+      next = createGpuEngine(sample, engine.count, seed, rng);
+      backend = "gpu";
+    } catch (err) {
+      flashHint(`GPU UNAVAILABLE: ${(err as Error).message}`, 6);
+      engineMode = "cpu";
+      return;
+    }
+  } else {
+    next = createCpuEngine(sample, engine.count, seed, rng);
+  }
+  next.positions.set(oldPositions);
+  next.memoryPerParticle.set(oldMemory);
+  next.configureGrid(params);
+  if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
+  if ("dispose" in old) (old as unknown as { dispose: () => void }).dispose();
+  if (particleRenderer) {
+    scene.remove(particleRenderer.points);
+    particleRenderer.dispose();
+  }
+  engine = next;
+  activeBackend = backend;
+  particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
+  particleRenderer.markColorsDirty();
+  scene.add(particleRenderer.points);
+  flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
 }
 
 // --- Scene -----------------------------------------------------------------
@@ -183,10 +293,14 @@ let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
 let hintTimer = 0;
+let hintSticky = false;
 
-function flashHint(text: string, seconds = 4): void {
+function flashHint(text: string, seconds = 4, sticky = false): void {
+  // Sticky hints (errors) are never overwritten by routine messages.
+  if (hintSticky && !sticky) return;
+  hintSticky = sticky;
   hint.textContent = text;
-  hint.style.color = "#888";
+  hint.style.color = sticky ? "#c96a6a" : "#888";
   hintTimer = seconds;
 }
 
@@ -311,6 +425,8 @@ window.addEventListener("keydown", (e) => {
   } else if (key === "D") {
     visual.dof = visual.dof > 0 ? 0 : 0.25;
     flashHint(`DEPTH OF FIELD: ${visual.dof > 0 ? "ON" : "OFF"}`, 3);
+  } else if (key === "G") {
+    switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
   } else if (e.key === "]" || e.key === "+") {
     setDensity(densityIndex + 1);
   } else if (e.key === "[") {
@@ -355,6 +471,17 @@ const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
 function frame(now: number): void {
+  try {
+    frameInner(now);
+  } catch (err) {
+    // Keep the failure visible instead of silently killing the artwork.
+    flashHint(`RUNTIME ERROR: ${(err as Error).stack ?? (err as Error).message}`.slice(0, 300), 3600, true);
+    console.error(err);
+    return;
+  }
+}
+
+function frameInner(now: number): void {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
@@ -402,17 +529,20 @@ function frame(now: number): void {
     hud.textContent =
       `VOID / PARTICLE MEMORY — phase 4\n` +
       `source: ${currentSourceName} (${currentSourceDetail})\n` +
-      `particles: ${engine.count}   fps: ${fps}   sim: ${(engine.lastStepTime * 1000).toFixed(1)}ms\n` +
+      `particles: ${engine.count}   fps: ${fps}   sim: ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]\n` +
       `memory: ${memory.memoryStrength.toFixed(2)}   blend: ${memory.blend.toFixed(2)}   ` +
       `auto: ${memory.auto ? "on" : "off"}\n` +
       `vis: ${visual.colorMode === "monochrome" ? "mono" : "color"}   ` +
       `trails: ${visual.trails ? "on" : "off"}   dof: ${visual.dof > 0 ? "on" : "off"}\n` +
       `matrix: ${matrixIndex + 1}/${matrices.length}   ` +
-      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [H] matrix  [R] randomize`;
+      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [G] backend  [H] matrix  [R] randomize`;
   }
   if (hintTimer > 0) {
     hintTimer -= dt;
-    if (hintTimer <= 0) hint.textContent = "DRAG ORBIT / SCROLL ZOOM";
+    if (hintTimer <= 0) {
+      hintSticky = false;
+      hint.textContent = "DRAG ORBIT / SCROLL ZOOM";
+    }
   }
 }
 requestAnimationFrame(frame);
