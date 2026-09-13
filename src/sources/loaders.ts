@@ -132,6 +132,24 @@ export async function loadSource(
   };
 }
 
+/**
+ * Choose the screensaver source from an installed-sources folder listing:
+ * exact match on `preferred` first, then the first image. Pure + testable.
+ */
+export function pickInstalledSource(
+  list: string[],
+  preferred?: string | null
+): string | null {
+  if (list.length === 0) return null;
+  if (preferred) {
+    const lower = preferred.toLowerCase();
+    for (const name of list) {
+      if (name.toLowerCase() === lower) return name;
+    }
+  }
+  return list[0];
+}
+
 /** Fetch a source over HTTP (used by the ?src= demo hook and future screensaver config). */
 export async function loadSourceFromUrl(url: string, count?: number): Promise<{
   handle: SourceHandle;

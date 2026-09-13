@@ -75,6 +75,36 @@ texture (CPU-mirrored for rendering):
   clipping, motion smear, and true bokeh falloff (DOF energy normalization +
   velocity bloom in the sprite shader).
 
+## Phase 8 — Windows screensaver packaging
+
+`packaging/build.ps1` builds **VOID.scr** — a single ~2.5 MB file containing
+the entire app (vite dist embedded as resources) plus a tiny C# wrapper
+(void-scr.cs, compiled with the .NET Framework compiler that ships with
+Windows — no SDK needed):
+
+```
+powershell -ExecutionPolicy Bypass -File packaginguild.ps1
+```
+
+- **Install**: right-click `VOID.scr` → *Install* (copies to System32 and
+  opens the Windows screensaver settings).
+- **Test now**: double-click `VOID.scr`.
+- **Configure**: right-click → *Configure* — opens the full editor in a
+  window; your settings persist (the wrapper keeps a stable browser
+  profile).
+- **Your own source**: drop images into `Documents\VOID\Sources` — the
+  screensaver picks one (or name it via `?source=<file>`).
+- **Terminate**: any key/click/deliberate mouse movement (handled by the
+  app, which then asks the wrapper to close via `/shutdown`); Alt+F4 or
+  closing the browser also ends it.
+- **Browser**: uses Edge or Chrome in kiosk mode with a dedicated profile;
+  override with the `VOID_BROWSER` environment variable.
+- **Smoke test**: `VOID.scr /port:<file>` runs the embedded server without
+  a browser (used by `packaging/smoke.ps1`).
+
+Platform independence note: the core engine remains a plain web app —
+the wrapper is a thin shell; the browser does the rendering.
+
 ## GPU simulation
 
 `src/particles/gpu/GpuParticleEngine.ts` — the pragmatic hybrid division:

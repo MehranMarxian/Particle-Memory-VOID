@@ -12,6 +12,7 @@ import {
   loadSource,
   loadSourceFromUrl,
   detectSourceKind,
+  pickInstalledSource,
   type FlatSource,
   type SourceHandle,
 } from "@/sources";
@@ -578,6 +579,24 @@ let activeMatrix = matrix;
         return adoptHandle(handle);
       })
       .catch((err) => flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8));
+  } else {
+    // Installed screensaver: load the user's chosen source from the
+    // wrapper's Sources folder (Documents/VOID/Sources).
+    const search = new URLSearchParams(location.search);
+    if (search.get("installed") === "1") {
+      fetch("/sources/list.json")
+        .then((r) => r.json())
+        .then((j: { sources?: string[] }) => {
+          const name = pickInstalledSource(j.sources ?? [], search.get("source"));
+          if (!name) return null;
+          lastSourceUrl = "/sources/" + encodeURIComponent(name);
+          return loadSourceFromUrl(lastSourceUrl, currentCount).then(({ handle }) => {
+            lastDroppedFile = null;
+            return adoptHandle(handle);
+          });
+        })
+        .catch(() => undefined);
+    }
   }
 }
 
@@ -739,6 +758,12 @@ saver.onEnter = () => {
   persistNow();
 };
 saver.onExit = () => {
+  panelApi?.setState(memory.state);
+  // In installed screensaver mode, exiting IS termination: tell the
+  // wrapper to close the browser and end the screensaver.
+  if (new URLSearchParams(location.search).get("installed") === "1") {
+    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { }
+  }
   persistNow();
 };
 attachIdleCursorHiding(document, 4000);
