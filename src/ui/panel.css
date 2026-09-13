@@ -34,6 +34,16 @@
   letter-spacing: 0.3em;
   user-select: none;
 }
+#panel .brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#panel .brand img {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
 #panel .panel-head .panel-toggle {
   background: none;
   border: 1px solid #2c2c2c;

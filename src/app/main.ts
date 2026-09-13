@@ -25,6 +25,7 @@ import {
 } from "@/presets/presets";
 import { randomizeParams } from "@/presets/randomize";
 import { loadConfig, saveConfig, toStoredConfig } from "@/presets/storage";
+import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -508,6 +509,8 @@ window.addEventListener("keydown", (e) => {
   } else if (key === "A") {
     memory.active = memory.auto = !memory.auto;
     stateLabel.textContent = memory.active ? memory.state : "MANUAL";
+  } else if (key === "S") {
+    void toggleScreensaver();
   } else if (key === "P") {
     panelApi?.toggleVisible();
   } else if (key === "F") {
@@ -698,6 +701,42 @@ let activeMatrix = matrix;
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
+  {
+    // SCREENSAVER action — same grid as the other actions.
+    const actions = panelApi.element.querySelectorAll("#panel .btn-grid")[1];
+    const b = document.createElement("button");
+    b.className = "act";
+    b.textContent = "SCREENSAVER";
+    b.addEventListener("click", () => void toggleScreensaver());
+    actions.appendChild(b);
+  }
+}
+
+// --- Splash: fade once the first frame has rendered -------------------------
+const splash = document.getElementById("splash")!;
+let splashGone = false;
+
+// --- Screensaver mode (Phase 7) ----------------------------------------------
+const saver = new ScreensaverMode();
+saver.onEnter = () => {
+  // The screensaver is always the authored experience.
+  memory.active = memory.auto = true;
+  stateLabel.textContent = memory.state;
+  persistNow();
+};
+saver.onExit = () => {
+  stateLabel.textContent = memory.state;
+  persistNow();
+};
+attachIdleCursorHiding(document, 4000);
+
+async function toggleScreensaver(): Promise<void> {
+  if (saver.active) {
+    saver.exit();
+  } else {
+    await saver.enter();
+    flashHint("SCREENSAVER — ANY INPUT EXITS", 3);
+  }
 }
 
 // Debug handle (also handy for console tinkering).
@@ -717,6 +756,8 @@ function declareGlobalHandle(): void {
     get visual() {
       return visual;
     },
+    saver,
+    toggleScreensaver,
   };
 }
 
@@ -757,7 +798,11 @@ function frameInner(now: number): void {
     accumulator -= FIXED_DT;
   }
 
-  azimuth += dt * 0.02;
+  azimuth += dt * (saver.active ? 0.035 : 0.02);
+  // In screensaver the camera slowly dollies in and out — a long breath.
+  if (saver.active) {
+    radius = 15.5 + 4.5 * Math.sin(now * 0.00004 * Math.PI * 2);
+  }
   // Slow vertical breathing on top of user elevation — the camera drifts
   // like a held breath rather than a turntable.
   const breathe = Math.sin(now * 0.00012) * 0.05;
@@ -785,6 +830,11 @@ function frameInner(now: number): void {
   }
 
   frames++;
+  if (!splashGone && frames > 2) {
+    splashGone = true;
+    splash.classList.add("gone");
+    window.setTimeout(() => splash.remove(), 1800);
+  }
   if (now - lastFpsTime > 500) {
     fps = Math.round((frames * 1000) / (now - lastFpsTime));
     frames = 0;
@@ -799,7 +849,7 @@ function frameInner(now: number): void {
       `vis: ${visual.colorMode === "monochrome" ? "mono" : "color"}   ` +
       `trails: ${visual.trails ? "on" : "off"}   dof: ${visual.dof > 0 ? "on" : "off"}\n` +
       `matrix: ${matrixIndex + 1}/${matrices.length}   ` +
-      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [G] backend  [H] matrix  [R] randomize`;
+      `[ ] density  [1-5] states  [A] auto  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [R] randomize`;
   }
   if (hintTimer > 0) {
     hintTimer -= dt;
@@ -810,6 +860,14 @@ function frameInner(now: number): void {
   }
 }
 requestAnimationFrame(frame);
+
+// ?saver=1 boots straight into the screensaver (the .scr wrapper will use this).
+{
+  const saverParam = new URLSearchParams(location.search).get("saver");
+  if (saverParam === "1" || saverParam === "true") {
+    void toggleScreensaver();
+  }
+}
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;

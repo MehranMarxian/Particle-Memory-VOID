@@ -327,7 +327,7 @@ export function createPanel(opts: {
   // Visibility toggle.
   const head = document.createElement("div");
   head.className = "panel-head";
-  head.innerHTML = "<span>VOID</span>";
+  head.innerHTML = '<span class="brand"><img src="/icons/void-64.png" alt="" />VOID</span>';
   const hideBtn = document.createElement("button");
   hideBtn.className = "panel-toggle";
   hideBtn.textContent = "HIDE";

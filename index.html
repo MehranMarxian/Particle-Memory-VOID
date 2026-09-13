@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/icons/void-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/void-32.png" />
+    <link rel="apple-touch-icon" href="/icons/void-192.png" />
     <title>VOID / PARTICLE MEMORY</title>
     <style>
       html,
@@ -107,6 +110,63 @@
       #filepicker {
         display: none;
       }
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 200;
+        transition: opacity 1.4s ease;
+      }
+      #splash img {
+        width: min(30vh, 260px);
+        height: auto;
+      }
+      #splash.gone {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #saver-watermark {
+        position: fixed;
+        right: 18px;
+        bottom: 16px;
+        width: 34px;
+        height: auto;
+        opacity: 0;
+        z-index: 60;
+        pointer-events: none;
+        transition: opacity 1.2s ease;
+      }
+      body.screensaver #saver-watermark {
+        opacity: 0.3;
+      }
+      body.screensaver #panel,
+      body.screensaver #panel-toggle-btn,
+      body.screensaver #devhud,
+      body.screensaver #hint,
+      body.screensaver #addsource,
+      body.screensaver #preview {
+        display: none !important;
+      }
+      body.screensaver,
+      body.screensaver * {
+        cursor: none !important;
+      }
+      body.screensaver #statelabel {
+        opacity: 0.4;
+        font-size: 10px;
+        top: 18px;
+        right: 20px;
+      }
+      body.screensaver #credit {
+        opacity: 0.5;
+      }
+      body.cursor-hidden,
+      body.cursor-hidden * {
+        cursor: none !important;
+      }
       #hint {
         position: fixed;
         left: 50%;
@@ -120,6 +180,14 @@
     </style>
   </head>
   <body>
+    <script>
+      window.addEventListener("error", function (e) {
+        document.title = "ERR " + (e.message || "unknown");
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        document.title = "REJ " + ((e.reason && e.reason.message) || "unknown");
+      });
+    </script>
     <div id="stage"></div>
     <div id="devhud"></div>
     <div id="statelabel">RECONSTRUCT</div>
@@ -135,6 +203,8 @@
       <div>DROP SOURCE<br><span style="letter-spacing:0.18em; color:#666;">PNG · JPG · WEBP · GLB · GLTF · OBJ · STL · PLY</span></div>
     </div>
     <div id="credit">DEVELOPED BY MEHRAN AHMADI © 2026</div>
+    <img id="saver-watermark" src="/void-logo.png" alt="" />
+    <div id="splash"><img src="/void-logo.png" alt="VOID / PARTICLE MEMORY" /></div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>
