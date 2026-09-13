@@ -68,13 +68,36 @@ export interface MemoryParams {
   reconstructionEase: number;
 }
 
+/** Physarum-style stigmergic trail field (memory as a scent). */
+export interface ScentParams {
+  enabled: boolean;
+  /** Deposit per particle per second. */
+  deposit: number;
+  /** Field retention per second (0.1 = scars fade in ~2s, 0.9 = long veins). */
+  decay: number;
+  /** Gradient-ascent steering strength. */
+  steer: number;
+}
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
+  /** Ornstein-Uhlenbeck wander noise (smooth, organic jitter). */
+  wander: number;
+  /** Kuramoto phase coupling between neighbors (heartbeat sync). */
+  phaseCoupling: number;
+  scent: ScentParams;
   turbulence: number;
   drift: number;
   gravity: number;
 }
+
+export const defaultScentParams = (): ScentParams => ({
+  enabled: true,
+  deposit: 0.55,
+  decay: 0.45,
+  steer: 1.4,
+});
 
 export const defaultLifeParams = (): LifeParams => ({
   attraction: 1.0,
@@ -97,6 +120,9 @@ export const defaultMemoryParams = (): MemoryParams => ({
 export const defaultEngineParams = (): EngineParams => ({
   life: defaultLifeParams(),
   memory: defaultMemoryParams(),
+  wander: 0.06,
+  phaseCoupling: 1.2,
+  scent: defaultScentParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

@@ -50,6 +50,31 @@ restores on boot. URL params (`?src= ?count= ?color= …`) override the
 stored state. Dropped files cannot persist (browser sandbox); the screensaver
 phase adds proper source storage.
 
+## The organism layer (quick-wins build)
+
+Per-particle state `[phase, omega, stress, asleep]` lives in a third GPU
+texture (CPU-mirrored for rendering):
+
+- **Phase clocks** — Kuramoto-lite coupling: neighbors drag each particle's
+  clock; sprites breathe with `cos(phase)`. The FIELD > Sync slider is the
+  coupling strength — crank it and the swarm finds a shared heartbeat.
+- **Stress & sleep hysteresis** — stress accumulates from speed (factor 0.35)
+  and decays with a ~1s constant; particles wake above 0.5 and only fall
+  asleep below 0.18. Asleep particles dim to 32%, their life forces yield 4x,
+  and memory acts at full strength (deep recall). High stress reads as
+  brightness.
+- **OU wander** — Ornstein-Uhlenbeck noise (CPU) / time-interpolated value
+  noise (GPU) replaces white jitter with smooth organic wander (FIELD >
+  Wander).
+- **Scent field (Physarum)** — a coarse 3D trail map (36³) the swarm writes
+  and ascends: deposit → decay → gradient ascent. The FIELD > Scent controls
+  set it; decay is the forgetting rate — scars of past positions persist and
+  guide recall. FIELD > Scent fade = retention.
+- **Filmic pipeline** — the feedback chain now accumulates in half-float HDR
+  and presents through ACES tone-mapping with dither: no more additive
+  clipping, motion smear, and true bokeh falloff (DOF energy normalization +
+  velocity bloom in the sprite shader).
+
 ## GPU simulation
 
 `src/particles/gpu/GpuParticleEngine.ts` — the pragmatic hybrid division:

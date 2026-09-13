@@ -1,4 +1,5 @@
 import { SpatialGrid } from "./SpatialGrid";
+import { ScentField } from "./scent/ScentField";
 import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
@@ -36,9 +37,19 @@ export class ParticleEngine {
 
   private grid: SpatialGrid;
   private rng: () => number;
+  readonly scent: ScentField;
   private ax: Float32Array = new Float32Array(0);
   private ay: Float32Array = new Float32Array(0);
   private az: Float32Array = new Float32Array(0);
+  private phaseAccArr: Float32Array = new Float32Array(0);
+
+  /**
+   * Per-particle organism state, 4 channels:
+   * [phase, omega, stress, asleep]. Fed to the renderer (breathing size,
+   * stress brightness, sleep dimming) and mirrored on the GPU engine.
+   */
+  readonly renderState: Float32Array;
+  private wanderField: Float32Array;
 
   /** Accumulated simulation time (drives time-varying fields). */
   simTime = 0;
@@ -59,9 +70,16 @@ export class ParticleEngine {
     this.mass = new Float32Array(capacity).fill(1);
     this.age = new Float32Array(capacity);
     this.memoryPerParticle = new Float32Array(capacity).fill(1);
+    this.renderState = new Float32Array(capacity * 4);
+    this.wanderField = new Float32Array(capacity * 3);
+    this.scent = new ScentField();
+    this.rng = mulberry32(seed);
+    for (let i = 0; i < capacity; i++) {
+      this.renderState[i * 4] = this.rng() * Math.PI * 2; // phase
+      this.renderState[i * 4 + 1] = 0.6 + this.rng() * 0.8; // omega
+    }
     // Cell size tracks interaction radius; rebuilt whenever it changes.
     this.grid = new SpatialGrid([-64, -64, -64], [64, 64, 64], 1.2);
-    this.rng = mulberry32(seed);
   }
 
   /** Set interaction radius and rebuild grid bounds to fit it. */
@@ -140,6 +158,8 @@ export class ParticleEngine {
     this.ax.fill(0, 0, n);
     this.ay.fill(0, 0, n);
     this.az.fill(0, 0, n);
+    this.phaseAccArr = this.phaseAccArr.length < n ? new Float32Array(this.capacity) : this.phaseAccArr;
+    this.phaseAccArr.fill(0, 0, n);
     const ax = this.ax;
     const ay = this.ay;
     const az = this.az;
@@ -158,6 +178,10 @@ export class ParticleEngine {
       let fx = 0;
       let fy = 0;
       let fz = 0;
+      let phaseAcc = 0;
+      let phaseN = 0;
+      const st = this.renderState;
+      const myPhase = st[i * 4];
 
       const cb = grid.getCellBounds(ix, iy, iz);
       const x0 = cb[0], x1 = cb[1], y0 = cb[2], y1 = cb[3], z0 = cb[4], z1 = cb[5];
@@ -210,6 +234,9 @@ export class ParticleEngine {
               fx += dx * s;
               fy += dy * s;
               fz += dz * s;
+              // Kuramoto-lite: neighbors drag this particle's clock.
+              phaseAcc += Math.sin(st[j * 4] - myPhase);
+              phaseN++;
             }
           }
         }
@@ -218,6 +245,18 @@ export class ParticleEngine {
       ax[i] = fx;
       ay[i] = fy;
       az[i] = fz;
+      this.phaseAccArr[i] = phaseN > 0 ? phaseAcc / phaseN : 0;
+    }
+
+    // --- Sleep hysteresis: asleep particles yield (life damped 4x) ------
+    const st2 = this.renderState;
+    for (let i = 0; i < n; i++) {
+      const asleep = st2[i * 4 + 3] > 0.5;
+      if (asleep) {
+        ax[i] *= 0.25;
+        ay[i] *= 0.25;
+        az[i] *= 0.25;
+      }
     }
 
     // --- FIELD + MEMORY + integration ----------------------------------
@@ -229,6 +268,11 @@ export class ParticleEngine {
     const grav = params.gravity;
     const time = this.simTime;
     const frictionFactor = exponentialDamp(params.life.friction, dt);
+    const scentOn = params.scent.enabled;
+    const scentSteer = params.scent.steer;
+    const phaseK = params.phaseCoupling;
+    const gradTmp = [0, 0, 0];
+    const st3 = this.renderState;
 
     for (let i = 0; i < n; i++) {
       let vx = velocities[i * 3];
@@ -247,6 +291,42 @@ export class ParticleEngine {
         ax[i] += dx * f;
         ay[i] += dy * f;
         az[i] += dz * f;
+      }
+
+      // Sleep-damped life forces are already scaled in ax; memory below
+      // always acts at full strength (asleep = deep recall).
+
+      // Ornstein-Uhlenbeck wander: smooth, organic, non-white jitter.
+      const wSigma = params.wander * 9;
+      {
+        const wb = this.wanderField;
+        for (let c = 0; c < 3; c++) {
+          // Box-Muller from the engine rng (two uniforms).
+          const u1 = Math.max(1e-9, this.rng());
+          const u2 = this.rng();
+          const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          wb[i * 3 + c] += (-wb[i * 3 + c] * 1.6 + wSigma * gauss) * dt;
+        }
+        ax[i] += this.wanderField[i * 3] * params.wander * 60 * dt * 4;
+        ay[i] += this.wanderField[i * 3 + 1] * params.wander * 60 * dt * 4;
+        az[i] += this.wanderField[i * 3 + 2] * params.wander * 60 * dt * 4;
+      }
+
+      // Scent steering: ascend the swarm's own trail gradient (Physarum).
+      if (scentOn) {
+        this.scent.gradient(
+          positions[i * 3],
+          positions[i * 3 + 1],
+          positions[i * 3 + 2],
+          gradTmp
+        );
+        const gmag = Math.hypot(gradTmp[0], gradTmp[1], gradTmp[2]);
+        if (gmag > 1e-5) {
+          const k = (scentSteer * Math.min(1, gmag)) / gmag;
+          ax[i] += gradTmp[0] * k;
+          ay[i] += gradTmp[1] * k;
+          az[i] += gradTmp[2] * k;
+        }
       }
 
       // Turbulence: divergence-free curl field (no net transport/drift of
@@ -289,6 +369,30 @@ export class ParticleEngine {
       positions[i * 3 + 1] += velocities[i * 3 + 1] * dt;
       positions[i * 3 + 2] += velocities[i * 3 + 2] * dt;
       age[i] += dt;
+
+      // --- Organism state -------------------------------------------------
+      // Stress from speed; decays with ~1s time constant. (Matches the
+      // GPU state shader so both engines sleep identically.)
+      const fmag =
+        Math.abs(velocities[i * 3]) + Math.abs(velocities[i * 3 + 1]) + Math.abs(velocities[i * 3 + 2]);
+      st3[i * 4 + 2] = Math.min(1, st3[i * 4 + 2] + fmag * dt * 0.35) * Math.pow(0.35, dt);
+      // Hysteresis gate: wake above 0.5, fall asleep only below 0.18.
+      if (st3[i * 4 + 3] > 0.5) {
+        if (st3[i * 4 + 2] > 0.5) st3[i * 4 + 3] = 0;
+      } else if (st3[i * 4 + 2] < 0.18) {
+        st3[i * 4 + 3] = 1;
+      }
+      // Phase clock: intrinsic omega + neighbor Kuramoto coupling.
+      st3[i * 4] = (st3[i * 4] + (st3[i * 4 + 1] + phaseK * this.phaseAccArr[i]) * dt) % (Math.PI * 2);
+    }
+
+    // --- Scent deposit + decay (the swarm's writable memory) -------------
+    if (scentOn) {
+      const amt = params.scent.deposit * dt;
+      for (let i = 0; i < n; i++) {
+        this.scent.deposit(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2], amt);
+      }
+      this.scent.decay(Math.pow(params.scent.decay, dt));
     }
 
     this.simTime += dt;

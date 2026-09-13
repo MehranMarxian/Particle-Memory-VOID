@@ -36,12 +36,14 @@ interface SimEngine {
   targets: Float32Array;
   species: Uint8Array;
   memoryPerParticle: Float32Array;
+  renderState: Float32Array;
   lastStepTime: number;
   configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
   restoreMemory(): void;
   setSpeciesCount(matrix: InteractionMatrix, n: number): void;
+  meanTargetDistance(): number;
 }
 
 const DENSITY_LEVELS = [4000, 8000, 12000, 20000, 32000, 50000];
@@ -208,7 +210,13 @@ function buildFromSource(sample: FlatSource): void {
   }
   engine = next;
   activeBackend = backend;
-  particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
+  particleRenderer = new ParticleRenderer(
+    engine.count,
+    engine.positions,
+    engine.colors,
+    engine.renderState,
+    engine.velocities
+  );
   particleRenderer.markColorsDirty();
   scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
@@ -268,7 +276,13 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   }
   engine = next;
   activeBackend = backend;
-  particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
+  particleRenderer = new ParticleRenderer(
+    engine.count,
+    engine.positions,
+    engine.colors,
+    engine.renderState,
+    engine.velocities
+  );
   particleRenderer.markColorsDirty();
   scene.add(particleRenderer.points);
   flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
@@ -353,6 +367,11 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     lastSourceUrl = cfg.lastSourceUrl;
     activePreset = cfg.activePreset;
     speciesCount = Math.min(8, Math.max(2, cfg.speciesCount || 4));
+    // Hydrate parameters added after early configs shipped.
+    const fresh = defaultEngineParams();
+    params.scent = { ...fresh.scent, ...(cfg.params.scent ?? {}) };
+    if (cfg.params.wander !== undefined) params.wander = cfg.params.wander;
+    if (cfg.params.phaseCoupling !== undefined) params.phaseCoupling = cfg.params.phaseCoupling;
   }
 }
 {
@@ -808,20 +827,17 @@ function frameInner(now: number): void {
   camera.lookAt(0, 0, 0);
 
   particleRenderer?.update();
+  particleRenderer?.markStateDirty();
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
   const effective = { ...visual };
   if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
   particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius);
-  if (visual.trails) {
-    trailPass.enabled = true;
-    trailPass.decay = visual.trailDecay;
-    trailPass.render(scene, camera);
-  } else {
-    trailPass.enabled = false;
-    renderer3d.setClearColor(0x000000, 1);
-    renderer3d.render(scene, camera);
-  }
+  // Always route through the HDR chain: tone-mapping + dither run even
+  // when trails are off.
+  trailPass.enabled = visual.trails;
+  trailPass.decay = visual.trailDecay;
+  trailPass.render(scene, camera);
 
   frames++;
   if (!splashGone && frames > 2) {
@@ -834,7 +850,7 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}\n` +
       `keys: [ ] density  [1-5] states  [A] cycle  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [P] panel  [F] fullscreen  [R] randomize`
     );

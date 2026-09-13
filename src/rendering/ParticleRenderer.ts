@@ -17,14 +17,26 @@ export class ParticleRenderer {
   private readonly colorAttr: THREE.BufferAttribute;
   private colorsDirty = true;
 
-  constructor(count: number, positions: Float32Array, colors: Float32Array) {
+  constructor(
+    count: number,
+    positions: Float32Array,
+    colors: Float32Array,
+    state: Float32Array,
+    velocities: Float32Array
+  ) {
     this.geometry = new THREE.BufferGeometry();
     this.positionAttr = new THREE.BufferAttribute(positions, 3);
     this.positionAttr.setUsage(THREE.DynamicDrawUsage);
     this.colorAttr = new THREE.BufferAttribute(colors, 3);
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+    const stateAttr = new THREE.BufferAttribute(state, 4);
+    stateAttr.setUsage(THREE.DynamicDrawUsage);
+    const velAttr = new THREE.BufferAttribute(velocities, 3);
+    velAttr.setUsage(THREE.DynamicDrawUsage);
     this.geometry.setAttribute("position", this.positionAttr);
     this.geometry.setAttribute("aColor", this.colorAttr);
+    this.geometry.setAttribute("aState", stateAttr);
+    this.geometry.setAttribute("aVel", velAttr);
     this.geometry.setDrawRange(0, count);
 
     this.material = new THREE.ShaderMaterial({
@@ -44,6 +56,8 @@ export class ParticleRenderer {
       },
       vertexShader: /* glsl */ `
         attribute vec3 aColor;
+        attribute vec4 aState;  // phase, omega, stress, asleep
+        attribute vec3 aVel;
         uniform float uSize;
         uniform float uPixelRatio;
         uniform float uFocus;
@@ -51,16 +65,29 @@ export class ParticleRenderer {
         uniform float uFogDensity;
         varying vec3 vColor;
         varying float vFade;
+        varying vec3 vState;
         void main() {
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          // Motion smear: draw the particle slightly behind its velocity so
+          // fast particles lead their own trail.
+          vec3 p = position - aVel * 0.045;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
           float dist = max(0.1, -mv.z);
           float defocus = abs(dist - uFocus) / uFocus;
-          // DOF: off-focus particles grow slightly and fade.
-          float sizeAtten = 1.0 + uDof * defocus;
+          float speed = length(aVel);
+          // Phase breathing + velocity bloom (poor-man's stretch for Points).
+          float breathe = 0.82 + 0.3 * cos(aState.x);
+          float bloom = 1.0 + min(speed * 0.35, 1.8);
+          float sizeAtten = (1.0 + uDof * defocus) * breathe * bloom;
           gl_PointSize = uSize * uPixelRatio * (42.0 / dist) * sizeAtten;
           float fog = exp(-uFogDensity * dist);
-          vFade = fog / (1.0 + uDof * 1.5 * defocus);
+          // DOF bokeh: energy conserved as defocused sprites grow.
+          float coc = 1.0 + uDof * defocus;
+          vFade = fog / (coc * coc);
+          // Asleep particles dim; stressed particles run hot.
+          float sleepDim = aState.w > 0.5 ? 0.32 : 1.0;
+          vFade *= sleepDim * (1.0 + aState.z * 0.9);
           vColor = aColor;
+          vState = aState.xyz;
           gl_Position = projectionMatrix * mv;
         }
       `,
@@ -70,6 +97,7 @@ export class ParticleRenderer {
         uniform float uMonochrome;
         varying vec3 vColor;
         varying float vFade;
+        varying vec3 vState;
         void main() {
           vec3 col = vColor;
           col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.94, 0.97, 1.04), uMonochrome);
@@ -96,6 +124,12 @@ export class ParticleRenderer {
       this.colorAttr.needsUpdate = true;
       this.colorsDirty = false;
     }
+  }
+
+  /** Organism state (phase/stress/asleep) updates every frame. */
+  markStateDirty(): void {
+    (this.geometry.getAttribute("aState") as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute("aVel") as THREE.BufferAttribute).needsUpdate = true;
   }
 
   /** Call after rewriting the color buffer (source rebuild). */

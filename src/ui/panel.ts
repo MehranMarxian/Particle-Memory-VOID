@@ -276,8 +276,14 @@ export function createPanel(opts: {
   // --- FIELD --------------------------------------------------------------------------
   const fieldBody = section("FIELD");
   addObjSlider(fieldBody, "Turbulence", params, "turbulence", 0, 1, 0.01, num);
+  addObjSlider(fieldBody, "Wander", params, "wander", 0, 0.3, 0.005, num);
+  addObjSlider(fieldBody, "Sync", params, "phaseCoupling", 0, 4, 0.05, num);
   addObjSlider(fieldBody, "Drift", params, "drift", -1, 1, 0.01, num);
   addObjSlider(fieldBody, "Gravity", params, "gravity", -2, 2, 0.01, num);
+  addToggle(fieldBody, "Scent", () => params.scent.enabled, (v) => (params.scent.enabled = v), "ON", "OFF");
+  addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num);
+  addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num);
+  addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num);
 
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");

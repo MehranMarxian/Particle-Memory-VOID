@@ -122,6 +122,14 @@
       window.addEventListener("unhandledrejection", function (e) {
         document.title = "REJ " + ((e.reason && e.reason.message) || "unknown");
       });
+      (function () {
+        var orig = console.error;
+        console.error = function () {
+          var msg = Array.prototype.slice.call(arguments).join(" ");
+          document.title = "CERR " + msg.slice(0, 600);
+          orig.apply(console, arguments);
+        };
+      })();
     </script>
     <div id="stage"></div>
     <div id="preview">

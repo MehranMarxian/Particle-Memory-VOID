@@ -3,8 +3,9 @@ import { GPUComputationRenderer } from "three/examples/jsm/misc/GPUComputationRe
 import { SpatialGrid } from "../SpatialGrid";
 import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
-import { gpuPositionShader, gpuVelocityShader } from "./simulationShader";
+import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulationShader";
 import { packGridTextures, type PackedGridTextures } from "./gridTextures";
+import { ScentField } from "../scent/ScentField";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
@@ -34,8 +35,15 @@ export class GpuParticleEngine {
   simTime = 0;
 
   private compute: GPUComputationRenderer;
+  private stateVar: { material: THREE.ShaderMaterial };
   private positionVar: { material: THREE.ShaderMaterial };
   private velocityVar: { material: THREE.ShaderMaterial };
+  /** CPU-side mirror of the organism state (fed to the renderer). */
+  readonly renderState: Float32Array;
+  private stateReadback: Float32Array;
+  private velReadback: Float32Array;
+  readonly scent = new ScentField();
+  private scentTex: THREE.DataTexture;
   private grid: SpatialGrid;
   private packed: PackedGridTextures;
   private entriesTex: THREE.DataTexture;
@@ -48,6 +56,7 @@ export class GpuParticleEngine {
   private renderer: THREE.WebGLRenderer;
   private pendingRegain = 0;
   private pendingRestore = 0;
+  private rebuiltGridTextures = false;
 
   private constructor(
     renderer: THREE.WebGLRenderer,
@@ -68,6 +77,10 @@ export class GpuParticleEngine {
     this.memoryPerParticle = new Float32Array(this.capacity).fill(1);
     this.grid = new SpatialGrid([-64, -64, -64], [64, 64, 64], 0.8);
     this.readback = new Float32Array(this.capacity * 4);
+    this.renderState = new Float32Array(this.capacity * 4);
+    this.stateReadback = new Float32Array(this.capacity * 4);
+    this.velReadback = new Float32Array(this.capacity * 4);
+    this.scentTex = this.makeFloatTex(this.scent.n, this.scent.n * this.scent.n);
     this.packed = packGridTextures(new Int32Array(1), 0, new Int32Array(2));
 
     this.compute = new GPUComputationRenderer(texW, texH, renderer);
@@ -75,9 +88,14 @@ export class GpuParticleEngine {
 
     const pos0 = this.compute.createTexture();
     const vel0 = this.compute.createTexture();
-    // Velocity is added first: GPUComputationRenderer computes variables in
-    // add order, giving semi-implicit Euler (new velocity moves positions),
-    // exactly like the CPU engine.
+    const st0 = this.compute.createTexture();
+    // Add order = compute order: state first (from last frame's velocity),
+    // then velocity (semi-implicit Euler into position), then position.
+    this.stateVar = this.compute.addVariable(
+      "textureState",
+      gpuStateShader,
+      st0
+    ) as never;
     this.velocityVar = this.compute.addVariable(
       "textureVelocity",
       gpuVelocityShader,
@@ -88,11 +106,17 @@ export class GpuParticleEngine {
       gpuPositionShader,
       pos0
     ) as never;
-    this.compute.setVariableDependencies(this.positionVar as never, [
+    this.compute.setVariableDependencies(this.stateVar as never, [
+      this.stateVar as never,
+      this.velocityVar as never,
+      this.positionVar as never,
+    ]);
+    this.compute.setVariableDependencies(this.velocityVar as never, [
+      this.stateVar as never,
       this.positionVar as never,
       this.velocityVar as never,
     ]);
-    this.compute.setVariableDependencies(this.velocityVar as never, [
+    this.compute.setVariableDependencies(this.positionVar as never, [
       this.positionVar as never,
       this.velocityVar as never,
     ]);
@@ -140,6 +164,27 @@ export class GpuParticleEngine {
       vu[name] = { value: 0 };
     }
     vu["uKernel"] = { value: 0 };
+    vu["uWander"] = { value: 0.06 };
+    vu["uScentOn"] = { value: 0 };
+    vu["uScentSteer"] = { value: 1.4 };
+    vu["texScent"] = { value: this.scentTex };
+    vu["uScentN"] = { value: this.scent.n };
+    vu["uScentExtent"] = { value: this.scent.extent };
+    const su = this.stateVar.material.uniforms;
+    su["texCellStart"] = { value: this.cellStartTex };
+    su["texEntries"] = { value: this.entriesTex };
+    su["uEntriesRes"] = {
+      value: new THREE.Vector2(this.packed.entriesWidth, this.packed.entriesHeight),
+    };
+    su["uCellStartRes"] = {
+      value: new THREE.Vector2(this.packed.cellStartWidth, this.packed.cellStartHeight),
+    };
+    su["uGridMin"] = { value: new THREE.Vector3() };
+    su["uGridDims"] = { value: new THREE.Vector3(1, 1, 1) };
+    su["uCellSize"] = { value: 0.8 };
+    su["uCount"] = { value: count };
+    su["uDt"] = { value: 1 / 60 };
+    su["uPhaseK"] = { value: 1.2 };
     const pu = this.positionVar.material.uniforms;
     pu["uCount"] = { value: count };
     pu["uDt"] = { value: 1 / 60 };
@@ -167,6 +212,7 @@ export class GpuParticleEngine {
     e.positions.set(initialPositions.subarray(0, count * 3));
     e.memoryPerParticle.set(initialMemory.subarray(0, count));
     for (let i = 0; i < count; i++) e.species[i] = i % speciesCount;
+    e.rngSeedInit();
     const err = e.compute.init();
     if (err !== null) throw new Error(`GPU init failed: ${err}`);
     e.uploadTargets();
@@ -200,7 +246,23 @@ export class GpuParticleEngine {
     this.targetsTex.needsUpdate = true;
   }
 
-  /** Write initial positions/velocities/memory into both ping-pong buffers. */
+  /** Seed random phases/omegas (called once from create()). */
+  private rngSeedInit(): void {
+    let a = 20983;
+    const rng = () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    for (let i = 0; i < this.capacity; i++) {
+      this.renderState[i * 4] = rng() * Math.PI * 2;
+      this.renderState[i * 4 + 1] = 0.6 + rng() * 0.8;
+    }
+  }
+
+  /** Write initial positions/velocities/memory/state into all ping-pong buffers. */
   uploadInitialState(): void {
     const posData = new Float32Array(this.capacity * 4);
     const velData = new Float32Array(this.capacity * 4);
@@ -213,6 +275,13 @@ export class GpuParticleEngine {
       velData[i * 4 + 1] = this.velocities[i * 3 + 1];
       velData[i * 4 + 2] = this.velocities[i * 3 + 2];
       velData[i * 4 + 3] = this.memoryPerParticle[i];
+    }
+    const stData = new Float32Array(this.capacity * 4);
+    for (let i = 0; i < this.capacity; i++) {
+      stData[i * 4] = this.renderState[i * 4];
+      stData[i * 4 + 1] = this.renderState[i * 4 + 1];
+      stData[i * 4 + 2] = 0;
+      stData[i * 4 + 3] = 0;
     }
     const initMat = new THREE.ShaderMaterial({
       uniforms: { tInit: { value: null } },
@@ -253,6 +322,12 @@ export class GpuParticleEngine {
     ]) {
       blit(rt as THREE.WebGLRenderTarget, velData);
     }
+    for (const rt of [
+      this.compute.getCurrentRenderTarget(this.stateVar as never),
+      this.compute.getAlternateRenderTarget(this.stateVar as never),
+    ]) {
+      blit(rt as THREE.WebGLRenderTarget, stData);
+    }
     r.autoClear = true;
     r.setRenderTarget(prev);
     quad.geometry.dispose();
@@ -263,6 +338,7 @@ export class GpuParticleEngine {
     const cell = Math.max(0.05, params.life.interactionRadius);
     this.grid = new SpatialGrid([-64, -64, -64], [64, 64, 64], cell);
     this.velocityVar.material.uniforms["uCellSize"].value = cell;
+    this.stateVar.material.uniforms["uCellSize"].value = cell;
   }
 
   setSpeciesCount(matrix: InteractionMatrix, speciesCount: number): void {
@@ -283,6 +359,24 @@ export class GpuParticleEngine {
   step(dt: number, params: EngineParams, matrix: InteractionMatrix): void {
     const t0 = performance.now();
 
+    // 0. Scent: the CPU owns deposit/decay; the GPU only samples it.
+    if (params.scent.enabled) {
+      const amt = params.scent.deposit * dt;
+      for (let i = 0; i < this.count; i++) {
+        this.scent.deposit(
+          this.positions[i * 3],
+          this.positions[i * 3 + 1],
+          this.positions[i * 3 + 2],
+          amt
+        );
+      }
+      this.scent.decay(Math.pow(params.scent.decay, dt));
+      (this.scentTex.image.data as unknown as Float32Array).set(
+        this.scent.packSliceTexture()
+      );
+      this.scentTex.needsUpdate = true;
+    }
+
     // 1. Read back latest GPU positions → mirror (grid input + rendering).
     const rt = this.compute.getCurrentRenderTarget(this.positionVar as never);
     this.renderer.readRenderTargetPixels(
@@ -293,12 +387,13 @@ export class GpuParticleEngine {
       this.texH,
       this.readback
     );
+    let dbg = 0;
     for (let i = 0; i < this.count; i++) {
       this.positions[i * 3] = this.readback[i * 4];
       this.positions[i * 3 + 1] = this.readback[i * 4 + 1];
       this.positions[i * 3 + 2] = this.readback[i * 4 + 2];
+      dbg += Math.abs(this.readback[i * 4]) + Math.abs(this.readback[i * 4 + 1]) + Math.abs(this.readback[i * 4 + 2]);
     }
-
     // 2. CPU grid rebuild → textures.
     this.grid.build(this.positions, this.count);
     this.packed = packGridTextures(this.grid.cellEntries, this.grid.size, this.grid.cellStart_);
@@ -312,6 +407,7 @@ export class GpuParticleEngine {
       this.cellStartTex = this.makeFloatTex(this.packed.cellStartWidth, this.packed.cellStartHeight);
       this.velocityVar.material.uniforms["texEntries"].value = this.entriesTex;
       this.velocityVar.material.uniforms["texCellStart"].value = this.cellStartTex;
+      this.rebuiltGridTextures = true;
     }
     (this.entriesTex.image.data as unknown as Float32Array).set(this.packed.entries);
     (this.cellStartTex.image.data as unknown as Float32Array).set(this.packed.cellStart);
@@ -333,6 +429,21 @@ export class GpuParticleEngine {
     u["uGridDims"].value.set(this.grid.dims[0], this.grid.dims[1], this.grid.dims[2]);
     u["uEntriesRes"].value.set(this.packed.entriesWidth, this.packed.entriesHeight);
     u["uCellStartRes"].value.set(this.packed.cellStartWidth, this.packed.cellStartHeight);
+    const su = this.stateVar.material.uniforms;
+    su["uDt"].value = dt;
+    su["uGridMin"].value.copy(u["uGridMin"].value as THREE.Vector3);
+    su["uGridDims"].value.copy(u["uGridDims"].value as THREE.Vector3);
+    su["uEntriesRes"].value.copy(u["uEntriesRes"].value as THREE.Vector2);
+    su["uCellStartRes"].value.copy(u["uCellStartRes"].value as THREE.Vector2);
+    if (this.rebuiltGridTextures) {
+      su["texEntries"].value = this.entriesTex;
+      su["texCellStart"].value = this.cellStartTex;
+      this.rebuiltGridTextures = false;
+    }
+    u["uWander"].value = params.wander;
+    u["uScentOn"].value = params.scent.enabled ? 1 : 0;
+    u["uScentSteer"].value = params.scent.steer;
+    su["uPhaseK"].value = params.phaseCoupling;
     const L = params.life;
     const M = params.memory;
     u["uAttraction"].value = L.attraction;
@@ -359,6 +470,36 @@ export class GpuParticleEngine {
     this.pendingRegain = 0;
     this.pendingRestore = 0;
     this.simTime += dt;
+
+    // 6. Mirror organism state + velocities for the renderer.
+    this.renderer.readRenderTargetPixels(
+      this.compute.getCurrentRenderTarget(this.stateVar as never) as THREE.WebGLRenderTarget,
+      0,
+      0,
+      this.texW,
+      this.texH,
+      this.stateReadback
+    );
+    for (let i = 0; i < this.count; i++) {
+      this.renderState[i * 4] = this.stateReadback[i * 4];
+      this.renderState[i * 4 + 1] = this.stateReadback[i * 4 + 1];
+      this.renderState[i * 4 + 2] = this.stateReadback[i * 4 + 2];
+      this.renderState[i * 4 + 3] = this.stateReadback[i * 4 + 3];
+    }
+    this.renderer.readRenderTargetPixels(
+      this.compute.getCurrentRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget,
+      0,
+      0,
+      this.texW,
+      this.texH,
+      this.velReadback
+    );
+    for (let i = 0; i < this.count; i++) {
+      this.velocities[i * 3] = this.velReadback[i * 4];
+      this.velocities[i * 3 + 1] = this.velReadback[i * 4 + 1];
+      this.velocities[i * 3 + 2] = this.velReadback[i * 4 + 2];
+    }
+
     this.lastStepTime = (performance.now() - t0) / 1000;
   }
 
@@ -375,6 +516,7 @@ export class GpuParticleEngine {
 
   dispose(): void {
     this.compute.dispose();
+    this.scentTex.dispose();
     this.entriesTex.dispose();
     this.cellStartTex.dispose();
     this.targetsTex.dispose();

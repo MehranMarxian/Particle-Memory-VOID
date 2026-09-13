@@ -1,4 +1,4 @@
-import type { EngineParams } from "@/types";
+import type { EngineParams, ScentParams } from "@/types";
 import { defaultEngineParams } from "@/types";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { clampVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
@@ -17,6 +17,9 @@ export interface PresetDefinition {
   visual?: Partial<VisualSettings>;
   /** "random" regenerates the matrix on apply; otherwise a flat 4x4-style row. */
   matrix?: readonly number[] | "random";
+  scent?: Partial<ScentParams>;
+  wander?: number;
+  phaseCoupling?: number;
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
@@ -37,6 +40,9 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 4,
     },
     field: { turbulence: 0.02, drift: 0, gravity: 0 },
+    scent: { enabled: false },
+    wander: 0.03,
+    phaseCoupling: 0.8,
     visual: { particleSize: 1.0, glow: 0.3, opacity: 0.7, dof: 0.2, colorMode: "monochrome", trails: false },
   },
   {
@@ -56,6 +62,9 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 5,
     },
     field: { turbulence: 0.08, drift: 0, gravity: 0 },
+    scent: { enabled: true, deposit: 0.7, decay: 0.4, steer: 2.2 },
+    wander: 0.08,
+    phaseCoupling: 1.6,
     visual: { particleSize: 1.0, glow: 0.4, opacity: 0.6, dof: 0.25, colorMode: "monochrome", trails: false },
   },
   {
@@ -113,6 +122,9 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 6,
     },
     field: { turbulence: 0.12, drift: 0, gravity: 0 },
+    scent: { enabled: true, deposit: 0.9, decay: 0.62, steer: 1.9 },
+    wander: 0.1,
+    phaseCoupling: 1.8,
     visual: { particleSize: 1.0, glow: 0.35, opacity: 0.6, dof: 0.35, colorMode: "monochrome", trails: false, fogDensity: 0.05 },
   },
   {
@@ -173,6 +185,9 @@ export function applyPreset(
   if (def.memory) Object.assign(params.memory, def.memory);
   if (def.life) Object.assign(params.life, def.life);
   if (def.field) Object.assign(params, def.field);
+  if (def.scent) Object.assign(params.scent, def.scent);
+  if (def.wander !== undefined) params.wander = def.wander;
+  if (def.phaseCoupling !== undefined) params.phaseCoupling = def.phaseCoupling;
   if (def.visual) Object.assign(visual, clampVisualSettings({ ...visual, ...def.visual }));
   let reroll = false;
   if (def.matrix === "random") {

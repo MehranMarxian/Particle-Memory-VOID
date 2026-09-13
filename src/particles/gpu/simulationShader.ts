@@ -26,6 +26,72 @@ export const gpuPositionShader = /* glsl */ `
   }
 `;
 
+/**
+ * Organism state: [phase, omega, stress, asleep].
+ * Computed first each frame from the previous frame's textures (1-frame
+ * stale inputs are fine — these are slow variables).
+ */
+export const gpuStateShader = /* glsl */ `
+  uniform float uCount;
+  uniform float uDt;
+  uniform float uPhaseK;
+
+  uniform sampler2D texCellStart;
+  uniform sampler2D texEntries;
+  uniform vec2 uEntriesRes;
+  uniform vec2 uCellStartRes;
+  uniform vec3 uGridMin;
+  uniform vec3 uGridDims;
+  uniform float uCellSize;
+
+  vec2 sIndexToUv(float i, vec2 res) {
+    float x = mod(i, res.x);
+    float y = floor(i / res.x);
+    return (vec2(x, y) + 0.5) / res;
+  }
+
+  void main() {
+    vec2 uv = gl_FragCoord.xy / resolution.xy;
+    float idx = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
+    if (idx >= uCount) { gl_FragColor = vec4(0.0); return; }
+
+    vec4 st = texture2D(textureState, uv);
+    vec3 vel = texture2D(textureVelocity, uv).xyz;
+
+    // Stress from speed; decays with ~1s time constant.
+    float fmag = abs(vel.x) + abs(vel.y) + abs(vel.z);
+    float stress = min(1.0, st.z + fmag * uDt * 0.35) * pow(0.35, uDt);
+
+    // Hysteresis gate: wake above 0.5, fall asleep only below 0.18.
+    float asleep = st.w;
+    if (asleep > 0.5) {
+      if (stress > 0.5) asleep = 0.0;
+    } else if (stress < 0.18) {
+      asleep = 1.0;
+    }
+
+    // Kuramoto coupling: own-cell neighbors drag the clock.
+    vec3 pos = texture2D(texturePosition, uv).xyz;
+    vec3 cell = clamp(floor((pos - uGridMin) / uCellSize), vec3(0.0), uGridDims - 1.0);
+    float ci = (cell.z * uGridDims.y + cell.y) * uGridDims.x + cell.x;
+    float start = texture2D(texCellStart, sIndexToUv(ci, uCellStartRes)).x;
+    float end = texture2D(texCellStart, sIndexToUv(ci + 1.0, uCellStartRes)).x;
+    float acc = 0.0;
+    float cnt = 0.0;
+    for (float e = start; e < end; e += 1.0) {
+      float j = texture2D(texEntries, sIndexToUv(e, uEntriesRes)).x - 1.0;
+      if (j < 0.0 || j == idx) continue;
+      float tj = texture2D(textureState, sIndexToUv(j, resolution)).x;
+      acc += sin(tj - st.x);
+      cnt += 1.0;
+    }
+    float mean = cnt > 0.0 ? acc / cnt : 0.0;
+    float theta = mod(st.x + (st.y + uPhaseK * mean) * uDt, 6.28318530718);
+
+    gl_FragColor = vec4(theta, st.y, stress, asleep);
+  }
+`;
+
 export const gpuVelocityShader = /* glsl */ `
   uniform float uCount;
   uniform float uDt;
@@ -61,6 +127,12 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uGravity;
   uniform float uSpeciesCount;
   uniform float uKernel; // 0 = pulse, 1 = inverse, 2 = linear
+  uniform float uWander;
+  uniform float uScentOn;
+  uniform float uScentSteer;
+  uniform sampler2D texScent;
+  uniform float uScentN;
+  uniform float uScentExtent;
 
   vec2 indexToUv(float i, vec2 res) {
     float x = mod(i, res.x);
@@ -73,6 +145,39 @@ export const gpuVelocityShader = /* glsl */ `
   }
 
   float hash1(float n) { return fract(sin(n) * 43758.5453123); }
+
+  // Slice-packed 3D scent field: texture is N x (N*N); texel (x, z*N + y).
+  float scentField(vec3 p) {
+    float n = uScentN;
+    float cell = 2.0 * uScentExtent / n;
+    vec3 g = (p + vec3(uScentExtent)) / cell - 0.5;
+    float x0 = floor(g.x), y0 = floor(g.y), z0 = floor(g.z);
+    vec3 f = g - vec3(x0, y0, z0);
+    float xa = clamp(x0, 0.0, n - 1.0), xb = clamp(x0 + 1.0, 0.0, n - 1.0);
+    float ya = clamp(y0, 0.0, n - 1.0), yb = clamp(y0 + 1.0, 0.0, n - 1.0);
+    float za = clamp(z0, 0.0, n - 1.0), zb = clamp(z0 + 1.0, 0.0, n - 1.0);
+    float va = 0.0;
+    float vb = 0.0;
+    // slice za
+    {
+      float row = za * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      va = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    // slice zb
+    {
+      float row = zb * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      vb = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    return mix(va, vb, f.z);
+  }
 
   void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -138,7 +243,21 @@ export const gpuVelocityShader = /* glsl */ `
       }
     }
 
+    vec4 stS = texture2D(textureState, uv);
     vec3 accel = force;
+    // Asleep particles: life yields (memory below stays at full strength).
+    accel *= stS.w > 0.5 ? 0.25 : 1.0;
+
+    // Ornstein-Uhlenbeck-ish wander: smooth time-interpolated value noise.
+    {
+      float t8 = uTime * 2.0;
+      float i8 = floor(t8);
+      float f8 = fract(t8);
+      float n1 = mix(hash1(idx * 3.7 + i8 * 13.1), hash1(idx * 3.7 + (i8 + 1.0) * 13.1), f8) * 2.0 - 1.0;
+      float n2 = mix(hash1(idx * 5.3 + i8 * 17.7), hash1(idx * 5.3 + (i8 + 1.0) * 17.7), f8) * 2.0 - 1.0;
+      float n3 = mix(hash1(idx * 6.1 + i8 * 11.3), hash1(idx * 6.1 + (i8 + 1.0) * 11.3), f8) * 2.0 - 1.0;
+      accel += vec3(n1, n2, n3) * uWander * 5.0;
+    }
 
     // --- MEMORY: spring toward the source target -----------------------
     float m = uMemoryStrength * mem;
@@ -161,13 +280,19 @@ export const gpuVelocityShader = /* glsl */ `
     accel.x += uDrift * uDt;
     accel.y -= uGravity * uDt;
 
-    // --- Memory decay / regain / restore -------------------------------
-    if (uMemoryDecay > 0.0 && hash1(idx * 0.37 + uTime * 61.7) < uMemoryDecay * uDt) {
-      mem = max(0.0, mem - 0.15);
+    // Scent steering: ascend the swarm's own trail gradient (Physarum).
+    if (uScentOn > 0.5) {
+      float h = 2.0 * uScentExtent / uScentN;
+      vec3 c0 = vec3(pos);
+      vec3 cx = pos + vec3(h, 0.0, 0.0);
+      vec3 cy = pos + vec3(0.0, h, 0.0);
+      vec3 cz = pos + vec3(0.0, 0.0, h);
+      vec3 grad = vec3(scentField(cx) - scentField(c0), scentField(cy) - scentField(c0), scentField(cz) - scentField(c0));
+      float gm = length(grad);
+      if (gm > 1e-5) {
+        accel += grad * (uScentSteer * min(1.0, gm) / gm);
+      }
     }
-    mem = min(1.0, mem + uRegain * uDt);
-    mem = mix(mem, 1.0, clamp(uRestore, 0.0, 1.0));
-
     // --- Integrate ------------------------------------------------------
     float friction = pow(clamp(uFriction, 0.0, 1.0), uDt * 60.0);
     vel = (vel + accel * uDt) * friction;
