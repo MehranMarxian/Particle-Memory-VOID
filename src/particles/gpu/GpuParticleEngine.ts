@@ -265,6 +265,13 @@ export class GpuParticleEngine {
     this.velocityVar.material.uniforms["uCellSize"].value = cell;
   }
 
+  setSpeciesCount(matrix: InteractionMatrix, speciesCount: number): void {
+    matrix.resize(speciesCount);
+    this.speciesCount = speciesCount;
+    for (let i = 0; i < this.count; i++) this.species[i] = i % speciesCount;
+    this.uploadInitialState();
+  }
+
   regainMemory(dt: number, rate: number): void {
     this.pendingRegain = Math.min(1, this.pendingRegain + rate * dt);
   }

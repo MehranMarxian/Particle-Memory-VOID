@@ -15,6 +15,16 @@ import {
   type FlatSource,
   type SourceHandle,
 } from "@/sources";
+import { createPanel, type PanelApi } from "@/ui/panel";
+import {
+  PRESET_DEFINITIONS,
+  applyPreset,
+  applySnapshot,
+  captureSnapshot,
+  type StateSnapshot,
+} from "@/presets/presets";
+import { randomizeParams } from "@/presets/randomize";
+import { loadConfig, saveConfig, toStoredConfig } from "@/presets/storage";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -29,6 +39,8 @@ interface SimEngine {
   configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
+  restoreMemory(): void;
+  setSpeciesCount(matrix: InteractionMatrix, n: number): void;
 }
 
 const DENSITY_LEVELS = [4000, 8000, 12000, 20000, 32000, 50000];
@@ -39,6 +51,40 @@ let currentCount = DENSITY_LEVELS[densityIndex];
 let engine!: SimEngine;
 let engineMode: "auto" | "gpu" | "cpu" = "auto";
 let activeBackend: "gpu" | "cpu" = "cpu";
+let panelApi: PanelApi | null = null;
+let history: StateSnapshot[] = [];
+let activePreset: string | null = null;
+let lastSourceName: string | null = null;
+let lastSourceUrl: string | null = null;
+let speciesCount = 4;
+let saveTimer = 0;
+
+function scheduleSave(): void {
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(persistNow, 600);
+}
+
+function persistNow(): void {
+  if (!engine) return;
+  saveConfig(
+    toStoredConfig({
+      params,
+      visual,
+      matrix: matrix.toFlat(),
+      speciesCount,
+      currentCount,
+      cycleActive: memory.active && memory.auto,
+      lastSourceName,
+      lastSourceUrl,
+      activePreset,
+    })
+  );
+}
+
+function pushHistory(): void {
+  history.push(captureSnapshot(params, visual, matrix));
+  if (history.length > 30) history.shift();
+}
 let particleRenderer: ParticleRenderer | null = null;
 let currentSourceName = "synthetic torus";
 let currentSourceDetail = "synthetic memory";
@@ -89,7 +135,7 @@ function makeTorusSource(count: number): FlatSource {
 
 // --- Engine construction ---------------------------------------------------
 function createCpuEngine(sample: FlatSource, count: number, seed: number, rng: () => number): ParticleEngine {
-  const next = new ParticleEngine(count, 4, seed);
+  const next = new ParticleEngine(count, speciesCount, seed);
   for (let i = 0; i < count; i++) {
     const r = 11 * Math.cbrt(rng());
     const theta = rng() * Math.PI * 2;
@@ -123,7 +169,7 @@ function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: 
   return GpuParticleEngine.create(
     renderer3d,
     count,
-    4,
+    speciesCount,
     sample.positions,
     sample.colors,
     positions,
@@ -164,6 +210,20 @@ function buildFromSource(sample: FlatSource): void {
   particleRenderer = new ParticleRenderer(engine.count, engine.positions, engine.colors);
   particleRenderer.markColorsDirty();
   scene.add(particleRenderer.points);
+  panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
+  scheduleSave();
+}
+
+function sourceKindLabel(): string {
+  return currentSourceName === "synthetic torus" ? "synthetic" : guessKindLabel();
+}
+
+function guessKindLabel(): string {
+  const dot = currentSourceName.lastIndexOf(".");
+  const ext = dot >= 0 ? currentSourceName.slice(dot + 1).toLowerCase() : "";
+  if (["png", "jpg", "jpeg", "webp", "bmp", "gif"].includes(ext)) return "image";
+  if (ext === "ply") return "pointcloud";
+  return "mesh";
 }
 
 function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
@@ -269,6 +329,33 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
 
 // Build the initial torus memory.
 {
+  // Restore the persisted instrument state before the first build.
+  const cfg = loadConfig();
+  if (cfg) {
+    Object.assign(params.memory, cfg.params.memory);
+    Object.assign(params.life, cfg.params.life);
+    params.turbulence = cfg.params.turbulence;
+    params.drift = cfg.params.drift;
+    params.gravity = cfg.params.gravity;
+    Object.assign(visual, cfg.visual);
+    const n = Math.round(Math.sqrt(cfg.matrix.length));
+    matrix.resize(n);
+    for (let a = 0; a < n; a++)
+      for (let b = 0; b < n; b++) matrix.set(a, b, cfg.matrix[a * n + b]);
+    currentCount = Math.min(200000, Math.max(500, cfg.currentCount));
+    densityIndex = DENSITY_LEVELS.indexOf(
+      DENSITY_LEVELS.reduce((a2, b2) => (Math.abs(b2 - currentCount) < Math.abs(a2 - currentCount) ? b2 : a2))
+    );
+    if (densityIndex < 0) densityIndex = 2;
+    memory.active = memory.auto = cfg.cycleActive;
+    lastSourceName = cfg.lastSourceName;
+    lastSourceUrl = cfg.lastSourceUrl;
+    activePreset = cfg.activePreset;
+    speciesCount = Math.min(8, Math.max(2, cfg.speciesCount || 4));
+  }
+}
+{
+  // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
   if (Number.isFinite(countParam) && countParam >= 500 && countParam <= 200000) {
     currentCount = Math.round(countParam);
@@ -316,8 +403,11 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
     pendingHandle = handle;
     currentSourceName = handle.name;
     currentSourceDetail = handle.detail;
+    lastSourceName = handle.name;
     buildFromSource(sample);
     updatePreview(handle);
+    panelApi?.setSourceInfo(handle.name, guessKindLabel(), handle.detail, engine.count);
+    panelApi?.setCount(engine.count);
     flashHint(`SOURCE: ${handle.name} — ${handle.detail}`, 5);
   } catch (err) {
     flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8);
@@ -327,6 +417,7 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
 }
 
 async function loadFile(file: File): Promise<void> {
+  lastSourceUrl = null;
   flashHint(`READING ${file.name}…`, 30);
   try {
     const handle = await loadSource(file.name, file);
@@ -415,7 +506,13 @@ window.addEventListener("keydown", (e) => {
   } else if (key === "R") {
     activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
   } else if (key === "A") {
-    memory.auto = !memory.auto;
+    memory.active = memory.auto = !memory.auto;
+    stateLabel.textContent = memory.active ? memory.state : "MANUAL";
+  } else if (key === "P") {
+    panelApi?.toggleVisible();
+  } else if (key === "F") {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen();
   } else if (key === "C") {
     visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
@@ -456,6 +553,7 @@ let activeMatrix = matrix;
   const search = new URLSearchParams(location.search);
   const srcParam = search.get("src");
   if (srcParam) {
+    lastSourceUrl = srcParam;
     loadSourceFromUrl(srcParam, currentCount)
       .then(({ handle }) => {
         lastDroppedFile = null;
@@ -464,6 +562,168 @@ let activeMatrix = matrix;
       .catch((err) => flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8));
   }
 }
+
+// --- Control panel (Phase 5) ------------------------------------------------
+{
+  panelApi = createPanel({
+    params,
+    visual,
+    memory,
+    matrix,
+    speciesCount,
+    currentCount,
+    callbacks: {
+      onDensityChange(count) {
+        currentCount = count;
+        if (pendingHandle) void adoptHandle(pendingHandle);
+        else buildFromSource(makeTorusSource(currentCount));
+        flashHint(`DENSITY: ${count.toLocaleString()} PARTICLES`, 3);
+      },
+      onAddSource() {
+        fileInput.click();
+      },
+      onPreset(name) {
+        const def = PRESET_DEFINITIONS.find((d) => d.name === name);
+        if (!def) return;
+        pushHistory();
+        activePreset = name;
+        // Presets own the parameters directly — the authored cycle yields.
+        memory.active = memory.auto = false;
+        stateLabel.textContent = "MANUAL";
+        if (applyPreset(def, params, visual, matrix)) {
+          matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
+        }
+        engine.configureGrid(params);
+        panelApi?.refresh();
+        panelApi?.setActivePreset(name);
+        panelApi?.setCount(currentCount);
+        flashHint(`PRESET: ${def.label.toUpperCase()}`, 3);
+      },
+      onRandomize() {
+        pushHistory();
+        activePreset = null;
+        memory.active = memory.auto = false;
+        stateLabel.textContent = "MANUAL";
+        randomizeParams(params, matrix, (Math.random() * 1e9) | 0);
+        engine.configureGrid(params);
+        panelApi?.refresh();
+        panelApi?.setActivePreset(null);
+        flashHint("RANDOMIZED — UNDO AVAILABLE", 3);
+      },
+      onUndo() {
+        const snap = history.pop();
+        if (!snap) {
+          flashHint("NOTHING TO UNDO", 2);
+          return;
+        }
+        applySnapshot(snap, params, visual, matrix);
+        engine.configureGrid(params);
+        activePreset = null;
+        memory.active = memory.auto = false;
+        stateLabel.textContent = "MANUAL";
+        panelApi?.refresh();
+        panelApi?.setActivePreset(null);
+        flashHint("UNDONE", 2);
+      },
+      onReset() {
+        pushHistory();
+        Object.assign(params.memory, {
+          strength: 0,
+          decay: 0,
+          reconstructionEase: 1,
+        });
+        Object.assign(params.life, {
+          attraction: 1,
+          repulsion: 1,
+          interactionRadius: 0.85,
+          chaos: 0.1,
+          friction: 0.85,
+          maxSpeed: 4,
+          forceScale: 6,
+          coreRadius: 0.3,
+          kernel: "pulse",
+        });
+        params.turbulence = 0.02;
+        params.drift = 0;
+        params.gravity = 0;
+        matrix.resize(4);
+        matrix.setRow(0, [-0.5, 0.6, -0.3, 0.2]);
+        matrix.setRow(1, [0.6, -0.7, 0.4, -0.2]);
+        matrix.setRow(2, [-0.3, 0.4, -0.6, 0.7]);
+        matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
+        activeMatrix = matrix;
+        matrixIndex = 0;
+        activePreset = null;
+        memory.active = memory.auto = false;
+        stateLabel.textContent = "MANUAL";
+        currentCount = DENSITY_LEVELS[2];
+        densityIndex = 2;
+        engine.configureGrid(params);
+        if (pendingHandle) void adoptHandle(pendingHandle);
+        else buildFromSource(makeTorusSource(currentCount));
+        panelApi?.refresh();
+        panelApi?.setActivePreset(null);
+        flashHint("RESET TO DEFAULTS", 3);
+      },
+      onReconstruct() {
+        memory.setState("RECONSTRUCT");
+        engine.restoreMemory();
+        stateLabel.textContent = memory.state;
+        flashHint("RECONSTRUCT", 2);
+      },
+      onRelease() {
+        memory.setState("VOID");
+        stateLabel.textContent = memory.state;
+        flashHint("RELEASE", 2);
+      },
+      onFullscreen() {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen();
+      },
+      onSpeciesChange(n) {
+        speciesCount = n;
+        engine.setSpeciesCount(matrix, n);
+        flashHint(`SPECIES: ${n}`, 2);
+      },
+      onUserInteraction() {
+        activePreset = null;
+        panelApi?.setActivePreset(null);
+        scheduleSave();
+      },
+      onToggleCycle() {
+        stateLabel.textContent = memory.active ? memory.state : "MANUAL";
+      },
+    },
+  });
+  document.body.appendChild(panelApi.element);
+  panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
+  panelApi.setActivePreset(activePreset);
+}
+
+// Debug handle (also handy for console tinkering).
+declareGlobalHandle();
+
+function declareGlobalHandle(): void {
+  (window as unknown as Record<string, unknown>).__void = {
+    get memory() {
+      return memory;
+    },
+    get params() {
+      return params;
+    },
+    get engine() {
+      return engine;
+    },
+    get visual() {
+      return visual;
+    },
+  };
+}
+
+window.addEventListener("beforeunload", persistNow);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") persistNow();
+});
 
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
@@ -490,7 +750,8 @@ function frameInner(now: number): void {
     memory.update(FIXED_DT);
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
-    params.life.forceScale = 6 * memory.lifeScale;
+    // (In MANUAL mode the user owns the Force slider directly.)
+    if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     accumulator -= FIXED_DT;
@@ -532,7 +793,8 @@ function frameInner(now: number): void {
       `VOID / PARTICLE MEMORY — phase 4\n` +
       `source: ${currentSourceName} (${currentSourceDetail})\n` +
       `particles: ${engine.count}   fps: ${fps}   sim: ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]\n` +
-      `memory: ${memory.memoryStrength.toFixed(2)}   blend: ${memory.blend.toFixed(2)}   ` +
+      `memory: ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   ` +
+      `blend: ${memory.blend.toFixed(2)}   ` +
       `auto: ${memory.auto ? "on" : "off"}\n` +
       `vis: ${visual.colorMode === "monochrome" ? "mono" : "color"}   ` +
       `trails: ${visual.trails ? "on" : "off"}   dof: ${visual.dof > 0 ? "on" : "off"}\n` +

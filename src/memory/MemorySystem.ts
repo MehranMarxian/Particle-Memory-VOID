@@ -108,6 +108,12 @@ const defaultTransition: [number, number] = [4, 7];
  */
 export class MemorySystem {
   auto: boolean;
+  /**
+   * When false the authored cycle yields: state progression freezes and
+   * apply() stops touching engine params — the user (or a preset) owns
+   * MEMORY/LIFE directly. setState() re-engages the cycle.
+   */
+  active = true;
   transitionSeconds: [number, number];
 
   private configs: Record<MemoryStateName, MemoryStateConfig>;
@@ -196,6 +202,7 @@ export class MemorySystem {
 
   setState(name: MemoryStateName, immediate = false): void {
     if (!this.configs[name]) throw new Error(`unknown memory state: ${name}`);
+    this.active = true; // forcing a state re-engages the authored cycle
     if (name === this.currentName) return;
     const previous = this.currentName;
     // Capture current interpolated values as the transition origin so a
@@ -230,6 +237,11 @@ export class MemorySystem {
   }
 
   update(dt: number): void {
+    if (!this.active) {
+      // Manual control: life runs at the user's parameters, unscaled.
+      this.lifeScale = 1;
+      return;
+    }
     this.stateTime += dt;
     const c = this.configs[this.currentName];
     const done = this.stateTime >= this.transitionDuration + this.holdDuration;
@@ -256,6 +268,7 @@ export class MemorySystem {
 
   /** Apply the effective memory values onto engine params. */
   apply(params: EngineParams): void {
+    if (!this.active) return;
     params.memory.strength = this.memoryStrength;
     params.memory.decay = this.decay;
     params.turbulence = Math.max(params.turbulence, this.chaos);

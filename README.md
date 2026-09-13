@@ -6,11 +6,10 @@ A generative particle application. Sources (images, 3D models, point clouds) bec
 particle memories that reconstruct, dissolve, and remember themselves again through
 a Particle Life system.
 
-**Status: Phase 4 complete** — particle engine + spatial acceleration + species
-matrix + GPU point rendering + memory state system (RECONSTRUCT → ALIVE → DRIFT →
-VOID → REMEMBER) + source loaders (image, PLY, GLB/GLTF, OBJ, STL) + the visual
-layer (soft halo sprites, monochrome/source color modes, depth-of-field, fog,
-afterimage motion trails, exposure-compensated glow).
+**Status: Phase 5 complete** — everything below, plus the control panel:
+SOURCE / MEMORY / LIFE / FIELD / VISUAL / PRESETS / ACTIONS sections, six
+authored presets, constrained randomization with undo, and localStorage
+persistence of the whole instrument state.
 
 ## Run
 
@@ -20,6 +19,36 @@ npm run dev        # http://localhost:5173
 npm test           # vitest (engine, grid, matrix, memory, perf)
 npm run build      # production build to dist/
 ```
+
+## Phase 5 — the instrument panel
+
+`P` toggles the panel (or the HIDE / PANEL buttons). Sections:
+
+- **SOURCE** — current source name/kind/detail, ADD SOURCE, particle density.
+- **MEMORY** — Cycle (AUTHORED ⇄ MANUAL), memory strength, decay, reconstruction.
+- **LIFE** — attraction, repulsion, radius, force, chaos, friction, core,
+  species count (live, no rebuild), force kernel (pulse / inverse / linear).
+- **FIELD** — turbulence, drift, gravity.
+- **VISUAL** — size, glow, opacity, depth-of-field, fog, trail length,
+  trails and color-mode toggles.
+- **PRESETS** — Portrait / Organic / Scan / Architecture / Void / Chaos.
+  Data-driven JSON definitions (`src/presets/presets.ts`) — the UI contains
+  no behavior. Applying a preset switches the cycle to MANUAL so the preset
+  owns the parameters; the Cycle toggle (or `A`, or RECONSTRUCT/RELEASE)
+  re-engages the authored experience.
+- **ACTIONS** — Reconstruct, Release, Randomize (constrained, §17), Undo
+  (30-step history), Reset, Fullscreen (`F`).
+
+Manual mode matters: the authored cycle normally *drives* memory/life
+(including life-yields-to-memory scaling); MANUAL hands the parameters to
+you, and the HUD reads your slider values live.
+
+Persistence (§21): the whole state — params, visual settings, matrix,
+species count, density, cycle mode, active preset, last source name/URL —
+saves to localStorage (debounced, on change, on hide, on unload) and
+restores on boot. URL params (`?src= ?count= ?color= …`) override the
+stored state. Dropped files cannot persist (browser sandbox); the screensaver
+phase adds proper source storage.
 
 ## GPU simulation
 
