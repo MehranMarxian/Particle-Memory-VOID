@@ -27,9 +27,9 @@ export interface VisualSettings {
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
-  particleSize: 1.35,
-  glow: 0.45,
-  opacity: 0.55,
+  particleSize: 1.0,
+  glow: 0.3,
+  opacity: 0.7,
   trails: false,
   trailDecay: 0.4,
   colorMode: "monochrome",

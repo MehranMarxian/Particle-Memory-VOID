@@ -139,6 +139,7 @@ export class GpuParticleEngine {
     ]) {
       vu[name] = { value: 0 };
     }
+    vu["uKernel"] = { value: 0 };
     const pu = this.positionVar.material.uniforms;
     pu["uCount"] = { value: count };
     pu["uDt"] = { value: 1 / 60 };
@@ -340,6 +341,8 @@ export class GpuParticleEngine {
     u["uTurbulence"].value = params.turbulence;
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
+    u["uKernel"].value =
+      L.kernel === "pulse" ? 0 : L.kernel === "inverse" ? 1 : 2;
     u["uRegain"].value = this.pendingRegain;
     u["uRestore"].value = this.pendingRestore;
     this.positionVar.material.uniforms["uDt"].value = dt;

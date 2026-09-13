@@ -126,6 +126,10 @@ export class ParticleEngine {
     const { attraction, repulsion, interactionRadius, forceScale, coreRadius, maxSpeed } =
       params.life;
     const coreR = interactionRadius * coreRadius;
+    // Kernel selection: 0 = pulse, 1 = inverse, 2 = linear (see types).
+    const kernel =
+      params.life.kernel === "pulse" ? 0 : params.life.kernel === "inverse" ? 1 : 2;
+    const coreRadiusN = coreRadius;
     const r2max = interactionRadius * interactionRadius;
 
     if (this.ax.length < n) {
@@ -174,14 +178,31 @@ export class ParticleEngine {
               if (d2 > r2max || d2 < 1e-9) continue;
               const d = Math.sqrt(d2);
 
-              // Core repulsion: hard short-range separation, independent of
-              // species; beyond it, species-weighted linear falloff.
+              // Species force kernels (mirrored in gpu/simulationShader.ts):
+              // "pulse"  — canonical particle-life curve: universal core
+              //            repulsion, matrix-weighted band peaking mid-range,
+              //            zero at the interaction radius.
+              // "inverse"— the hunar4321 law, F = g/d, no core wall.
+              // "linear" — original VOID falloff.
+              const rn = d / interactionRadius;
               let f: number;
-              if (d < coreR) {
-                f = -(1 - d / coreR) * 6 * forceScale;
-              } else {
+              if (kernel === 0) {
+                if (rn < coreRadiusN) {
+                  f = (rn / coreRadiusN - 1) * forceScale;
+                } else {
+                  const w = matrix.get(si, species[j]);
+                  f = w * (1 - Math.abs(2 * rn - 1 - coreRadiusN) / (1 - coreRadiusN)) * forceScale;
+                }
+              } else if (kernel === 1) {
                 const w = matrix.get(si, species[j]);
-                f = w * (1 - d / interactionRadius) * forceScale;
+                f = (w / Math.max(d, interactionRadius * 0.02)) * forceScale * 0.35;
+              } else {
+                if (d < coreR) {
+                  f = -(1 - d / coreR) * 6 * forceScale;
+                } else {
+                  const w = matrix.get(si, species[j]);
+                  f = w * (1 - rn) * forceScale;
+                }
               }
               // Attractive forces obey attraction, repulsive obey repulsion.
               f *= f > 0 ? attraction : repulsion;

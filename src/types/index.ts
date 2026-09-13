@@ -28,6 +28,19 @@ export interface Particle {
   age: number;
 }
 
+/**
+ * Neighbor force kernels.
+ *
+ * - "pulse": canonical Particle Life curve (hunar4321 / Tom Mohr family):
+ *   universal repulsive core, then a band whose sign follows the matrix
+ *   value, peaking mid-range and reaching zero at the interaction radius.
+ *   The micro-organism look.
+ * - "inverse": the hunar4321 JS law — F = g/d, no core wall; smooth,
+ *   gliding, gravitational feel.
+ * - "linear": the original VOID falloff (kept for continuity).
+ */
+export type ForceKernel = "pulse" | "inverse" | "linear";
+
 export interface LifeParams {
   /** Global scale on particle-life forces. */
   attraction: number;
@@ -35,20 +48,21 @@ export interface LifeParams {
   interactionRadius: number;
   /** Multiplier on noise/turbulence forces. */
   chaos: number;
-  /** Velocity damping per second (0..1), e.g. 0.92. */
+  /** Velocity retention per 60fps frame (0..1). */
   friction: number;
   /** Upper bound on speed. */
   maxSpeed: number;
   /** Peak magnitude of a single interaction force. */
   forceScale: number;
-  /** Core repulsion radius fraction of interactionRadius (0..1). */
+  /** Core radius as a fraction of interactionRadius (0..1). Used by pulse/linear. */
   coreRadius: number;
+  kernel: ForceKernel;
 }
 
 export interface MemoryParams {
   /** Spring strength pulling particles toward targetPosition. */
   strength: number;
-  /** Stochastic reduction of memory per particle over time (0..1 per second at 1.0). */
+  /** Stochastic reduction of memory per particle over time. */
   decay: number;
   /** Eases the pull for far particles: force ~ dist^reconstructionEase (1 = linear). */
   reconstructionEase: number;
@@ -65,12 +79,13 @@ export interface EngineParams {
 export const defaultLifeParams = (): LifeParams => ({
   attraction: 1.0,
   repulsion: 1.0,
-  interactionRadius: 1.2,
-  chaos: 0.15,
-  friction: 0.9,
+  interactionRadius: 0.85,
+  chaos: 0.1,
+  friction: 0.85,
   maxSpeed: 4.0,
-  forceScale: 1.0,
+  forceScale: 6.0,
   coreRadius: 0.3,
+  kernel: "pulse",
 });
 
 export const defaultMemoryParams = (): MemoryParams => ({

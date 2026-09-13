@@ -60,6 +60,7 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uDrift;
   uniform float uGravity;
   uniform float uSpeciesCount;
+  uniform float uKernel; // 0 = pulse, 1 = inverse, 2 = linear
 
   vec2 indexToUv(float i, vec2 res) {
     float x = mod(i, res.x);
@@ -108,12 +109,27 @@ export const gpuVelocityShader = /* glsl */ `
             float d2 = dot(d, d);
             if (d2 > r2max || d2 < 1e-9) continue;
             float dist = sqrt(d2);
+            // Kernels mirror ParticleEngine.step (see types ForceKernel).
+            float rn = dist / uInteractionRadius;
             float f;
-            if (dist < coreR) {
-              f = -(1.0 - dist / coreR) * 6.0 * uForceScale;
-            } else {
+            if (uKernel < 0.5) {
+              if (rn < uCoreRadius) {
+                f = (rn / uCoreRadius - 1.0) * uForceScale;
+              } else {
+                float w = texture2D(texMatrix, vec2((species * uSpeciesCount + pj.w + 0.5) / 64.0, 0.5)).x;
+                f = w * (1.0 - abs(2.0 * rn - 1.0 - uCoreRadius) / (1.0 - uCoreRadius)) * uForceScale;
+              }
+            } else if (uKernel < 1.5) {
               float w = texture2D(texMatrix, vec2((species * uSpeciesCount + pj.w + 0.5) / 64.0, 0.5)).x;
-              f = w * (1.0 - dist / uInteractionRadius) * uForceScale;
+              f = (w / max(dist, uInteractionRadius * 0.02)) * uForceScale * 0.35;
+            } else {
+              float coreR = uInteractionRadius * uCoreRadius;
+              if (dist < coreR) {
+                f = -(1.0 - dist / coreR) * 6.0 * uForceScale;
+              } else {
+                float w = texture2D(texMatrix, vec2((species * uSpeciesCount + pj.w + 0.5) / 64.0, 0.5)).x;
+                f = w * (1.0 - rn) * uForceScale;
+              }
             }
             f *= f > 0.0 ? uAttraction : uRepulsion;
             force += d * (f / dist);

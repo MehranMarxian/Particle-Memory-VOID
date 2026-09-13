@@ -126,6 +126,12 @@ export class MemorySystem {
   chaos: number;
   decay: number;
   regain: number;
+  /**
+   * Life force yield: when memory dominates (blend -> 0) the particle-life
+   * forces yield so the source can reconstruct; when memory is gone
+   * (blend -> 1) life runs at full strength. The two systems compete.
+   */
+  lifeScale = 1;
 
   constructor(options?: {
     configs?: Partial<Record<MemoryStateName, Partial<MemoryStateConfig>>>;
@@ -156,6 +162,7 @@ export class MemorySystem {
     this.chaos = c.chaos;
     this.decay = c.decay;
     this.regain = c.regain;
+    this.lifeScale = 0.15 + 0.85 * this.blend;
     const [tMin, tMax] = this.transitionSeconds;
     this.transitionDuration = tMin + (tMax - tMin) * this.rng();
     this.holdDuration = Math.max(
@@ -240,6 +247,7 @@ export class MemorySystem {
     }
     this.decay = c.decay;
     this.regain = c.regain;
+    this.lifeScale = 0.15 + 0.85 * this.blend;
 
     if (done && this.auto) {
       this.next();

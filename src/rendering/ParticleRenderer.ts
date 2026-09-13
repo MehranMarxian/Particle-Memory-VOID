@@ -57,7 +57,7 @@ export class ParticleRenderer {
           float defocus = abs(dist - uFocus) / uFocus;
           // DOF: off-focus particles grow slightly and fade.
           float sizeAtten = 1.0 + uDof * defocus;
-          gl_PointSize = uSize * uPixelRatio * (140.0 / dist) * sizeAtten;
+          gl_PointSize = uSize * uPixelRatio * (42.0 / dist) * sizeAtten;
           float fog = exp(-uFogDensity * dist);
           vFade = fog / (1.0 + uDof * 1.5 * defocus);
           vColor = aColor;
@@ -75,8 +75,8 @@ export class ParticleRenderer {
           col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.94, 0.97, 1.04), uMonochrome);
           vec2 uv = gl_PointCoord - 0.5;
           float d = length(uv);
-          // Crisp focused core; the halo only carries the glow outward.
-          float core = 1.0 - smoothstep(0.22, 0.40, d);
+          // Real-particle look: hard AA disc, faint halo only when glow is raised.
+          float core = 1.0 - smoothstep(0.35, 0.5, d);
           float halo = exp(-d * 7.0) * uGlow * 0.3;
           float alpha = (core + halo) * uOpacity * vFade;
           if (alpha < 0.004) discard;

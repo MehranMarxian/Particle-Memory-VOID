@@ -53,8 +53,8 @@ matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
 const params = defaultEngineParams();
 params.life.attraction = 1.0;
 params.life.repulsion = 1.0;
-params.life.interactionRadius = 0.8;
-params.life.friction = 0.88;
+params.life.interactionRadius = 0.85;
+params.life.friction = 0.85;
 params.life.maxSpeed = 6;
 params.turbulence = 0.02;
 
@@ -489,6 +489,8 @@ function frameInner(now: number): void {
   while (accumulator >= FIXED_DT) {
     memory.update(FIXED_DT);
     memory.apply(params);
+    // The two systems compete: life yields while memory reconstructs.
+    params.life.forceScale = 6 * memory.lifeScale;
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     accumulator -= FIXED_DT;

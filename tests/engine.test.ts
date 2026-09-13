@@ -202,3 +202,77 @@ describe("defaults & math utils", () => {
     expect(exponentialDamp(0.5, 2 / 60)).toBeCloseTo(0.25);
   });
 });
+
+describe("force kernels", () => {
+  interface PairOpts {
+    distance: number;
+    matrixValue: number;
+    kernel: "pulse" | "inverse" | "linear";
+  }
+  /** Two-particle rig: returns the x-displacement of particle 0 after one step. */
+  function pairDisplacement(o: PairOpts): number {
+    const engine = new ParticleEngine(2, 2, 5);
+    engine.spawnGaussian(2, 0.001);
+    engine.species[0] = 0;
+    engine.species[1] = 1;
+    engine.positions[0] = 0; engine.positions[1] = 0; engine.positions[2] = 0;
+    engine.positions[3] = o.distance; engine.positions[4] = 0; engine.positions[5] = 0;
+    engine.velocities.fill(0);
+    const matrix = new InteractionMatrix(2);
+    matrix.set(0, 1, o.matrixValue);
+    matrix.set(1, 0, 0);
+    const params = defaultEngineParams();
+    params.life.kernel = o.kernel;
+    params.life.interactionRadius = 1.0;
+    params.life.coreRadius = 0.3;
+    params.life.forceScale = 1;
+    params.life.friction = 1;
+    params.life.maxSpeed = 1000;
+    params.life.attraction = 1;
+    params.life.repulsion = 1;
+    params.memory.strength = 0;
+    params.turbulence = 0;
+    engine.configureGrid(params);
+    engine.step(1 / 60, params, matrix);
+    return engine.positions[0];
+  }
+
+  it("pulse kernel: universal core repulsion regardless of matrix sign", () => {
+    const repel = pairDisplacement({ distance: 0.15, matrixValue: 1, kernel: "pulse" });
+    expect(repel).toBeLessThan(0); // pushed away from the other particle
+  });
+
+  it("pulse kernel: matrix attraction peaks mid-range", () => {
+    const attract = pairDisplacement({ distance: 0.6, matrixValue: 1, kernel: "pulse" });
+    expect(attract).toBeGreaterThan(0); // pulled toward the other particle
+  });
+
+  it("pulse kernel: matrix repulsion repels in the band", () => {
+    const repel = pairDisplacement({ distance: 0.6, matrixValue: -1, kernel: "pulse" });
+    expect(repel).toBeLessThan(0);
+  });
+
+  it("pulse kernel: zero force at the interaction radius", () => {
+    const move = pairDisplacement({ distance: 1.0, matrixValue: 1, kernel: "pulse" });
+    expect(move).toBeCloseTo(0, 4);
+  });
+
+  it("pulse kernel peak magnitude exceeds near-edge magnitude", () => {
+    // pulse peaks at rn = (1+beta)/2 = 0.65 for beta = 0.3
+    const peak = pairDisplacement({ distance: 0.65, matrixValue: 1, kernel: "pulse" });
+    const edge = pairDisplacement({ distance: 0.95, matrixValue: 1, kernel: "pulse" });
+    expect(Math.abs(peak)).toBeGreaterThan(Math.abs(edge));
+  });
+
+  it("inverse kernel: g/d law attracts regardless of range sign", () => {
+    const near = pairDisplacement({ distance: 0.3, matrixValue: 1, kernel: "inverse" });
+    const far = pairDisplacement({ distance: 0.9, matrixValue: 1, kernel: "inverse" });
+    expect(near).toBeGreaterThan(0);
+    expect(far).toBeGreaterThan(0);
+    expect(near).toBeGreaterThan(far); // closer -> stronger
+  });
+
+  it("default kernel is pulse (the organism look)", () => {
+    expect(defaultLifeParams().kernel).toBe("pulse");
+  });
+});
