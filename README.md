@@ -1,4 +1,5 @@
 # VOID / PARTICLE MEMORY
+<img width="1254" height="1254" alt="VOID" src="https://github.com/user-attachments/assets/fe328e86-e16e-44b9-b06c-b9f745888a72" />
 
 _Developed by Mehran Ahmadi © 2026_
 
@@ -21,6 +22,7 @@ npm run build      # production build to dist/
 ```
 
 ## Phase 5 — the instrument panel
+<img width="899" height="561" alt="Screenshot 2026-09-14 025443" src="https://github.com/user-attachments/assets/67710bc3-9493-489d-bd9c-c09593eab07e" />
 
 `P` toggles the panel (or the HIDE / PANEL buttons). Sections:
 
@@ -50,7 +52,8 @@ restores on boot. URL params (`?src= ?count= ?color= …`) override the
 stored state. Dropped files cannot persist (browser sandbox); the screensaver
 phase adds proper source storage.
 
-## The organism layer (quick-wins build)
+## The organism layer 
+<img width="2559" height="1249" alt="Screenshot 2026-09-14 013243" src="https://github.com/user-attachments/assets/86d0d6ab-0d24-47b9-8b11-f3f8e76e9893" />
 
 Per-particle state `[phase, omega, stress, asleep]` lives in a third GPU
 texture (CPU-mirrored for rendering):
