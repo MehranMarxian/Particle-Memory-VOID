@@ -1,11 +1,12 @@
 # VOID / PARTICLE MEMORY
-<img width="1254" height="1254" alt="VOID" src="https://github.com/user-attachments/assets/fe328e86-e16e-44b9-b06c-b9f745888a72" />
+<img width="512" height="512" alt="void-512" src="https://github.com/user-attachments/assets/38a1f428-d149-47dd-bed6-66a57e6430df" />
 
 _Developed by Mehran Ahmadi © 2026_
 
 A generative particle application. Sources (images, 3D models, point clouds) become
 particle memories that reconstruct, dissolve, and remember themselves again through
 a Particle Life system.
+<img width="2559" height="1439" alt="Screenshot 2026-09-14 005025" src="https://github.com/user-attachments/assets/f47fec9d-1733-4bbe-8218-38fb3ce1f4fb" />
 
 **Status: Phase 5 complete** — everything below, plus the control panel:
 SOURCE / MEMORY / LIFE / FIELD / VISUAL / PRESETS / ACTIONS sections, six
