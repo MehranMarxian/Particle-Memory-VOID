@@ -103,6 +103,25 @@ export const defaultPointerParams = (): PointerParams => ({
   z: 0,
 });
 
+/**
+ * Life cycle: particles are born from the memory, grow into it, age and
+ * dissipate, then return to the source. Age is derived from time and the
+ * particle index, so no extra state texture is needed.
+ */
+export interface LifeCycleParams {
+  enabled: boolean;
+  /** Seconds from birth to dissipation. */
+  lifespan: number;
+  /** 0 = born together, 1 = births spread across the whole lifespan. */
+  spread: number;
+}
+
+export const defaultLifeCycleParams = (): LifeCycleParams => ({
+  enabled: false,
+  lifespan: 45,
+  spread: 1,
+});
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
@@ -112,6 +131,7 @@ export interface EngineParams {
   phaseCoupling: number;
   scent: ScentParams;
   pointer: PointerParams;
+  lifecycle: LifeCycleParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -149,6 +169,7 @@ export const defaultEngineParams = (): EngineParams => ({
   phaseCoupling: 1.2,
   scent: defaultScentParams(),
   pointer: defaultPointerParams(),
+  lifecycle: defaultLifeCycleParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

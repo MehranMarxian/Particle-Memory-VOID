@@ -162,6 +162,9 @@ export class GpuParticleEngine {
       "uGravity",
       "uPointerStrength",
       "uPointerMode",
+      "uLifeOn",
+      "uLifespan",
+      "uLifeSpread",
     ]) {
       vu[name] = { value: 0 };
     }
@@ -465,6 +468,9 @@ export class GpuParticleEngine {
     u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);
     u["uPointerStrength"].value = params.pointer.strength;
     u["uPointerMode"].value = params.pointer.mode;
+    u["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;
+    u["uLifespan"].value = params.lifecycle.lifespan;
+    u["uLifeSpread"].value = params.lifecycle.spread;
     u["uKernel"].value =
       L.kernel === "pulse" ? 0 : L.kernel === "inverse" ? 1 : 2;
     u["uRegain"].value = this.pendingRegain;

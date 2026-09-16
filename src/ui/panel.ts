@@ -241,6 +241,9 @@ export function createPanel(opts: {
   addObjSlider(lifeBody, "Chaos", params.life, "chaos", 0, 1, 0.01, num, "Controlled instability in the organism.");
   addObjSlider(lifeBody, "Friction", params.life, "friction", 0.5, 0.98, 0.005, (v) => v.toFixed(3), "How quickly movement settles.");
   addObjSlider(lifeBody, "Core", params.life, "coreRadius", 0.1, 0.5, 0.01, num, "The personal space around each particle.");
+  addToggle(lifeBody, "Life", () => params.lifecycle.enabled, (v) => (params.lifecycle.enabled = v), "ON", "OFF", "Particles are born from the memory, grow, age and dissipate.");
+  addObjSlider(lifeBody, "Lifespan", params.lifecycle, "lifespan", 8, 180, 1, (v) => `${v.toFixed(0)}s`, "How long one particle lives before it returns to the source.");
+  addObjSlider(lifeBody, "Spread", params.lifecycle, "spread", 0, 1, 0.05, num, "How far births are staggered, so the swarm never dies at once.");
   {
     const row = document.createElement("div");
     row.className = "row";

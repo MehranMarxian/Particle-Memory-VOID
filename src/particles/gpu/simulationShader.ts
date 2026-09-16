@@ -128,6 +128,9 @@ export const gpuVelocityShader = /* glsl */ `
   uniform vec3 uPointer;
   uniform float uPointerStrength;
   uniform float uPointerMode;
+  uniform float uLifeOn;
+  uniform float uLifespan;
+  uniform float uLifeSpread;
   uniform float uSpeciesCount;
   uniform float uKernel; // 0 = pulse, 1 = inverse, 2 = linear
   uniform float uWander;
@@ -262,8 +265,27 @@ export const gpuVelocityShader = /* glsl */ `
       accel += vec3(n1, n2, n3) * uWander * 5.0;
     }
 
+    // --- LIFE CYCLE: age is a function of time and index ---------------
+    float lifeScale = 1.0;
+    if (uLifeOn > 0.5) {
+      float lifeSpan = max(2.0, uLifespan);
+      float lifeAge = mod(uTime + hash1(idx * 1.618 + 7.13) * uLifeSpread * lifeSpan, lifeSpan);
+      float lifeGrowth = max(0.5, lifeSpan * 0.2);
+      float lifeMature = 0.35 + 0.65 * smoothstep(0.0, lifeGrowth, lifeAge);
+      float lifeFadeOut = 1.0 - smoothstep(lifeSpan * 0.82, lifeSpan, lifeAge);
+      lifeScale = lifeMature * lifeFadeOut;
+      if (lifeAge < uDt * 1.5) {
+        // Born this frame: from the memory, with a small puff outward.
+        vec4 birthTarget = texture2D(texTargets, uv);
+        float br1 = hash1(idx * 2.71 + 3.3) * 6.28318530718;
+        float br2 = hash1(idx * 3.17 + 9.1);
+        pos = birthTarget.xyz + vec3(cos(br1), sin(br1), (br2 - 0.5)) * 0.35;
+        vel = vec3(cos(br1), sin(br1), (br2 - 0.5) * 0.75) * 0.6;
+      }
+    }
+
     // --- MEMORY: spring toward the source target -----------------------
-    float m = uMemoryStrength * mem;
+    float m = uMemoryStrength * mem * lifeScale;
     if (m > 0.0) {
       vec4 tgt = texture2D(texTargets, uv);
       vec3 toT = tgt.xyz - pos;

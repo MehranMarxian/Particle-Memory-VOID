@@ -16,6 +16,9 @@ export class ParticleRenderer {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private colorsDirty = true;
+  /** Per-particle life cycle value for size and light (1 = untouched). */
+  readonly lifeBuffer: Float32Array;
+  private lifeDirty = true;
 
   constructor(
     count: number,
@@ -33,10 +36,14 @@ export class ParticleRenderer {
     stateAttr.setUsage(THREE.DynamicDrawUsage);
     const velAttr = new THREE.BufferAttribute(velocities, 3);
     velAttr.setUsage(THREE.DynamicDrawUsage);
+    this.lifeBuffer = new Float32Array(count).fill(1);
+    const lifeAttr = new THREE.BufferAttribute(this.lifeBuffer, 1);
+    lifeAttr.setUsage(THREE.DynamicDrawUsage);
     this.geometry.setAttribute("position", this.positionAttr);
     this.geometry.setAttribute("aColor", this.colorAttr);
     this.geometry.setAttribute("aState", stateAttr);
     this.geometry.setAttribute("aVel", velAttr);
+    this.geometry.setAttribute("aLife", lifeAttr);
     this.geometry.setDrawRange(0, count);
 
     this.material = new THREE.ShaderMaterial({
@@ -58,6 +65,7 @@ export class ParticleRenderer {
         attribute vec3 aColor;
         attribute vec4 aState;  // phase, omega, stress, asleep
         attribute vec3 aVel;
+        attribute float aLife;  // life cycle: 1 = untouched
         uniform float uSize;
         uniform float uPixelRatio;
         uniform float uFocus;
@@ -77,7 +85,10 @@ export class ParticleRenderer {
           // Phase breathing + velocity bloom (poor-man's stretch for Points).
           float breathe = 0.82 + 0.3 * cos(aState.x);
           float bloom = 1.0 + min(speed * 0.35, 1.8);
-          float sizeAtten = (1.0 + uDof * defocus) * breathe * bloom;
+          float lifeM = clamp(aLife, 0.0, 1.4);
+          // Life cycle: newborns spark a little larger, the dying shrink away.
+          float sizeAtten =
+            (1.0 + uDof * defocus) * breathe * bloom * (0.35 + 0.65 * min(lifeM, 1.15));
           gl_PointSize = uSize * uPixelRatio * (42.0 / dist) * sizeAtten;
           float fog = exp(-uFogDensity * dist);
           // DOF bokeh: energy conserved as defocused sprites grow.
@@ -86,6 +97,8 @@ export class ParticleRenderer {
           // Asleep particles dim; stressed particles run hot.
           float sleepDim = aState.w > 0.5 ? 0.32 : 1.0;
           vFade *= sleepDim * (1.0 + aState.z * 0.9);
+          // Life cycle: the newborn spark, and the dimming of the aged.
+          vFade *= 0.15 + 0.85 * lifeM;
           vColor = aColor;
           vState = aState.xyz;
           gl_Position = projectionMatrix * mv;
@@ -124,6 +137,10 @@ export class ParticleRenderer {
       this.colorAttr.needsUpdate = true;
       this.colorsDirty = false;
     }
+    if (this.lifeDirty) {
+      (this.geometry.getAttribute("aLife") as THREE.BufferAttribute).needsUpdate = true;
+      this.lifeDirty = false;
+    }
   }
 
   /** Organism state (phase/stress/asleep) updates every frame. */
@@ -135,6 +152,11 @@ export class ParticleRenderer {
   /** Call after rewriting the color buffer (source rebuild). */
   markColorsDirty(): void {
     this.colorsDirty = true;
+  }
+
+  /** Call after rewriting the life buffer (life cycle on or off). */
+  markLifeDirty(): void {
+    this.lifeDirty = true;
   }
 
   setCount(count: number): void {

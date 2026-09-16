@@ -165,6 +165,24 @@ music instead of twitching at it. **Sensitivity** sets how far it travels.
 The audio is analysed inside the page and never recorded, stored or sent
 anywhere; switching Listen off releases the microphone immediately.
 
+## Life cycle
+
+Switch **Life** on in the panel's LIFE section (or leave it off for the quiet
+piece) and every particle gets a life of its own:
+
+- **Birth** - it appears at its own point of the memory with a small spark and a
+  puff outward.
+- **Growth** - over the first fifth of its life it grows into the memory it is
+  made of, so young particles are dim, small and barely pulled by the source.
+- **Life** - it lives at full strength.
+- **Dissipation** - over the last fifth it forgets and fades toward nothing.
+- **Rebirth** - it returns to the source and starts again.
+
+**Lifespan** sets how long one life lasts, and **Spread** staggers births so the
+swarm never dies all at once. Age is a pure function of time and particle index,
+so the whole system needs no extra GPU state: both engines run the same curve,
+and the renderer reads it for size and light.
+
 ## Touch
 
 Move the pointer across the canvas and the swarm leans after it. **Cursor**
@@ -230,13 +248,14 @@ src/
   ui/          control panel, source card, controls guide, shared keymap
   audio/       audio-reactive mode (mic or shared-tab analysis)
   input/       pointer track, ghost playback, idle fade
+  (life cycle lives in particles/lifeCycle.ts, shared by both engines)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 153 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, sound mapping, the pointer force and its
-ghost playback, the evolvable matrix search, presets, rendering settings,
-screensaver logic and the keymap.
+the GPU. 160 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, sources, persistence, samples, sound mapping, the pointer
+force and its ghost playback, the evolvable matrix search, presets, rendering
+settings, screensaver logic and the keymap.

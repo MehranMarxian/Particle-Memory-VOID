@@ -3,6 +3,7 @@ import { ScentField } from "./scent/ScentField";
 import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
+import { hash01, sampleLife } from "./lifeCycle";
 
 /**
  * Particle Life engine.
@@ -271,6 +272,8 @@ export class ParticleEngine {
     const pointerX = params.pointer.x;
     const pointerY = params.pointer.y;
     const pointerZ = params.pointer.z;
+    const lifecycle = params.lifecycle;
+    const lifeOn = lifecycle.enabled;
     const time = this.simTime;
     const frictionFactor = exponentialDamp(params.life.friction, dt);
     const scentOn = params.scent.enabled;
@@ -284,9 +287,26 @@ export class ParticleEngine {
       let vy = velocities[i * 3 + 1];
       let vz = velocities[i * 3 + 2];
 
+      // Life cycle: age is a function of time and index (mirrors the shader).
+      let lifeScale = 1;
+      if (lifeOn) {
+        const sample = sampleLife(i, time, lifecycle, dt);
+        lifeScale = sample.life;
+        if (sample.reborn) {
+          const r1 = hash01(i, 2.71) * Math.PI * 2;
+          const r2 = hash01(i, 3.17);
+          positions[i * 3] = targets[i * 3] + Math.cos(r1) * 0.35;
+          positions[i * 3 + 1] = targets[i * 3 + 1] + Math.sin(r1) * 0.35;
+          positions[i * 3 + 2] = targets[i * 3 + 2] + (r2 - 0.5) * 0.35;
+          vx = Math.cos(r1) * 0.6;
+          vy = Math.sin(r1) * 0.6;
+          vz = (r2 - 0.5) * 0.45;
+        }
+      }
+
       // Memory spring: a = memory * (target - current), optionally eased
       // for far particles (reconstructionEase > 1 softens long-range pull).
-      const mem = memoryStrength * memoryPerParticle[i];
+      const mem = memoryStrength * memoryPerParticle[i] * lifeScale;
       if (mem > 0) {
         const dx = targets[i * 3] - positions[i * 3];
         const dy = targets[i * 3 + 1] - positions[i * 3 + 1];

@@ -27,6 +27,7 @@ import {
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
+import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
@@ -63,6 +64,7 @@ interface SimEngine {
   memoryPerParticle: Float32Array;
   renderState: Float32Array;
   lastStepTime: number;
+  simTime: number;
   configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
@@ -628,6 +630,7 @@ const pointerNormal = new THREE.Vector3();
 const pointerOrigin = new THREE.Vector3(0, 0, 0);
 let pointerNdc: { x: number; y: number } | null = null;
 let ghostClock = 0;
+let lifeApplied = false;
 pointerTrack.begin(performance.now() / 1000);
 
 renderer3d.domElement.addEventListener("pointermove", (e) => {
@@ -1167,6 +1170,23 @@ function frameInner(now: number): void {
   }
 
   updateTouch(dt);
+  // Life cycle: derive the per-particle life the renderer uses, from the same
+  // clock the engines run on, so the spark and the rebirth stay in step.
+  if (particleRenderer) {
+    if (params.lifecycle.enabled) {
+      const life = particleRenderer.lifeBuffer;
+      for (let i = 0; i < engine.count; i++) {
+        life[i] = sampleLife(i, engine.simTime, params.lifecycle, FIXED_DT).visual;
+      }
+      particleRenderer.markLifeDirty();
+      lifeApplied = true;
+    } else if (lifeApplied) {
+      particleRenderer.lifeBuffer.fill(1);
+      particleRenderer.markLifeDirty();
+      lifeApplied = false;
+    }
+  }
+
   evolver.tick(dt);
   azimuth += dt * (saver.active ? 0.035 : 0.02);
   // In screensaver the camera slowly dollies in and out — a long breath.
