@@ -2,229 +2,167 @@
 
 _Developed by Mehran Ahmadi © 2026_
 
-A generative particle application. Sources (images, 3D models, point clouds) become
-particle memories that reconstruct, dissolve, and remember themselves again through
-a Particle Life system.
+A generative particle artwork. Give VOID a photograph, a 3D model, or a point
+cloud, and it becomes a living memory: thousands of particles that try to
+reconstruct the source while behaving like an organism of their own.
 
-**Status: Phase 5 complete** — everything below, plus the control panel:
-SOURCE / MEMORY / LIFE / FIELD / VISUAL / PRESETS / ACTIONS sections, six
-authored presets, constrained randomization with undo, and localStorage
-persistence of the whole instrument state.
+## What is VOID?
 
-## Run
+A source becomes a memory. The swarm converges on it, lives with it, drifts
+away from it, forgets it almost completely, and then finds its way back.
+
+The piece lives in the tension between three forces:
+
+- **MEMORY** - the shape the particles are trying to remember
+- **LIFE** - the particle-life ecosystem of attracting and repelling species
+- **VOID** - the pull toward dissolution
+
+Nothing is a pre-rendered video. The artwork is a simulation you can steer:
+every source, state and parameter is yours to change.
+
+## Quick Start
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # vitest (engine, grid, matrix, memory, perf)
-npm run build      # production build to dist/
 ```
 
-## Phase 5 — the instrument panel
-
-`P` toggles the panel (or the HIDE / PANEL buttons). Sections:
-
-- **SOURCE** — current source name/kind/detail, ADD SOURCE, particle density.
-- **MEMORY** — Cycle (AUTHORED ⇄ MANUAL), memory strength, decay, reconstruction.
-- **LIFE** — attraction, repulsion, radius, force, chaos, friction, core,
-  species count (live, no rebuild), force kernel (pulse / inverse / linear).
-- **FIELD** — turbulence, drift, gravity.
-- **VISUAL** — size, glow, opacity, depth-of-field, fog, trail length,
-  trails and color-mode toggles.
-- **PRESETS** — Portrait / Organic / Scan / Architecture / Void / Chaos.
-  Data-driven JSON definitions (`src/presets/presets.ts`) — the UI contains
-  no behavior. Applying a preset switches the cycle to MANUAL so the preset
-  owns the parameters; the Cycle toggle (or `A`, or RECONSTRUCT/RELEASE)
-  re-engages the authored experience.
-- **ACTIONS** — Reconstruct, Release, Randomize (constrained, §17), Undo
-  (30-step history), Reset, Fullscreen (`F`).
-
-Manual mode matters: the authored cycle normally *drives* memory/life
-(including life-yields-to-memory scaling); MANUAL hands the parameters to
-you, and the HUD reads your slider values live.
-
-Persistence (§21): the whole state — params, visual settings, matrix,
-species count, density, cycle mode, active preset, last source name/URL —
-saves to localStorage (debounced, on change, on hide, on unload) and
-restores on boot. URL params (`?src= ?count= ?color= …`) override the
-stored state. Dropped files cannot persist (browser sandbox); the screensaver
-phase adds proper source storage.
-
-## The organism layer (quick-wins build)
-
-Per-particle state `[phase, omega, stress, asleep]` lives in a third GPU
-texture (CPU-mirrored for rendering):
-
-- **Phase clocks** — Kuramoto-lite coupling: neighbors drag each particle's
-  clock; sprites breathe with `cos(phase)`. The FIELD > Sync slider is the
-  coupling strength — crank it and the swarm finds a shared heartbeat.
-- **Stress & sleep hysteresis** — stress accumulates from speed (factor 0.35)
-  and decays with a ~1s constant; particles wake above 0.5 and only fall
-  asleep below 0.18. Asleep particles dim to 32%, their life forces yield 4x,
-  and memory acts at full strength (deep recall). High stress reads as
-  brightness.
-- **OU wander** — Ornstein-Uhlenbeck noise (CPU) / time-interpolated value
-  noise (GPU) replaces white jitter with smooth organic wander (FIELD >
-  Wander).
-- **Scent field (Physarum)** — a coarse 3D trail map (36³) the swarm writes
-  and ascends: deposit → decay → gradient ascent. The FIELD > Scent controls
-  set it; decay is the forgetting rate — scars of past positions persist and
-  guide recall. FIELD > Scent fade = retention.
-- **Filmic pipeline** — the feedback chain now accumulates in half-float HDR
-  and presents through ACES tone-mapping with dither: no more additive
-  clipping, motion smear, and true bokeh falloff (DOF energy normalization +
-  velocity bloom in the sprite shader).
-
-## Phase 8 — Windows screensaver packaging
-
-`packaging/build.ps1` builds **VOID.scr** — a single ~2.5 MB file containing
-the entire app (vite dist embedded as resources) plus a tiny C# wrapper
-(void-scr.cs, compiled with the .NET Framework compiler that ships with
-Windows — no SDK needed):
-
-```
-powershell -ExecutionPolicy Bypass -File packaginguild.ps1
+```bash
+npm test           # vitest: engine, memory, sources, keymap
+npm run build      # production build into dist/
 ```
 
-- **Install**: right-click `VOID.scr` → *Install* (copies to System32 and
-  opens the Windows screensaver settings).
-- **Test now**: double-click `VOID.scr`.
-- **Configure**: right-click → *Configure* — opens the full editor in a
-  window; your settings persist (the wrapper keeps a stable browser
-  profile).
-- **Your own source**: drop images into `Documents\VOID\Sources` — the
-  screensaver picks one (or name it via `?source=<file>`).
-- **Terminate**: any key/click/deliberate mouse movement (handled by the
-  app, which then asks the wrapper to close via `/shutdown`); Alt+F4 or
-  closing the browser also ends it.
-- **Browser**: uses Edge or Chrome in kiosk mode with a dedicated profile;
-  override with the `VOID_BROWSER` environment variable.
-- **Smoke test**: `VOID.scr /port:<file>` runs the embedded server without
-  a browser (used by `packaging/smoke.ps1`).
+Needs Node 18+ and a WebGL2-capable browser. Without WebGL2 the CPU engine
+takes over automatically.
 
-Platform independence note: the core engine remains a plain web app —
-the wrapper is a thin shell; the browser does the rendering.
+## Use Your Own Memory
 
-## GPU simulation
+VOID remembers three kinds of source:
 
-`src/particles/gpu/GpuParticleEngine.ts` — the pragmatic hybrid division:
+| Kind | Formats |
+|------|---------|
+| Image | PNG, JPG, WEBP, BMP, GIF |
+| 3D model | GLB, GLTF, OBJ, STL |
+| Point cloud | PLY |
 
-- **CPU** rebuilds the spatial grid each step (a ~0.5 ms counting sort — the
-  one stage WebGL2 can't do portably without scatter atomics) and packs it
-  into float textures.
-- **GPU** does everything O(n·neighbors): species forces, memory springs,
-  curl turbulence, integration — as position/velocity texture ping-pong
-  via `GPUComputationRenderer`, with formulas identical to the CPU engine
-  (semi-implicit Euler order preserved).
-- One readback per frame feeds the grid and the render buffer.
-- Falls back to the CPU engine automatically when WebGL2 or
-  `EXT_color_buffer_float` is missing; `G` switches backends live,
-  carrying the current memory state across.
+Bring one in three ways:
 
-Measured in the dev VM: 12k particles 3 fps (CPU) → 60 fps (GPU); sim cost
-at 32k stays ~7 ms.
+- **UPLOAD SOURCE** on the YOUR MEMORY card (bottom left of the canvas)
+- **Drag and drop** a file anywhere on the window
+- **URL hook**: `?src=/samples/void-cloud.ply` (plus `?count=8000`)
 
-## Phase 4 — the visual layer
-
-All style is data-driven through `VisualSettings` (clamped, unit-tested,
-serializable — the Phase 5 UI and screensaver config will drive it directly):
-
-- **Sprites** — soft core + faint halo in one shader (no post bloom).
-- **Color modes** — `monochrome` (default; BT.709 luminance through a
-  restrained cool tint) and `source` (raw source colors).
-- **Depth** — exponential fog toward black, optional depth-of-field
-  (off-focus particles grow and fade), camera focus tracks orbit radius.
-- **Trails** — afterimage ping-pong pass; opacity is automatically scaled
-  by `(1 − decay)` so exposure stays constant as trail length changes.
-- **Camera** — slow azimuth drift plus a vertical breathing oscillation.
-- URL overrides: `?color=source|mono&trails=0|1&dof=0|1`.
-- Keys: `C` color mode, `T` trails, `D` depth-of-field.
-
-## Phase 3 — source loaders
-
-Every source converges to the same flat representation (`FlatSource`: positions,
-colors, normals, weights — exactly `count` particles in world space). The engine
-never knows where its memory came from.
-
-| Kind | Formats | Path |
-|------|---------|------|
-| Image | PNG, JPG/JPEG, WebP, BMP, GIF | luminance + contrast + Sobel-edge weighted stratified inverse-CDF sampling; alpha-masked; aspect preserved; configurable depth extrusion |
-| Point cloud | PLY (ASCII + binary LE/BE) | XYZ + RGB + normals parsed natively, centered/scaled, geometric structure preserved; fewer points than density → jittered upsample |
-| Mesh | GLB, GLTF, OBJ, STL | area-weighted surface sampling via per-triangle CDF (never vertex sampling); vertex colors interpolated; normals interpolated or face-derived; bbox-normalized |
-
-- Sources enter via drag-and-drop, the ADD SOURCE picker, or a `?src=/path`
-  URL hook (also `?count=8000`), and a small preview panel shows the source
-  name, kind, detail and current particle count.
-- Density is live-adjustable with `[` / `]` (4k → 50k presets); resampling
-  uses the same handles and seeds, so the memory stays stable as density
-  changes.
-- Demo sources for testing: `public/samples/` (`void-figure.png`,
-  `void-cloud.ply`, `void-sphere.obj`), regenerated with
-  `node scripts/make-samples.mjs`.
-
-## Phase 2 demo scene
-
-A synthetic source (a tilted torus surface) stands in for real sources until the
-Phase 3 loaders land. Every particle carries one torus point as its `targetPosition`;
-particles are born scattered and half-forgetful. The automatic memory cycle then runs:
+The card then shows exactly what VOID is remembering:
 
 ```
-RECONSTRUCT → ALIVE → DRIFT → VOID → REMEMBER → ...
+MEMORY
+portrait.jpg
+IMAGE · 12,000 PARTICLES
+[ CHANGE SOURCE ]
 ```
 
-- Drag to orbit, scroll to zoom.
-- `1`–`5` force a memory state, `A` toggles the automatic cycle,
-  `H` cycles interaction matrices, `R` randomizes the matrix,
-  `[` / `]` change particle density.
-- HUD (top-left): particle count, FPS, sim ms, memory strength, MEMORY↔LIFE blend.
-- The state name is shown top-right.
+Loading is a small lifecycle: READING the file, FORMING the memory, then
+ready. If a file cannot be read you get a plain-language error and a TRY AGAIN
+button, and the memory that was already running stays untouched.
 
-### Memory states (`src/memory/MemorySystem.ts`)
+Density is live: `[` and `]` step through 4k to 50k particles, resampling the
+same source with the same seeds so the memory stays stable as it thickens.
+Loading an image also shows a small thumbnail of the source.
 
-- Data-driven, JSON-serializable state configs (blend, memoryStrength, decay,
-  chaos, regain, duration range).
-- Smoothstep transitions between states (default 4–7 s, configurable); manual
-  switches never snap — they start from the current interpolated values.
-- Automatic timing jitters durations per state so the cycle never feels looped.
-- DRIFT decays per-particle memory stochastically; REMEMBER gradually regains it
-  (`ParticleEngine.regainMemory`).
+Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
+`void-sphere.obj`); regenerate them with `node scripts/make-samples.mjs`.
 
-## Architecture
+## Controls
+
+Press `?` at any time for the in-app guide, which groups every control by what
+it affects and explains the five memory states.
+
+| Keys | Does |
+|------|------|
+| `1` `2` `3` `4` `5` | Force a memory state |
+| `A` | Toggle the automatic memory cycle |
+| `H` | Cycle species interaction matrices |
+| `R` | Randomize the interaction matrix |
+| `C` | Color mode (monochrome / source) |
+| `T` | Trails |
+| `D` | Depth of field |
+| `P` | Control panel |
+| `F` | Fullscreen |
+| `[` `]` | Particle density |
+| `G` | Simulation backend (GPU / CPU) |
+| `S` | Screensaver mode |
+| `?` | Controls guide |
+| `ESC` | Close the guide / leave fullscreen |
+
+Drag to orbit, scroll to zoom. The panel holds the full instrument: SOURCE,
+MEMORY, LIFE, FIELD, VISUAL, PRESETS and ACTIONS, with short tooltips on the
+semantic controls. Six authored presets ship with the piece (Portrait,
+Organic, Scan, Architecture, Void, Chaos); the whole instrument state persists
+to localStorage and restores on the next visit.
+
+## Memory States
+
+The five states are the heart of the piece:
+
+| State | Meaning |
+|-------|---------|
+| RECONSTRUCT | The memory returns to the source. |
+| ALIVE | Memory and life coexist. |
+| DRIFT | The memory begins to weaken. |
+| VOID | The source is almost forgotten. |
+| REMEMBER | The organism finds its way back. |
+
+States are data, not code (`src/memory/MemorySystem.ts`): blend, memory
+strength, decay, chaos, regain and duration ranges, all JSON-serializable.
+Transitions are smoothstep, so a manual switch never snaps, and the automatic
+cycle jitters its durations so the loop never feels mechanical.
+
+## Particle Life
+
+Particles belong to species, and every pair of species has its own affinity in
+an interaction matrix: positive values attract, negative values repel. Three
+force kernels shape the neighbour response (pulse, inverse, linear).
+
+On top of that sit the organism behaviours: per-particle phase clocks that can
+couple into a shared heartbeat, stress and sleep hysteresis, Ornstein-Uhlenbeck
+wander, and a Physarum-style scent field the swarm writes, follows and slowly
+forgets. The FIELD section of the panel exposes all of it.
+
+## Performance
+
+Simulation is split on purpose:
+
+- The **CPU** rebuilds the spatial grid each step (a counting sort WebGL2 cannot
+  do portably) and packs it into textures.
+- The **GPU** evaluates neighbour forces and integration for every particle.
+- When WebGL2 is missing the CPU engine runs instead; `G` switches live and
+  carries the current memory across.
+
+Measured in a dev VM: 12k particles at 3 fps on the CPU became 60 fps on the
+GPU path; the neighbour stage stays around 7 ms at 32k particles.
+
+## Windows Screensaver
+
+`packaging/build.ps1` produces a single-file `VOID.scr` (the built app plus a
+small C# host, no SDK required). Right-click it and choose *Install*, or drop
+your own images into `Documents\VOID\Sources` and the screensaver will use one
+of them. The core stays a plain web app; the wrapper is a thin shell.
+
+## Development
 
 ```
 src/
-  types/       shared interfaces (ParticleTarget, EngineParams, ...)
-  particles/   ParticleEngine (SoA buffers), SpatialGrid, InteractionMatrix
-  memory/      MemorySystem — states, transitions, MEMORY<->LIFE blend
-  sources/     loaders + samplers: image, PLY, mesh (GLB/GLTF/OBJ/STL)
-  rendering/   ParticleRenderer (THREE.Points + ShaderMaterial)
-  app/         entry / demo scene (later: editor, fullscreen, cycle)
-  utils/       math helpers
-tests/         vitest suites (non-rendering logic + perf)
-scripts/       sample generator (make-samples.mjs)
+  app/         entry point, keyboard map, source lifecycle
+  particles/   CPU engine, spatial grid, interaction matrix, GPU engine
+  memory/      the five states and their transitions
+  sources/     image / PLY / mesh loaders and samplers
+  rendering/   sprites, trails, HDR filmic pipeline
+  presets/     preset definitions, randomization, localStorage
+  ui/          control panel, source card, controls guide, shared keymap
+tests/         vitest suites (engine, memory, organism, sources, keymap)
+scripts/       sample generator
 ```
 
-Simulation is fully separated from rendering: `ParticleEngine` uses flat
-`Float32Array` buffers (positions/velocities/targets/colors) with no Three.js
-dependency, so the same buffers upload directly to the GPU and the logic is
-unit-testable.
-
-### Engine notes
-
-- **Spatial grid**: adaptive uniform grid, rebuilt each step via counting sort,
-  allocation-free in steady state; neighbor traversal is inlined in the hot loop.
-- **Forces**: species interactions (attraction/repulsion with core separation),
-  per-particle memory springs, curl turbulence, drift, gravity, per-frame
-  friction, speed clamp.
-- **Memory**: `memoryPerParticle` in [0,1] per particle so DECAY makes particles
-  forget individually (Phase 2 builds states on top of this).
-- **Perf** (measured): ~10 ns per pair evaluation; 25k particles at scene
-  density ≈ 40 ms/step in Node, 12k ≈ 24 ms in the in-app browser VM. Real
-  desktops will be significantly faster; GPU simulation is the planned path
-  beyond ~50k.
-
-## Roadmap
-
-Phase 2 memory/memory-life blend → Phase 3 source loaders (image/PLY/GLB/OBJ)
-→ Phase 4 rendering polish → Phase 5 UI → Phase 6 automatic cycle → Phase 7
-fullscreen/screensaver → Phase 8 Windows `.scr` packaging.
+The engine is framework-free: flat typed arrays, no Three.js in the
+simulation, so the logic is unit-testable and the buffers upload straight to
+the GPU. 110 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, presets, rendering settings, screensaver logic and the keymap.
