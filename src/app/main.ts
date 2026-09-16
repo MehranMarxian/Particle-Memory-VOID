@@ -30,6 +30,8 @@ import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/Screensav
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
 import { createSourceCard } from "@/ui/sourceCard";
 import { nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
+import { createControlsGuide } from "@/ui/guide";
+import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -528,45 +530,54 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
-// --- Keyboard -----------------------------------------------------------------
-window.addEventListener("keydown", (e) => {
-  const key = e.key.toUpperCase();
-  if (key === "H") {
-    matrixIndex = (matrixIndex + 1) % matrices.length;
-    activeMatrix = matrices[matrixIndex];
-  } else if (key === "R") {
-    activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
-  } else if (key === "A") {
-    memory.active = memory.auto = !memory.auto;
-    panelApi?.setState(memory.active ? memory.state : "MANUAL");
-  } else if (key === "S") {
-    void toggleScreensaver();
-  } else if (key === "P") {
-    panelApi?.toggleVisible();
-  } else if (key === "F") {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen();
-  } else if (key === "C") {
+// --- Controls guide + keyboard -------------------------------------------------
+// All bindings live in the shared keymap (ui/shortcuts): the guide renders
+// that table and handleKey dispatches it, so they cannot drift apart.
+const guide = createControlsGuide();
+document.body.appendChild(guide.element);
+
+const shortcutCtx: ShortcutContext = {
+  togglePanel: () => panelApi?.toggleVisible(),
+  toggleColor: () => {
     visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
-  } else if (key === "T") {
+  },
+  toggleTrails: () => {
     visual.trails = !visual.trails;
     flashHint(`TRAILS: ${visual.trails ? "ON" : "OFF"}`, 3);
-  } else if (key === "D") {
+  },
+  toggleDof: () => {
     visual.dof = visual.dof > 0 ? 0 : 0.25;
     flashHint(`DEPTH OF FIELD: ${visual.dof > 0 ? "ON" : "OFF"}`, 3);
-  } else if (key === "G") {
-    switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
-  } else if (e.key === "]" || e.key === "+") {
-    setDensity(densityIndex + 1);
-  } else if (e.key === "[") {
-    setDensity(densityIndex - 1);
-  } else {
-    const idx = Number(key) - 1;
-    if (idx >= 0 && idx < MEMORY_STATE_ORDER.length) {
-      memory.setState(MEMORY_STATE_ORDER[idx]);
-    }
-  }
+  },
+  toggleCycle: () => {
+    memory.active = memory.auto = !memory.auto;
+    panelApi?.setState(memory.active ? memory.state : "MANUAL");
+  },
+  cycleMatrix: () => {
+    matrixIndex = (matrixIndex + 1) % matrices.length;
+    activeMatrix = matrices[matrixIndex];
+  },
+  randomizeMatrix: () => {
+    activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
+  },
+  toggleFullscreen: () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen();
+  },
+  densityUp: () => setDensity(densityIndex + 1),
+  densityDown: () => setDensity(densityIndex - 1),
+  toggleBackend: () => switchBackend(activeBackend === "gpu" ? "cpu" : "gpu"),
+  toggleScreensaver: () => void toggleScreensaver(),
+  setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
+  toggleGuide: () => guide.toggle(),
+  closeGuide: () => guide.close(),
+  isGuideOpen: () => guide.isOpen(),
+};
+
+window.addEventListener("keydown", (e) => {
+  if (isTextEntryTarget(e.target)) return;
+  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
 });
 
 const matrices = [matrix];
@@ -748,6 +759,9 @@ let activeMatrix = matrix;
       onToggleCycle() {
         panelApi?.setState(memory.active ? memory.state : "MANUAL");
       },
+      onToggleGuide() {
+        guide.toggle();
+      },
     },
   });
   document.body.appendChild(panelApi.element);
@@ -764,6 +778,9 @@ let activeMatrix = matrix;
   }
 }
 
+// One-time discoverability nudge: the guide exists from the first minute.
+window.setTimeout(() => flashHint("PRESS ? FOR CONTROLS", 6), 2400);
+
 // --- Splash: fade once the first frame has rendered -------------------------
 const splash = document.getElementById("splash")!;
 let splashGone = false;
@@ -772,6 +789,7 @@ let splashGone = false;
 const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
+  guide.close();
   memory.active = memory.auto = true;
   persistNow();
 };
@@ -895,7 +913,7 @@ function frameInner(now: number): void {
     panelApi?.setStats(
       `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}\n` +
-      `keys: [ ] density  [1-5] states  [A] cycle  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [P] panel  [F] fullscreen  [R] randomize`
+      `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
     );
   }
   if (hintTimer > 0) {
