@@ -3,6 +3,7 @@ import { ScentField } from "./scent/ScentField";
 import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
+import { hash01, sampleLife } from "./lifeCycle";
 
 /**
  * Particle Life engine.
@@ -38,6 +39,7 @@ export class ParticleEngine {
   private grid: SpatialGrid;
   private rng: () => number;
   readonly scent: ScentField;
+  readonly heat: ScentField;
   private ax: Float32Array = new Float32Array(0);
   private ay: Float32Array = new Float32Array(0);
   private az: Float32Array = new Float32Array(0);
@@ -73,6 +75,7 @@ export class ParticleEngine {
     this.renderState = new Float32Array(capacity * 4);
     this.wanderField = new Float32Array(capacity * 3);
     this.scent = new ScentField();
+    this.heat = new ScentField();
     this.rng = mulberry32(seed);
     for (let i = 0; i < capacity; i++) {
       this.renderState[i * 4] = this.rng() * Math.PI * 2; // phase
@@ -242,9 +245,23 @@ export class ParticleEngine {
         }
       }
 
-      ax[i] = fx;
-      ay[i] = fy;
-      az[i] = fz;
+      // Environment-modulated affinities: the swarm's own fields change how
+      // sociable it is where it has been (scent) and where it is busy (heat).
+      // (Read straight from params: this runs before the FIELD hoists.)
+      let envMod = 1;
+      const envScent = params.environment.scent;
+      const envHeat = params.environment.heat;
+      if (envScent !== 0 || envHeat !== 0) {
+        const ex = positions[i * 3];
+        const ey = positions[i * 3 + 1];
+        const ez = positions[i * 3 + 2];
+        const fieldS = params.scent.enabled ? this.scent.sample(ex, ey, ez) : 0;
+        const fieldH = params.heat.enabled ? this.heat.sample(ex, ey, ez) : 0;
+        envMod = Math.min(3, Math.max(0.05, 1 + envScent * fieldS + envHeat * fieldH));
+      }
+      ax[i] = fx * envMod;
+      ay[i] = fy * envMod;
+      az[i] = fz * envMod;
       this.phaseAccArr[i] = phaseN > 0 ? phaseAcc / phaseN : 0;
     }
 
@@ -266,9 +283,18 @@ export class ParticleEngine {
     const turb = params.turbulence;
     const drift = params.drift;
     const grav = params.gravity;
+    const pointerStrength = params.pointer.strength;
+    const pointerMode = params.pointer.mode;
+    const pointerX = params.pointer.x;
+    const pointerY = params.pointer.y;
+    const pointerZ = params.pointer.z;
+    const lifecycle = params.lifecycle;
+    const lifeOn = lifecycle.enabled;
     const time = this.simTime;
     const frictionFactor = exponentialDamp(params.life.friction, dt);
     const scentOn = params.scent.enabled;
+    const heatOn = params.heat.enabled;
+    const heatSteer = params.heat.steer;
     const scentSteer = params.scent.steer;
     const phaseK = params.phaseCoupling;
     const gradTmp = [0, 0, 0];
@@ -279,9 +305,26 @@ export class ParticleEngine {
       let vy = velocities[i * 3 + 1];
       let vz = velocities[i * 3 + 2];
 
+      // Life cycle: age is a function of time and index (mirrors the shader).
+      let lifeScale = 1;
+      if (lifeOn) {
+        const sample = sampleLife(i, time, lifecycle, dt);
+        lifeScale = sample.life;
+        if (sample.reborn) {
+          const r1 = hash01(i, 2.71) * Math.PI * 2;
+          const r2 = hash01(i, 3.17);
+          positions[i * 3] = targets[i * 3] + Math.cos(r1) * 0.35;
+          positions[i * 3 + 1] = targets[i * 3 + 1] + Math.sin(r1) * 0.35;
+          positions[i * 3 + 2] = targets[i * 3 + 2] + (r2 - 0.5) * 0.35;
+          vx = Math.cos(r1) * 0.6;
+          vy = Math.sin(r1) * 0.6;
+          vz = (r2 - 0.5) * 0.45;
+        }
+      }
+
       // Memory spring: a = memory * (target - current), optionally eased
       // for far particles (reconstructionEase > 1 softens long-range pull).
-      const mem = memoryStrength * memoryPerParticle[i];
+      const mem = memoryStrength * memoryPerParticle[i] * lifeScale;
       if (mem > 0) {
         const dx = targets[i * 3] - positions[i * 3];
         const dy = targets[i * 3 + 1] - positions[i * 3 + 1];
@@ -310,6 +353,23 @@ export class ParticleEngine {
         ax[i] += this.wanderField[i * 3] * params.wander * 60 * dt * 4;
         ay[i] += this.wanderField[i * 3 + 1] * params.wander * 60 * dt * 4;
         az[i] += this.wanderField[i * 3 + 2] * params.wander * 60 * dt * 4;
+      }
+
+      // Heat steering: signed gradient — flee the warmth, or seek it.
+      if (heatOn && heatSteer !== 0) {
+        this.heat.gradient(
+          positions[i * 3],
+          positions[i * 3 + 1],
+          positions[i * 3 + 2],
+          gradTmp
+        );
+        const hgmag = Math.sqrt(gradTmp[0] * gradTmp[0] + gradTmp[1] * gradTmp[1] + gradTmp[2] * gradTmp[2]);
+        if (hgmag > 1e-5) {
+          const hk = (heatSteer * Math.min(1, hgmag)) / hgmag;
+          ax[i] += gradTmp[0] * hk;
+          ay[i] += gradTmp[1] * hk;
+          az[i] += gradTmp[2] * hk;
+        }
       }
 
       // Scent steering: ascend the swarm's own trail gradient (Physarum).
@@ -348,6 +408,21 @@ export class ParticleEngine {
         ay[i] -= grav * dt;
       }
 
+      // The touch: a soft attractor or repulsor at the pointer, with the
+      // same falloff and mode sign as the GPU shader.
+      if (pointerStrength > 0) {
+        const pdx = pointerX - positions[i * 3];
+        const pdy = pointerY - positions[i * 3 + 1];
+        const pdz = pointerZ - positions[i * 3 + 2];
+        const pd2 = pdx * pdx + pdy * pdy + pdz * pdz;
+        const pd = Math.sqrt(pd2) + 1e-4;
+        // A true acceleration: the integrator applies dt, exactly like the GPU shader.
+        const pull = (pointerStrength * pointerMode) / (1 + pd2 * 0.25);
+        ax[i] += (pdx / pd) * pull;
+        ay[i] += (pdy / pd) * pull;
+        az[i] += (pdz / pd) * pull;
+      }
+
       // Integrate.
       velocities[i * 3] = (vx + ax[i] * dt) * frictionFactor;
       velocities[i * 3 + 1] = (vy + ay[i] * dt) * frictionFactor;
@@ -384,6 +459,22 @@ export class ParticleEngine {
       }
       // Phase clock: intrinsic omega + neighbor Kuramoto coupling.
       st3[i * 4] = (st3[i * 4] + (st3[i * 4 + 1] + phaseK * this.phaseAccArr[i]) * dt) % (Math.PI * 2);
+    }
+
+    // --- Heat deposit + decay: warmth where the swarm is moving ----------
+    if (heatOn) {
+      const heatAmt = params.heat.deposit * dt;
+      for (let i = 0; i < n; i++) {
+        const speed =
+          Math.abs(velocities[i * 3]) + Math.abs(velocities[i * 3 + 1]) + Math.abs(velocities[i * 3 + 2]);
+        this.heat.deposit(
+          positions[i * 3],
+          positions[i * 3 + 1],
+          positions[i * 3 + 2],
+          heatAmt * (0.25 + speed)
+        );
+      }
+      this.heat.decay(Math.pow(params.heat.decay, dt));
     }
 
     // --- Scent deposit + decay (the swarm's writable memory) -------------

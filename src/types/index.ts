@@ -79,6 +79,85 @@ export interface ScentParams {
   steer: number;
 }
 
+/**
+ * A touch on the canvas: the swarm leans toward it or away from it. Written
+ * every frame by the input layer, read by both engines, so the CPU and GPU
+ * paths stay identical.
+ */
+export interface PointerParams {
+  /** Effective strength; 0 means no touch. */
+  strength: number;
+  /** +1 attracts, -1 repels. */
+  mode: number;
+  /** World-space position of the touch. */
+  x: number;
+  y: number;
+  z: number;
+}
+
+export const defaultPointerParams = (): PointerParams => ({
+  strength: 0,
+  mode: 1,
+  x: 0,
+  y: 0,
+  z: 0,
+});
+
+/**
+ * Life cycle: particles are born from the memory, grow into it, age and
+ * dissipate, then return to the source. Age is derived from time and the
+ * particle index, so no extra state texture is needed.
+ */
+export interface LifeCycleParams {
+  enabled: boolean;
+  /** Seconds from birth to dissipation. */
+  lifespan: number;
+  /** 0 = born together, 1 = births spread across the whole lifespan. */
+  spread: number;
+}
+
+export const defaultLifeCycleParams = (): LifeCycleParams => ({
+  enabled: false,
+  lifespan: 45,
+  spread: 1,
+});
+
+/**
+ * Heat: the swarm's second writable memory. Particles leave warmth where they
+ * move, it decays quickly, and the swarm can either avoid it or seek it.
+ */
+export interface HeatParams {
+  enabled: boolean;
+  /** Warmth left per particle per second (scaled by how fast it moves). */
+  deposit: number;
+  /** Per-second retention of the whole field. */
+  decay: number;
+  /** Signed gradient steer: negative flees the warmth, positive seeks it. */
+  steer: number;
+}
+
+export const defaultHeatParams = (): HeatParams => ({
+  enabled: false,
+  deposit: 0.5,
+  decay: 0.35,
+  steer: -1.1,
+});
+
+/**
+ * Environment-modulated affinities: how strongly the swarm's own fields bend
+ * its species affinities where it has been (scent) and where it is busy (heat).
+ * Positive values make the swarm stickier in those places, negative looser.
+ */
+export interface EnvironmentParams {
+  scent: number;
+  heat: number;
+}
+
+export const defaultEnvironmentParams = (): EnvironmentParams => ({
+  scent: 0,
+  heat: 0,
+});
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
@@ -87,6 +166,10 @@ export interface EngineParams {
   /** Kuramoto phase coupling between neighbors (heartbeat sync). */
   phaseCoupling: number;
   scent: ScentParams;
+  pointer: PointerParams;
+  lifecycle: LifeCycleParams;
+  heat: HeatParams;
+  environment: EnvironmentParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -123,6 +206,10 @@ export const defaultEngineParams = (): EngineParams => ({
   wander: 0.06,
   phaseCoupling: 1.2,
   scent: defaultScentParams(),
+  pointer: defaultPointerParams(),
+  lifecycle: defaultLifeCycleParams(),
+  heat: defaultHeatParams(),
+  environment: defaultEnvironmentParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

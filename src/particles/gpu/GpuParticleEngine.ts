@@ -43,6 +43,7 @@ export class GpuParticleEngine {
   private stateReadback: Float32Array;
   private velReadback: Float32Array;
   readonly scent = new ScentField();
+  readonly heat = new ScentField();
   private scentTex: THREE.DataTexture;
   private grid: SpatialGrid;
   private packed: PackedGridTextures;
@@ -160,12 +161,22 @@ export class GpuParticleEngine {
       "uTurbulence",
       "uDrift",
       "uGravity",
+      "uPointerStrength",
+      "uPointerMode",
+      "uLifeOn",
+      "uLifespan",
+      "uLifeSpread",
     ]) {
       vu[name] = { value: 0 };
     }
+    vu["uPointer"] = { value: new THREE.Vector3() };
     vu["uKernel"] = { value: 0 };
     vu["uWander"] = { value: 0.06 };
     vu["uScentOn"] = { value: 0 };
+    vu["uHeatOn"] = { value: 0 };
+    vu["uHeatSteer"] = { value: -1.1 };
+    vu["uEnvScent"] = { value: 0 };
+    vu["uEnvHeat"] = { value: 0 };
     vu["uScentSteer"] = { value: 1.4 };
     vu["texScent"] = { value: this.scentTex };
     vu["uScentN"] = { value: this.scent.n };
@@ -359,7 +370,8 @@ export class GpuParticleEngine {
   step(dt: number, params: EngineParams, matrix: InteractionMatrix): void {
     const t0 = performance.now();
 
-    // 0. Scent: the CPU owns deposit/decay; the GPU only samples it.
+    // 0. Fields: the CPU owns deposit/decay; the GPU samples them from one
+    // texture (scent in .x, heat in .y).
     if (params.scent.enabled) {
       const amt = params.scent.deposit * dt;
       for (let i = 0; i < this.count; i++) {
@@ -371,9 +383,27 @@ export class GpuParticleEngine {
         );
       }
       this.scent.decay(Math.pow(params.scent.decay, dt));
-      (this.scentTex.image.data as unknown as Float32Array).set(
-        this.scent.packSliceTexture()
-      );
+    }
+    if (params.heat.enabled) {
+      const heatAmt = params.heat.deposit * dt;
+      for (let i = 0; i < this.count; i++) {
+        const hvx = Math.abs(this.velocities[i * 3]);
+        const hvy = Math.abs(this.velocities[i * 3 + 1]);
+        const hvz = Math.abs(this.velocities[i * 3 + 2]);
+        this.heat.deposit(
+          this.positions[i * 3],
+          this.positions[i * 3 + 1],
+          this.positions[i * 3 + 2],
+          heatAmt * (0.25 + hvx + hvy + hvz)
+        );
+      }
+      this.heat.decay(Math.pow(params.heat.decay, dt));
+    }
+    if (params.scent.enabled || params.heat.enabled) {
+      const fieldData = this.scentTex.image.data as unknown as Float32Array;
+      fieldData.fill(0);
+      if (params.scent.enabled) this.scent.packSliceTexture(fieldData, 0);
+      if (params.heat.enabled) this.heat.packSliceTexture(fieldData, 1);
       this.scentTex.needsUpdate = true;
     }
 
@@ -442,6 +472,10 @@ export class GpuParticleEngine {
     }
     u["uWander"].value = params.wander;
     u["uScentOn"].value = params.scent.enabled ? 1 : 0;
+    u["uHeatOn"].value = params.heat.enabled ? 1 : 0;
+    u["uHeatSteer"].value = params.heat.steer;
+    u["uEnvScent"].value = params.environment.scent;
+    u["uEnvHeat"].value = params.environment.heat;
     u["uScentSteer"].value = params.scent.steer;
     su["uPhaseK"].value = params.phaseCoupling;
     const L = params.life;
@@ -459,6 +493,12 @@ export class GpuParticleEngine {
     u["uTurbulence"].value = params.turbulence;
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
+    u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);
+    u["uPointerStrength"].value = params.pointer.strength;
+    u["uPointerMode"].value = params.pointer.mode;
+    u["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;
+    u["uLifespan"].value = params.lifecycle.lifespan;
+    u["uLifeSpread"].value = params.lifecycle.spread;
     u["uKernel"].value =
       L.kernel === "pulse" ? 0 : L.kernel === "inverse" ? 1 : 2;
     u["uRegain"].value = this.pendingRegain;

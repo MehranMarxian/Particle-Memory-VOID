@@ -26,6 +26,8 @@ import {
 } from "@/presets/presets";
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
+import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
+import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
@@ -40,6 +42,7 @@ import { createSourceCard } from "@/ui/sourceCard";
 import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
+import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import {
   audioDrive,
   createAudioListener,
@@ -62,6 +65,7 @@ interface SimEngine {
   memoryPerParticle: Float32Array;
   renderState: Float32Array;
   lastStepTime: number;
+  simTime: number;
   configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
@@ -613,6 +617,68 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
+// --- The touch: pointer force, and the hand VOID remembers ---------------------
+// A screensaver cannot be nudged by a real mouse (any movement exits it), so the
+// pointer path is recorded while you work and replayed as a ghost in the saver.
+const pointer = { strength: 0, mode: 1, ghost: true };
+const pointerTrack = new PointerTrack();
+const pointerInfluence = new PointerInfluence();
+const pointerRay = new THREE.Raycaster();
+const pointerNdcVec = new THREE.Vector2();
+const pointerPlane = new THREE.Plane();
+const pointerHit = new THREE.Vector3();
+const pointerNormal = new THREE.Vector3();
+const pointerOrigin = new THREE.Vector3(0, 0, 0);
+let pointerNdc: { x: number; y: number } | null = null;
+let ghostClock = 0;
+let lifeApplied = false;
+pointerTrack.begin(performance.now() / 1000);
+
+renderer3d.domElement.addEventListener("pointermove", (e) => {
+  const rect = renderer3d.domElement.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
+  pointerNdc = { x, y };
+  pointerInfluence.touch();
+  pointerTrack.record(performance.now() / 1000, x, y);
+});
+
+function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: number; z: number } {
+  pointerNdcVec.set(ndc.x, ndc.y);
+  pointerRay.setFromCamera(pointerNdcVec, camera);
+  camera.getWorldDirection(pointerNormal);
+  pointerPlane.setFromNormalAndCoplanarPoint(pointerNormal, pointerOrigin);
+  const hit = pointerRay.ray.intersectPlane(pointerPlane, pointerHit);
+  if (!hit) return { x: 0, y: 0, z: 0 };
+  return { x: hit.x, y: hit.y, z: hit.z };
+}
+
+function updateTouch(dt: number): void {
+  pointerInfluence.tick(dt);
+  let ndc = pointerNdc;
+  if (saver.active) {
+    // Real input would end the screensaver, so play back the recorded hand.
+    if (!pointer.ghost) {
+      params.pointer.strength = 0;
+      return;
+    }
+    ghostClock += dt;
+    ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
+    pointerInfluence.touch();
+  }
+  const strength = pointer.strength * pointerInfluence.current;
+  if (!ndc || strength <= 0.0001) {
+    params.pointer.strength = 0;
+    return;
+  }
+  const world = pointerWorldPosition(ndc);
+  params.pointer.x = world.x;
+  params.pointer.y = world.y;
+  params.pointer.z = world.z;
+  params.pointer.mode = pointer.mode;
+  params.pointer.strength = strength;
+}
+
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
@@ -693,6 +759,41 @@ function onSoundSourceChange(): void {
   if (!sound.enabled) return;
   audio.stop();
   void applySoundToggle();
+}
+
+// The soundscape is generated, not captured: a hum for stress, a whisper for
+// reconstruction. It works in the screensaver too, where nothing listens.
+const soundscape = { enabled: false, volume: 0.55 };
+const ambience = createSoundscape();
+
+function applySoundscapeToggle(): void {
+  if (soundscape.enabled) {
+    try {
+      ambience.start();
+      flashHint("SOUNDSCAPE: ON", 3);
+    } catch {
+      soundscape.enabled = false;
+      panelApi?.refresh();
+      flashHint("AUDIO UNAVAILABLE IN THIS BROWSER", 6);
+    }
+  } else {
+    ambience.stop();
+    flashHint("SOUNDSCAPE: OFF", 3);
+  }
+}
+
+/** Mean organism stress, sampled: drives the hum. */
+function meanRenderStress(): number {
+  const state = engine.renderState;
+  const total = engine.count;
+  const stride = Math.max(1, Math.floor(total / 256));
+  let sum = 0;
+  let samples = 0;
+  for (let i = 0; i < total; i += stride) {
+    sum += state[i * 4 + 2];
+    samples++;
+  }
+  return samples > 0 ? sum / samples : 0;
 }
 
 async function applySoundToggle(): Promise<void> {
@@ -838,7 +939,9 @@ let activeMatrix = matrix;
     speciesCount,
     currentCount,
     sound,
+    soundscape,
     evolve,
+    pointer,
     callbacks: {
       onDensityChange(count) {
         currentCount = count;
@@ -974,6 +1077,9 @@ let activeMatrix = matrix;
       onSoundSourceChange() {
         onSoundSourceChange();
       },
+      onSoundscapeToggle() {
+        applySoundscapeToggle();
+      },
       onEvolveToggle() {
         applyEvolveToggle();
       },
@@ -1103,6 +1209,24 @@ function frameInner(now: number): void {
     accumulator -= FIXED_DT;
   }
 
+  updateTouch(dt);
+  // Life cycle: derive the per-particle life the renderer uses, from the same
+  // clock the engines run on, so the spark and the rebirth stay in step.
+  if (particleRenderer) {
+    if (params.lifecycle.enabled) {
+      const life = particleRenderer.lifeBuffer;
+      for (let i = 0; i < engine.count; i++) {
+        life[i] = sampleLife(i, engine.simTime, params.lifecycle, FIXED_DT).visual;
+      }
+      particleRenderer.markLifeDirty();
+      lifeApplied = true;
+    } else if (lifeApplied) {
+      particleRenderer.lifeBuffer.fill(1);
+      particleRenderer.markLifeDirty();
+      lifeApplied = false;
+    }
+  }
+
   evolver.tick(dt);
   azimuth += dt * (saver.active ? 0.035 : 0.02);
   // In screensaver the camera slowly dollies in and out — a long breath.
@@ -1148,6 +1272,14 @@ function frameInner(now: number): void {
     window.setTimeout(() => splash.remove(), 1800);
   }
   if (now - lastFpsTime > 500) {
+    if (soundscape.enabled && ambience.active) {
+      const distance = engine.meanTargetDistance();
+      const driven = Math.min(1, Math.max(0, memory.memoryStrength / 12)) * (1 - Math.min(1, distance / 8));
+      ambience.setTargets(
+        soundscapeLevels({ stress: meanRenderStress(), reconstruction: driven, density: engine.count }),
+        soundscape.volume
+      );
+    }
     panelApi?.setEvolve(
       evolver.running
         ? `generation ${evolver.generation} - candidate ${evolver.candidate} of ${evolver.populationSize}\nbest ${evolver.bestFitness?.toFixed(2) ?? "-"}`

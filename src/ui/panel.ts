@@ -30,6 +30,7 @@ export interface PanelCallbacks {
   onSoundToggle(): void;
   onEvolveToggle(): void;
   onSoundSourceChange(): void;
+  onSoundscapeToggle(): void;
 }
 
 export interface PanelApi {
@@ -54,10 +55,12 @@ export function createPanel(opts: {
   speciesCount: number;
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
+  soundscape: { enabled: boolean; volume: number };
   evolve: { enabled: boolean; trialSeconds: number; mutation: number };
+  pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -240,6 +243,9 @@ export function createPanel(opts: {
   addObjSlider(lifeBody, "Chaos", params.life, "chaos", 0, 1, 0.01, num, "Controlled instability in the organism.");
   addObjSlider(lifeBody, "Friction", params.life, "friction", 0.5, 0.98, 0.005, (v) => v.toFixed(3), "How quickly movement settles.");
   addObjSlider(lifeBody, "Core", params.life, "coreRadius", 0.1, 0.5, 0.01, num, "The personal space around each particle.");
+  addToggle(lifeBody, "Life", () => params.lifecycle.enabled, (v) => (params.lifecycle.enabled = v), "ON", "OFF", "Particles are born from the memory, grow, age and dissipate.");
+  addObjSlider(lifeBody, "Lifespan", params.lifecycle, "lifespan", 8, 180, 1, (v) => `${v.toFixed(0)}s`, "How long one particle lives before it returns to the source.");
+  addObjSlider(lifeBody, "Spread", params.lifecycle, "spread", 0, 1, 0.05, num, "How far births are staggered, so the swarm never dies at once.");
   {
     const row = document.createElement("div");
     row.className = "row";
@@ -303,6 +309,15 @@ export function createPanel(opts: {
   addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
   addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
   addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
+  addToggle(fieldBody, "Heat", () => params.heat.enabled, (v) => (params.heat.enabled = v), "ON", "OFF", "A second memory: warmth left where the swarm moves.");
+  addObjSlider(fieldBody, "Heat deposit", params.heat, "deposit", 0, 2, 0.02, num, "How much warmth each particle leaves behind.");
+  addObjSlider(fieldBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
+  addObjSlider(fieldBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
+  addObjSlider(fieldBody, "Scent affinity", params.environment, "scent", -2, 2, 0.05, num, "How much its own trail makes the swarm stickier (negative: looser).");
+  addObjSlider(fieldBody, "Heat affinity", params.environment, "heat", -2, 2, 0.05, num, "How much its own warmth makes the swarm stickier (negative: looser).");
+  addObjSlider(fieldBody, "Cursor", pointer, "strength", 0, 3, 0.05, num, "How strongly the swarm leans toward your pointer.");
+  addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
+  addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
 
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");
@@ -354,10 +369,23 @@ export function createPanel(opts: {
       select.value = sound.source;
     });
   }
+  addToggle(
+    soundBody,
+    "Soundscape",
+    () => soundscape.enabled,
+    (v) => {
+      soundscape.enabled = v;
+      callbacks.onSoundscapeToggle();
+    },
+    "ON",
+    "OFF",
+    "A hum that rises with stress, and a whisper while the memory re-forms."
+  );
+  addObjSlider(soundBody, "Volume", soundscape, "volume", 0, 1, 0.01, num, "How loud the soundscape is.");
   {
     const note = document.createElement("div");
     note.className = "meta";
-    note.textContent = "MICROPHONE / LINE-IN - ANALYSED LOCALLY, NEVER UPLOADED";
+    note.textContent = "AUDIO STAYS IN THIS TAB - ANALYSED AND SYNTHESISED LOCALLY";
     soundBody.appendChild(note);
   }
 

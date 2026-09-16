@@ -138,6 +138,16 @@ Particles belong to species, and every pair of species has its own affinity in
 an interaction matrix: positive values attract, negative values repel. Three
 force kernels shape the neighbour response (pulse, inverse, linear).
 
+The fields bend the swarm back: **Scent affinity** and **Heat affinity** scale the
+species affinities by how much of each field is around a particle, so the swarm
+can grow stickier (or looser) along its own trails and in the places it works -
+the environment it makes, shaping the behaviour that made it.
+
+The **heat** field is a second, faster memory: particles leave warmth where they
+move, it cools away quickly, and the swarm can either avoid the hot trails it
+made (**Heat steer** negative, the default) or seek them out. Scent is where the
+swarm has *been*; heat is where it is *working*.
+
 On top of that sit the organism behaviours: per-particle phase clocks that can
 couple into a shared heartbeat, stress and sleep hysteresis, Ornstein-Uhlenbeck
 wander, and a Physarum-style scent field the swarm writes, follows and slowly
@@ -164,6 +174,48 @@ music instead of twitching at it. **Sensitivity** sets how far it travels.
 
 The audio is analysed inside the page and never recorded, stored or sent
 anywhere; switching Listen off releases the microphone immediately.
+
+### Soundscape
+
+VOID can also breathe out loud, with no audio files involved: a synthesised
+ambience whose **hum** intensifies with the swarm's stress, whose **whisper**
+swells while the memory is re-forming, and whose faint shimmer follows density.
+Switch **Soundscape** on in the SOUND section and set its **Volume**. Because
+it is generated rather than captured, it keeps working in the screensaver.
+
+## Life cycle
+
+Switch **Life** on in the panel's LIFE section (or leave it off for the quiet
+piece) and every particle gets a life of its own:
+
+- **Birth** - it appears at its own point of the memory with a small spark and a
+  puff outward.
+- **Growth** - over the first fifth of its life it grows into the memory it is
+  made of, so young particles are dim, small and barely pulled by the source.
+- **Life** - it lives at full strength.
+- **Dissipation** - over the last fifth it forgets and fades toward nothing.
+- **Rebirth** - it returns to the source and starts again.
+
+**Lifespan** sets how long one life lasts, and **Spread** staggers births so the
+swarm never dies all at once. Age is a pure function of time and particle index,
+so the whole system needs no extra GPU state: both engines run the same curve,
+and the renderer reads it for size and light.
+
+## Touch
+
+Move the pointer across the canvas and the swarm leans after it. **Cursor**
+sets how hard, and its toggle switches between **PULL** (attract) and **PUSH**
+(repel). The touch fades out when your hand rests, so it reads as contact
+rather than a permanent magnet, and the point is recomputed through the live
+camera every frame, so it stays true while the view drifts. Both engines run
+the same falloff, so CPU and GPU behave identically.
+
+**Ghost** answers the screensaver's one hard rule: any mouse movement exits it,
+so a real pointer can never nudge a screensaver. Instead VOID records the path
+your pointer takes while you work (a rolling ~40 s of it) and replays that path
+as a ghost hand while the saver runs, through the same camera and the same
+force. Before anything has been recorded, a slow figure-of-eight stands in.
+Switch Ghost off if you would rather the screensaver be left alone.
 
 ## Evolution
 
@@ -212,13 +264,17 @@ src/
   rendering/   sprites, trails, HDR filmic pipeline
   presets/     preset definitions, randomization, localStorage, evolver
   ui/          control panel, source card, controls guide, shared keymap
-  audio/       audio-reactive mode (mic analysis + the band-to-look mapping)
+  audio/       audio-reactive mode (mic or shared-tab analysis) and the soundscape
+  input/       pointer track, ghost playback, idle fade
+  (life cycle lives in particles/lifeCycle.ts, shared by both engines)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 143 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, sound mapping, the evolvable matrix
-search, presets, rendering settings, screensaver logic and the keymap.
+the GPU. 166 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, the scent and heat fields, environment-modulated affinities,
+sources, persistence, samples, sound mapping and the soundscape, the pointer
+force and its ghost playback, the evolvable matrix search, presets, rendering
+settings, screensaver logic and the keymap.

@@ -125,11 +125,21 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uTurbulence;
   uniform float uDrift;
   uniform float uGravity;
+  uniform vec3 uPointer;
+  uniform float uPointerStrength;
+  uniform float uPointerMode;
+  uniform float uLifeOn;
+  uniform float uLifespan;
+  uniform float uLifeSpread;
   uniform float uSpeciesCount;
   uniform float uKernel; // 0 = pulse, 1 = inverse, 2 = linear
   uniform float uWander;
   uniform float uScentOn;
   uniform float uScentSteer;
+  uniform float uHeatOn;
+  uniform float uHeatSteer;
+  uniform float uEnvScent;
+  uniform float uEnvHeat;
   uniform sampler2D texScent;
   uniform float uScentN;
   uniform float uScentExtent;
@@ -174,6 +184,37 @@ export const gpuVelocityShader = /* glsl */ `
       float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
       float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
       float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      vb = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    return mix(va, vb, f.z);
+  }
+  float heatField(vec3 p) {
+    float n = uScentN;
+    float cell = 2.0 * uScentExtent / n;
+    vec3 g = (p + vec3(uScentExtent)) / cell - 0.5;
+    float x0 = floor(g.x), y0 = floor(g.y), z0 = floor(g.z);
+    vec3 f = g - vec3(x0, y0, z0);
+    float xa = clamp(x0, 0.0, n - 1.0), xb = clamp(x0 + 1.0, 0.0, n - 1.0);
+    float ya = clamp(y0, 0.0, n - 1.0), yb = clamp(y0 + 1.0, 0.0, n - 1.0);
+    float za = clamp(z0, 0.0, n - 1.0), zb = clamp(z0 + 1.0, 0.0, n - 1.0);
+    float va = 0.0;
+    float vb = 0.0;
+    // slice za
+    {
+      float row = za * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      va = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    // slice zb
+    {
+      float row = zb * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
       vb = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
     }
     return mix(va, vb, f.z);
@@ -244,7 +285,15 @@ export const gpuVelocityShader = /* glsl */ `
     }
 
     vec4 stS = texture2D(textureState, uv);
-    vec3 accel = force;
+    // Environment-modulated affinities: the swarm's own fields bend how
+    // sociable it is where it has been (scent) and where it is busy (heat).
+    float envMod = 1.0;
+    if (uEnvScent != 0.0 || uEnvHeat != 0.0) {
+      float envS = (uScentOn > 0.5) ? scentField(pos) : 0.0;
+      float envH = (uHeatOn > 0.5) ? heatField(pos) : 0.0;
+      envMod = clamp(1.0 + uEnvScent * envS + uEnvHeat * envH, 0.05, 3.0);
+    }
+    vec3 accel = force * envMod;
     // Asleep particles: life yields (memory below stays at full strength).
     accel *= stS.w > 0.5 ? 0.25 : 1.0;
 
@@ -259,8 +308,27 @@ export const gpuVelocityShader = /* glsl */ `
       accel += vec3(n1, n2, n3) * uWander * 5.0;
     }
 
+    // --- LIFE CYCLE: age is a function of time and index ---------------
+    float lifeScale = 1.0;
+    if (uLifeOn > 0.5) {
+      float lifeSpan = max(2.0, uLifespan);
+      float lifeAge = mod(uTime + hash1(idx * 1.618 + 7.13) * uLifeSpread * lifeSpan, lifeSpan);
+      float lifeGrowth = max(0.5, lifeSpan * 0.2);
+      float lifeMature = 0.35 + 0.65 * smoothstep(0.0, lifeGrowth, lifeAge);
+      float lifeFadeOut = 1.0 - smoothstep(lifeSpan * 0.82, lifeSpan, lifeAge);
+      lifeScale = lifeMature * lifeFadeOut;
+      if (lifeAge < uDt * 1.5) {
+        // Born this frame: from the memory, with a small puff outward.
+        vec4 birthTarget = texture2D(texTargets, uv);
+        float br1 = hash1(idx * 2.71 + 3.3) * 6.28318530718;
+        float br2 = hash1(idx * 3.17 + 9.1);
+        pos = birthTarget.xyz + vec3(cos(br1), sin(br1), (br2 - 0.5)) * 0.35;
+        vel = vec3(cos(br1), sin(br1), (br2 - 0.5) * 0.75) * 0.6;
+      }
+    }
+
     // --- MEMORY: spring toward the source target -----------------------
-    float m = uMemoryStrength * mem;
+    float m = uMemoryStrength * mem * lifeScale;
     if (m > 0.0) {
       vec4 tgt = texture2D(texTargets, uv);
       vec3 toT = tgt.xyz - pos;
@@ -280,6 +348,28 @@ export const gpuVelocityShader = /* glsl */ `
     accel.x += uDrift * uDt;
     accel.y -= uGravity * uDt;
 
+    // The touch: soft attractor or repulsor at the pointer (mirrors the CPU engine).
+    if (uPointerStrength > 0.0) {
+      vec3 toPointer = uPointer - pos;
+      float pDist2 = dot(toPointer, toPointer);
+      float pDist = sqrt(pDist2) + 0.0001;
+      float pFall = 1.0 / (1.0 + pDist2 * 0.25);
+      accel += (toPointer / pDist) * (uPointerStrength * uPointerMode * pFall);
+    }
+
+    // Heat steering: flee the swarm's own warmth, or seek it.
+    if (uHeatOn > 0.5) {
+      float hh = 2.0 * uScentExtent / uScentN;
+      vec3 hc = vec3(pos);
+      vec3 hx = pos + vec3(hh, 0.0, 0.0);
+      vec3 hy = pos + vec3(0.0, hh, 0.0);
+      vec3 hz = pos + vec3(0.0, 0.0, hh);
+      vec3 hgrad = vec3(heatField(hx) - heatField(hc), heatField(hy) - heatField(hc), heatField(hz) - heatField(hc));
+      float hgm = length(hgrad);
+      if (hgm > 1e-5) {
+        accel += hgrad * (uHeatSteer * min(1.0, hgm) / hgm);
+      }
+    }
     // Scent steering: ascend the swarm's own trail gradient (Physarum).
     if (uScentOn > 0.5) {
       float h = 2.0 * uScentExtent / uScentN;
