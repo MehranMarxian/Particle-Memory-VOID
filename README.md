@@ -71,6 +71,11 @@ Density is live: `[` and `]` step through 4k to 50k particles, resampling the
 same source with the same seeds so the memory stays stable as it thickens.
 Loading an image also shows a small thumbnail of the source.
 
+The last memory survives a reload: local files are kept in IndexedDB (best
+effort, capped at 64 MB) and restore on the next visit with their thumbnail;
+URL sources restore by URL. A broken record never stands in the way: VOID just
+returns to its synthetic memory until you give it something new.
+
 Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 `void-sphere.obj`); regenerate them with `node scripts/make-samples.mjs`.
 
@@ -171,5 +176,6 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 110 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, presets, rendering settings, screensaver logic and the keymap.
+the GPU. 114 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, presets, rendering settings, screensaver logic and
+the keymap.
