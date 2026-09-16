@@ -472,7 +472,7 @@ export function createPanel(opts: {
   const head = document.createElement("div");
   head.className = "panel-head";
   head.innerHTML =
-    '<span class="brand"><img src="/icons/void-64.png" alt="" />VOID</span><span id="panel-state">RECONSTRUCT</span>';
+    `<span class="brand"><img src="${import.meta.env.BASE_URL}icons/void-64.png" alt="" />VOID</span><span id="panel-state">RECONSTRUCT</span>`;
   const helpBtn = document.createElement("button");
   helpBtn.className = "panel-toggle";
   helpBtn.textContent = "?";
