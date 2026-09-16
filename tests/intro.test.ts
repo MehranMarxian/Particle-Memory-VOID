@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasSeenIntro, markIntroSeen, type Storage } from "@/presets/storage";
+import { planIntro } from "@/ui/intro";
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>();
@@ -37,5 +38,20 @@ describe("first-visit intro flag", () => {
     };
     expect(hasSeenIntro(broken)).toBe(false);
     expect(() => markIntroSeen(broken)).not.toThrow();
+  });
+});
+
+describe("intro plan", () => {
+  it("greets a first-time visitor with the guide", () => {
+    expect(planIntro({ seenIntro: false, installed: false })).toBe("guide");
+  });
+
+  it("nudges a returning visitor instead", () => {
+    expect(planIntro({ seenIntro: true, installed: false })).toBe("nudge");
+  });
+
+  it("stays out of the way of the installed screensaver", () => {
+    expect(planIntro({ seenIntro: false, installed: true })).toBe("none");
+    expect(planIntro({ seenIntro: true, installed: true })).toBe("none");
   });
 });

@@ -36,8 +36,9 @@ import {
   type StoredSource,
 } from "@/sources/sourceStore";
 import { createSourceCard } from "@/ui/sourceCard";
-import { nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
+import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
+import { planIntro } from "@/ui/intro";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
@@ -466,7 +467,7 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
       })
     );
     refreshThumbnail();
-    panelApi?.setSourceInfo(handle.name, guessKindLabel(), handle.detail, engine.count);
+    panelApi?.setSourceInfo(handle.name, kindLabel(handle.kind), handle.detail, engine.count);
     panelApi?.setCount(engine.count);
     flashHint(`SOURCE: ${handle.name} — ${handle.detail}`, 5);
   } catch (err) {
@@ -645,6 +646,7 @@ const shortcutCtx: ShortcutContext = {
   setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
   toggleGuide: () => guide.toggle(),
   closeGuide: () => guide.close(),
+  openSource: () => fileInput.click(),
   isGuideOpen: () => guide.isOpen(),
 };
 
@@ -854,13 +856,22 @@ let activeMatrix = matrix;
 }
 
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
-if (hasSeenIntro()) {
-  window.setTimeout(() => flashHint("PRESS ? FOR CONTROLS", 6), 2400);
-} else {
+// A screensaver that starts after boot still wins (checked at fire time).
+const introPlan = planIntro({
+  seenIntro: hasSeenIntro(),
+  installed: new URLSearchParams(location.search).get("installed") === "1",
+});
+if (introPlan === "guide") {
   window.setTimeout(() => {
+    if (saver.active) return;
     guide.open();
     markIntroSeen();
   }, 2600);
+} else if (introPlan === "nudge") {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    flashHint("PRESS ? FOR CONTROLS", 6);
+  }, 2400);
 }
 
 // --- Splash: fade once the first frame has rendered -------------------------

@@ -98,6 +98,7 @@ itself once; after that it waits for `?`.
 | `C` | Color mode (monochrome / source) |
 | `T` | Trails |
 | `D` | Depth of field |
+| `O` | Open a source (file picker) |
 | `P` | Control panel |
 | `F` | Fullscreen |
 | `[` `]` | Particle density |
@@ -179,6 +180,6 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 119 tests cover the engine, grid, matrix, memory system, organism
+the GPU. 122 tests cover the engine, grid, matrix, memory system, organism
 layer, sources, persistence, samples, presets, rendering settings, screensaver
 logic and the keymap.

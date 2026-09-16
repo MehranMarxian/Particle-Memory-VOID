@@ -104,8 +104,11 @@ export function createControlsGuide(): GuideApi {
   card.append(head, body, foot);
   root.appendChild(card);
 
+  let previouslyFocused: HTMLElement | null = null;
+
   function open(): void {
     if (!root.hidden) return;
+    previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     root.hidden = false;
     closeBtn.focus();
   }
@@ -113,6 +116,8 @@ export function createControlsGuide(): GuideApi {
   function close(): void {
     if (root.hidden) return;
     root.hidden = true;
+    previouslyFocused?.focus();
+    previouslyFocused = null;
   }
 
   function setState(name: string): void {

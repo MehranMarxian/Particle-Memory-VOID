@@ -21,6 +21,9 @@ export function createSourceCard(callbacks: {
 }): SourceCardApi {
   const root = document.createElement("div");
   root.id = "source-card";
+  root.setAttribute("role", "region");
+  root.setAttribute("aria-label", "Memory source");
+  root.setAttribute("aria-live", "polite");
   let thumbnail: ImageBitmap | null = null;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {

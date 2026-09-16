@@ -73,6 +73,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "O",
+    keys: ["O"],
+    label: "Open a source",
+    hint: "Choose a photograph, model or point cloud to remember.",
+  },
+  {
+    group: "SYSTEM",
     display: "P",
     keys: ["P"],
     label: "Control panel",
@@ -152,6 +159,7 @@ export interface ShortcutContext {
   toggleGuide(): void;
   closeGuide(): void;
   isGuideOpen(): boolean;
+  openSource(): void;
 }
 
 export interface KeyModifiers {
@@ -188,6 +196,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
   }
   const key = rawKey.toUpperCase();
   switch (key) {
+    case "O":
+      ctx.openSource();
+      return true;
     case "P":
       ctx.togglePanel();
       return true;

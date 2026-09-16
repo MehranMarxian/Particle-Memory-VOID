@@ -392,6 +392,8 @@ export function createPanel(opts: {
     element: panel,
     setSourceInfo(name, kind, detail, count) {
       sourceMeta.innerHTML = `<b>${name}</b>\n${kind.toUpperCase()} · ${detail}\n${count.toLocaleString()} particles`;
+      // Once VOID holds a real memory, ADD SOURCE becomes CHANGE SOURCE.
+      addBtn.textContent = name === "synthetic torus" ? "ADD SOURCE" : "CHANGE SOURCE";
     },
     setCount(count) {
       currentCount = count;
