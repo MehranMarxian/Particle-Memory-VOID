@@ -1,10 +1,13 @@
 # VOID / PARTICLE MEMORY
+<img width="512" height="512" alt="void-512" src="https://github.com/user-attachments/assets/38a1f428-d149-47dd-bed6-66a57e6430df" />
 
 _Developed by Mehran Ahmadi © 2026_
 
 A generative particle artwork. Give VOID a photograph, a 3D model, or a point
 cloud, and it becomes a living memory: thousands of particles that try to
 reconstruct the source while behaving like an organism of their own.
+
+<img width="2559" height="1439" alt="Screenshot 2026-09-14 005025" src="https://github.com/user-attachments/assets/f47fec9d-1733-4bbe-8218-38fb3ce1f4fb" />
 
 ## What is VOID?
 
@@ -76,6 +79,8 @@ Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 Press `?` at any time for the in-app guide, which groups every control by what
 it affects and explains the five memory states.
 
+<img width="899" height="561" alt="Screenshot 2026-09-14 025443" src="https://github.com/user-attachments/assets/67710bc3-9493-489d-bd9c-c09593eab07e" />
+
 | Keys | Does |
 |------|------|
 | `1` `2` `3` `4` `5` | Force a memory state |
@@ -126,6 +131,8 @@ On top of that sit the organism behaviours: per-particle phase clocks that can
 couple into a shared heartbeat, stress and sleep hysteresis, Ornstein-Uhlenbeck
 wander, and a Physarum-style scent field the swarm writes, follows and slowly
 forgets. The FIELD section of the panel exposes all of it.
+
+<img width="2559" height="1249" alt="Screenshot 2026-09-14 013243" src="https://github.com/user-attachments/assets/86d0d6ab-0d24-47b9-8b11-f3f8e76e9893" />
 
 ## Performance
 
