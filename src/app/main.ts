@@ -12,6 +12,7 @@ import {
   loadSource,
   loadSourceFromUrl,
   detectSourceKind,
+  pickInstalledSource,
   type FlatSource,
   type SourceHandle,
 } from "@/sources";
@@ -26,6 +27,11 @@ import {
 import { randomizeParams } from "@/presets/randomize";
 import { loadConfig, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
+import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
+import { createSourceCard } from "@/ui/sourceCard";
+import { nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
+import { createControlsGuide } from "@/ui/guide";
+import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -389,10 +395,16 @@ buildFromSource(makeTorusSource(currentCount));
 // --- HUD / UI elements ------------------------------------------------------
 // Overlay elements were folded into the panel (Phase 5.5).
 const dropzone = document.getElementById("dropzone")!;
-const previewCanvas = document.getElementById("preview-canvas") as HTMLCanvasElement;
-const previewMeta = document.getElementById("preview-meta")!;
 const fileInput = document.getElementById("filepicker") as HTMLInputElement;
-const addSourceBtn = document.getElementById("addsource")!;
+
+// --- Source card: YOUR MEMORY (empty / loading / error / ready) ---------------
+let sourceUi: SourceUiState = { phase: "empty" };
+function setSourceUi(next: SourceUiState): void {
+  sourceUi = next;
+  sourceCard.update(next);
+}
+const sourceCard = createSourceCard({ onUpload: () => fileInput.click() });
+document.body.appendChild(sourceCard.element);
 
 let frames = 0;
 let fps = 0;
@@ -413,58 +425,63 @@ memory.onStateChange = (name) => {
 
 // --- Source loading -----------------------------------------------------------
 async function adoptHandle(handle: SourceHandle): Promise<void> {
+  setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
-    addSourceBtn.textContent = "SAMPLING…";
     const sample = handle.resample(currentCount);
     pendingHandle = handle;
     currentSourceName = handle.name;
     currentSourceDetail = handle.detail;
     lastSourceName = handle.name;
     buildFromSource(sample);
-    updatePreview(handle);
+    setSourceUi(
+      nextSourceUiState(sourceUi, {
+        type: "ready",
+        name: handle.name,
+        kind: handle.kind,
+        detail: handle.detail,
+        count: engine.count,
+      })
+    );
+    refreshThumbnail();
     panelApi?.setSourceInfo(handle.name, guessKindLabel(), handle.detail, engine.count);
     panelApi?.setCount(engine.count);
     flashHint(`SOURCE: ${handle.name} — ${handle.detail}`, 5);
   } catch (err) {
-    flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8);
-  } finally {
-    addSourceBtn.textContent = "ADD SOURCE";
+    failSource(handle.name, err);
   }
 }
 
 async function loadFile(file: File): Promise<void> {
   lastSourceUrl = null;
-  flashHint(`READING ${file.name}…`, 30);
+  lastDroppedFile = file;
+  setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: file.name }));
   try {
     const handle = await loadSource(file.name, file);
     await adoptHandle(handle);
   } catch (err) {
-    flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8);
-    addSourceBtn.textContent = "ADD SOURCE";
+    failSource(file.name, err);
   }
 }
 
-function updatePreview(handle: SourceHandle): void {
-  previewMeta.innerHTML = `${handle.name}<br>${handle.kind.toUpperCase()} · ${handle.detail}<br>${DENSITY_LEVELS[densityIndex].toLocaleString()} particles`;
-  if (handle.kind === "image") {
-    // Re-read just for the thumbnail (sampling data is already in the handle).
-    const file = lastDroppedFile;
-    if (file) {
-      createImageBitmap(file, { resizeWidth: 96 }).then((bmp) => {
-        previewCanvas.width = bmp.width;
-        previewCanvas.height = bmp.height;
-        const ctx = previewCanvas.getContext("2d")!;
-        ctx.drawImage(bmp, 0, 0);
-        previewCanvas.style.display = "block";
-      });
-    }
+function failSource(name: string, err: unknown): void {
+  const message = humanizeSourceError(name, err);
+  setSourceUi(nextSourceUiState(sourceUi, { type: "failed", message }));
+  flashHint(`SOURCE ERROR: ${message}`, 8);
+}
+
+function refreshThumbnail(): void {
+  if (sourceUi.phase !== "ready") return;
+  const file = lastDroppedFile;
+  if (file && sourceUi.kind === "image") {
+    createImageBitmap(file, { resizeWidth: 96 })
+      .then((bmp) => sourceCard.setThumbnail(bmp))
+      .catch(() => sourceCard.setThumbnail(null));
   } else {
-    previewCanvas.style.display = "none";
+    sourceCard.setThumbnail(null);
   }
 }
 
-// File picker.
-addSourceBtn.addEventListener("click", () => fileInput.click());
+// File picker (the card CTA and the panel ADD SOURCE both route here).
 fileInput.addEventListener("change", () => {
   const file = fileInput.files?.[0];
   if (file) void loadFile(file);
@@ -494,7 +511,7 @@ window.addEventListener("drop", (e) => {
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
   if (!detectSourceKind(file.name)) {
-    flashHint(`UNSUPPORTED FORMAT: ${file.name}`, 6);
+    flashHint(unsupportedFormatMessage(file.name), 6);
     return;
   }
   lastDroppedFile = file;
@@ -513,45 +530,54 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
-// --- Keyboard -----------------------------------------------------------------
-window.addEventListener("keydown", (e) => {
-  const key = e.key.toUpperCase();
-  if (key === "H") {
-    matrixIndex = (matrixIndex + 1) % matrices.length;
-    activeMatrix = matrices[matrixIndex];
-  } else if (key === "R") {
-    activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
-  } else if (key === "A") {
-    memory.active = memory.auto = !memory.auto;
-    panelApi?.setState(memory.active ? memory.state : "MANUAL");
-  } else if (key === "S") {
-    void toggleScreensaver();
-  } else if (key === "P") {
-    panelApi?.toggleVisible();
-  } else if (key === "F") {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen();
-  } else if (key === "C") {
+// --- Controls guide + keyboard -------------------------------------------------
+// All bindings live in the shared keymap (ui/shortcuts): the guide renders
+// that table and handleKey dispatches it, so they cannot drift apart.
+const guide = createControlsGuide();
+document.body.appendChild(guide.element);
+
+const shortcutCtx: ShortcutContext = {
+  togglePanel: () => panelApi?.toggleVisible(),
+  toggleColor: () => {
     visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
-  } else if (key === "T") {
+  },
+  toggleTrails: () => {
     visual.trails = !visual.trails;
     flashHint(`TRAILS: ${visual.trails ? "ON" : "OFF"}`, 3);
-  } else if (key === "D") {
+  },
+  toggleDof: () => {
     visual.dof = visual.dof > 0 ? 0 : 0.25;
     flashHint(`DEPTH OF FIELD: ${visual.dof > 0 ? "ON" : "OFF"}`, 3);
-  } else if (key === "G") {
-    switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
-  } else if (e.key === "]" || e.key === "+") {
-    setDensity(densityIndex + 1);
-  } else if (e.key === "[") {
-    setDensity(densityIndex - 1);
-  } else {
-    const idx = Number(key) - 1;
-    if (idx >= 0 && idx < MEMORY_STATE_ORDER.length) {
-      memory.setState(MEMORY_STATE_ORDER[idx]);
-    }
-  }
+  },
+  toggleCycle: () => {
+    memory.active = memory.auto = !memory.auto;
+    panelApi?.setState(memory.active ? memory.state : "MANUAL");
+  },
+  cycleMatrix: () => {
+    matrixIndex = (matrixIndex + 1) % matrices.length;
+    activeMatrix = matrices[matrixIndex];
+  },
+  randomizeMatrix: () => {
+    activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
+  },
+  toggleFullscreen: () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen();
+  },
+  densityUp: () => setDensity(densityIndex + 1),
+  densityDown: () => setDensity(densityIndex - 1),
+  toggleBackend: () => switchBackend(activeBackend === "gpu" ? "cpu" : "gpu"),
+  toggleScreensaver: () => void toggleScreensaver(),
+  setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
+  toggleGuide: () => guide.toggle(),
+  closeGuide: () => guide.close(),
+  isGuideOpen: () => guide.isOpen(),
+};
+
+window.addEventListener("keydown", (e) => {
+  if (isTextEntryTarget(e.target)) return;
+  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
 });
 
 const matrices = [matrix];
@@ -572,12 +598,34 @@ let activeMatrix = matrix;
   const srcParam = search.get("src");
   if (srcParam) {
     lastSourceUrl = srcParam;
+    setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: srcParam.split("/").pop() ?? srcParam }));
     loadSourceFromUrl(srcParam, currentCount)
       .then(({ handle }) => {
         lastDroppedFile = null;
         return adoptHandle(handle);
       })
-      .catch((err) => flashHint(`SOURCE ERROR: ${(err as Error).message}`, 8));
+      .catch((err) => failSource(srcParam.split("/").pop() ?? srcParam, err));
+  } else {
+    // Installed screensaver: load the user's chosen source from the
+    // wrapper's Sources folder (Documents/VOID/Sources).
+    const search = new URLSearchParams(location.search);
+    if (search.get("installed") === "1") {
+      fetch("/sources/list.json")
+        .then((r) => r.json())
+        .then((j: { sources?: string[] }) => {
+          const name = pickInstalledSource(j.sources ?? [], search.get("source"));
+          if (!name) return null;
+          lastSourceUrl = "/sources/" + encodeURIComponent(name);
+          setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: name }));
+          return loadSourceFromUrl(lastSourceUrl, currentCount)
+            .then(({ handle }) => {
+              lastDroppedFile = null;
+              return adoptHandle(handle);
+            })
+            .catch((err: unknown) => failSource(name, err));
+        })
+        .catch(() => undefined);
+    }
   }
 }
 
@@ -711,6 +759,9 @@ let activeMatrix = matrix;
       onToggleCycle() {
         panelApi?.setState(memory.active ? memory.state : "MANUAL");
       },
+      onToggleGuide() {
+        guide.toggle();
+      },
     },
   });
   document.body.appendChild(panelApi.element);
@@ -727,6 +778,9 @@ let activeMatrix = matrix;
   }
 }
 
+// One-time discoverability nudge: the guide exists from the first minute.
+window.setTimeout(() => flashHint("PRESS ? FOR CONTROLS", 6), 2400);
+
 // --- Splash: fade once the first frame has rendered -------------------------
 const splash = document.getElementById("splash")!;
 let splashGone = false;
@@ -735,10 +789,17 @@ let splashGone = false;
 const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
+  guide.close();
   memory.active = memory.auto = true;
   persistNow();
 };
 saver.onExit = () => {
+  panelApi?.setState(memory.state);
+  // In installed screensaver mode, exiting IS termination: tell the
+  // wrapper to close the browser and end the screensaver.
+  if (new URLSearchParams(location.search).get("installed") === "1") {
+    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { }
+  }
   persistNow();
 };
 attachIdleCursorHiding(document, 4000);
@@ -852,7 +913,7 @@ function frameInner(now: number): void {
     panelApi?.setStats(
       `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}\n` +
-      `keys: [ ] density  [1-5] states  [A] cycle  [C] color  [T] trails  [D] dof  [G] backend  [S] screensaver  [P] panel  [F] fullscreen  [R] randomize`
+      `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
     );
   }
   if (hintTimer > 0) {

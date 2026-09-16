@@ -25,6 +25,7 @@ export interface PanelCallbacks {
   onSpeciesChange(n: number): void;
   onUserInteraction(): void;
   onToggleCycle(): void;
+  onToggleGuide(): void;
 }
 
 export interface PanelApi {
@@ -77,10 +78,12 @@ export function createPanel(opts: {
     get: () => number,
     set: (v: number) => void,
     format: (v: number) => string,
-    live: boolean
+    live: boolean,
+    tip?: string
   ): void {
     const row = document.createElement("div");
     row.className = "row";
+    if (tip) row.title = tip;
     const labelEl = document.createElement("label");
     labelEl.textContent = label;
     const input = document.createElement("input");
@@ -120,7 +123,8 @@ export function createPanel(opts: {
     min: number,
     max: number,
     step: number,
-    format: (v: number) => string
+    format: (v: number) => string,
+    tip?: string
   ): void {
     const o = obj as unknown as Record<string, unknown>;
     addSlider(
@@ -132,7 +136,8 @@ export function createPanel(opts: {
         o[key] = v;
       },
       format,
-      true
+      true,
+      tip
     );
   }
 
@@ -142,10 +147,12 @@ export function createPanel(opts: {
     get: () => boolean,
     set: (v: boolean) => void,
     onLabel: string,
-    offLabel: string
+    offLabel: string,
+    tip?: string
   ): void {
     const row = document.createElement("div");
     row.className = "row";
+    if (tip) row.title = tip;
     const lbl = document.createElement("label");
     lbl.textContent = label;
     const btn = document.createElement("button");
@@ -193,7 +200,8 @@ export function createPanel(opts: {
       callbacks.onDensityChange(v);
     },
     (v) => `${(v / 1000).toFixed(0)}k`,
-    false
+    false,
+    "How many particles remember the source."
   );
 
   // --- MEMORY ------------------------------------------------------------------
@@ -208,26 +216,28 @@ export function createPanel(opts: {
       callbacks.onToggleCycle();
     },
     "AUTHORED",
-    "MANUAL"
+    "MANUAL",
+    "AUTHORED runs the memory cycle; MANUAL hands the parameters to you."
   );
-  addObjSlider(memBody, "Memory", params.memory, "strength", 0, 20, 0.1, (v) => v.toFixed(1));
-  addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num);
-  addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num);
+  addObjSlider(memBody, "Memory", params.memory, "strength", 0, 20, 0.1, (v) => v.toFixed(1), "How strongly particles try to return to their source.");
+  addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
+  addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
 
   // --- LIFE ------------------------------------------------------------------------
   const lifeBody = section("LIFE");
-  addObjSlider(lifeBody, "Attraction", params.life, "attraction", 0, 2, 0.01, num);
-  addObjSlider(lifeBody, "Repulsion", params.life, "repulsion", 0, 2, 0.01, num);
-  addObjSlider(lifeBody, "Radius", params.life, "interactionRadius", 0.2, 2, 0.01, num);
-  addObjSlider(lifeBody, "Force", params.life, "forceScale", 0, 14, 0.1, (v) => v.toFixed(1));
-  addObjSlider(lifeBody, "Chaos", params.life, "chaos", 0, 1, 0.01, num);
-  addObjSlider(lifeBody, "Friction", params.life, "friction", 0.5, 0.98, 0.005, (v) => v.toFixed(3));
-  addObjSlider(lifeBody, "Core", params.life, "coreRadius", 0.1, 0.5, 0.01, num);
+  addObjSlider(lifeBody, "Attraction", params.life, "attraction", 0, 2, 0.01, num, "How strongly compatible particles gather.");
+  addObjSlider(lifeBody, "Repulsion", params.life, "repulsion", 0, 2, 0.01, num, "How strongly particles push apart.");
+  addObjSlider(lifeBody, "Radius", params.life, "interactionRadius", 0.2, 2, 0.01, num, "How far particles sense each other.");
+  addObjSlider(lifeBody, "Force", params.life, "forceScale", 0, 14, 0.1, (v) => v.toFixed(1), "Overall strength of the life forces.");
+  addObjSlider(lifeBody, "Chaos", params.life, "chaos", 0, 1, 0.01, num, "Controlled instability in the organism.");
+  addObjSlider(lifeBody, "Friction", params.life, "friction", 0.5, 0.98, 0.005, (v) => v.toFixed(3), "How quickly movement settles.");
+  addObjSlider(lifeBody, "Core", params.life, "coreRadius", 0.1, 0.5, 0.01, num, "The personal space around each particle.");
   {
     const row = document.createElement("div");
     row.className = "row";
     const label = document.createElement("label");
     label.textContent = "Species";
+    row.title = "How many species share the memory.";
     const input = document.createElement("input");
     input.type = "range";
     input.min = "2";
@@ -254,6 +264,7 @@ export function createPanel(opts: {
     row.className = "row";
     const label = document.createElement("label");
     label.textContent = "Kernel";
+    row.title = "The shape of the force between particles.";
     const select = document.createElement("select");
     for (const k of ["pulse", "inverse", "linear"]) {
       const opt = document.createElement("option");
@@ -275,26 +286,26 @@ export function createPanel(opts: {
 
   // --- FIELD --------------------------------------------------------------------------
   const fieldBody = section("FIELD");
-  addObjSlider(fieldBody, "Turbulence", params, "turbulence", 0, 1, 0.01, num);
-  addObjSlider(fieldBody, "Wander", params, "wander", 0, 0.3, 0.005, num);
-  addObjSlider(fieldBody, "Sync", params, "phaseCoupling", 0, 4, 0.05, num);
-  addObjSlider(fieldBody, "Drift", params, "drift", -1, 1, 0.01, num);
-  addObjSlider(fieldBody, "Gravity", params, "gravity", -2, 2, 0.01, num);
-  addToggle(fieldBody, "Scent", () => params.scent.enabled, (v) => (params.scent.enabled = v), "ON", "OFF");
-  addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num);
-  addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num);
-  addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num);
+  addObjSlider(fieldBody, "Turbulence", params, "turbulence", 0, 1, 0.01, num, "Curl noise stirring the field.");
+  addObjSlider(fieldBody, "Wander", params, "wander", 0, 0.3, 0.005, num, "Smooth organic drift.");
+  addObjSlider(fieldBody, "Sync", params, "phaseCoupling", 0, 4, 0.05, num, "Couples particle rhythms into a shared heartbeat.");
+  addObjSlider(fieldBody, "Drift", params, "drift", -1, 1, 0.01, num, "A constant current through the space.");
+  addObjSlider(fieldBody, "Gravity", params, "gravity", -2, 2, 0.01, num, "A steady downward pull.");
+  addToggle(fieldBody, "Scent", () => params.scent.enabled, (v) => (params.scent.enabled = v), "ON", "OFF", "Leaves a fading trace of where the organism has been.");
+  addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
+  addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
+  addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
 
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");
   addObjSlider(visBody, "Size", visual, "particleSize", 0.4, 4, 0.05, num);
   addObjSlider(visBody, "Glow", visual, "glow", 0, 2, 0.05, num);
   addObjSlider(visBody, "Opacity", visual, "opacity", 0.05, 1, 0.01, num);
-  addObjSlider(visBody, "Depth", visual, "dof", 0, 1, 0.01, num);
+  addObjSlider(visBody, "Depth", visual, "dof", 0, 1, 0.01, num, "Depth-of-field focus falloff.");
   addObjSlider(visBody, "Fog", visual, "fogDensity", 0, 0.12, 0.002, (v) => v.toFixed(3));
-  addObjSlider(visBody, "Trail", visual, "trailDecay", 0.2, 0.95, 0.01, num);
-  addToggle(visBody, "Trails", () => visual.trails, (v) => (visual.trails = v), "ON", "OFF");
-  addToggle(visBody, "Color", () => visual.colorMode === "source", (v) => (visual.colorMode = v ? "source" : "monochrome"), "SOURCE", "MONO");
+  addObjSlider(visBody, "Trail", visual, "trailDecay", 0.2, 0.95, 0.01, num, "How long the afterimage lingers.");
+  addToggle(visBody, "Trails", () => visual.trails, (v) => (visual.trails = v), "ON", "OFF", "Afterimage of where the organism has been.");
+  addToggle(visBody, "Color", () => visual.colorMode === "source", (v) => (visual.colorMode = v ? "source" : "monochrome"), "SOURCE", "MONO", "Monochrome or the source's own colors.");
 
   // --- PRESETS --------------------------------------------------------------------------
   const presetBody = section("PRESETS");
@@ -354,9 +365,15 @@ export function createPanel(opts: {
   head.className = "panel-head";
   head.innerHTML =
     '<span class="brand"><img src="/icons/void-64.png" alt="" />VOID</span><span id="panel-state">RECONSTRUCT</span>';
+  const helpBtn = document.createElement("button");
+  helpBtn.className = "panel-toggle";
+  helpBtn.textContent = "?";
+  helpBtn.title = "Controls guide (?)";
+  helpBtn.addEventListener("click", () => callbacks.onToggleGuide());
   const hideBtn = document.createElement("button");
   hideBtn.className = "panel-toggle";
   hideBtn.textContent = "HIDE";
+  head.appendChild(helpBtn);
   head.appendChild(hideBtn);
   panel.prepend(head);
   const showPanelBtn = document.createElement("button");
