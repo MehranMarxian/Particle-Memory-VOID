@@ -27,6 +27,7 @@ export interface PanelCallbacks {
   onToggleCycle(): void;
   onToggleGuide(): void;
   onSoundToggle(): void;
+  onEvolveToggle(): void;
 }
 
 export interface PanelApi {
@@ -37,6 +38,7 @@ export interface PanelApi {
   setState(name: string): void;
   setStats(text: string): void;
   setHint(text: string, seconds: number, sticky: boolean): void;
+  setEvolve(text: string): void;
   clearHint(): void;
   toggleVisible(): void;
   refresh(): void;
@@ -50,9 +52,10 @@ export function createPanel(opts: {
   speciesCount: number;
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound } = opts;
+  const { params, visual, memory, callbacks, sound, evolve } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -60,6 +63,7 @@ export function createPanel(opts: {
   panel.id = "panel";
 
   const syncFns: Array<() => void> = [];
+  let evolveReadout: HTMLElement | null = null;
 
   function section(title: string): HTMLElement {
     const sec = document.createElement("section");
@@ -331,6 +335,30 @@ export function createPanel(opts: {
     soundBody.appendChild(note);
   }
 
+  // --- EVOLVE --------------------------------------------------------------------------
+  const evolveBody = section("EVOLVE");
+  addToggle(
+    evolveBody,
+    "Evolve",
+    () => evolve.enabled,
+    (v) => {
+      evolve.enabled = v;
+      callbacks.onEvolveToggle();
+    },
+    "ON",
+    "OFF",
+    "VOID searches its own species matrices and keeps what remembers better."
+  );
+  addObjSlider(evolveBody, "Trial", evolve, "trialSeconds", 2, 20, 0.5, (v) => `${v.toFixed(1)}s`, "How long each candidate gets to prove itself.");
+  addObjSlider(evolveBody, "Mutation", evolve, "mutation", 0.02, 1, 0.01, num, "How far each child drifts from its parents.");
+  {
+    const readout = document.createElement("div");
+    readout.className = "meta";
+    readout.textContent = "IDLE";
+    evolveBody.appendChild(readout);
+    evolveReadout = readout;
+  }
+
   // --- PRESETS --------------------------------------------------------------------------
   const presetBody = section("PRESETS");
   const presetGrid = document.createElement("div");
@@ -444,6 +472,9 @@ export function createPanel(opts: {
     },
     clearHint() {
       status.textContent = "";
+    },
+    setEvolve(text) {
+      if (evolveReadout) evolveReadout.textContent = text;
     },
     toggleVisible() {
       setPanelVisible(panel.style.display !== "none");

@@ -87,6 +87,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "E",
+    keys: ["E"],
+    label: "Evolve",
+    hint: "Let VOID search its own interaction matrices, keeping what remembers better.",
+  },
+  {
+    group: "SYSTEM",
     display: "P",
     keys: ["P"],
     label: "Control panel",
@@ -168,6 +175,7 @@ export interface ShortcutContext {
   isGuideOpen(): boolean;
   openSource(): void;
   toggleSound(): void;
+  toggleEvolve(): void;
 }
 
 export interface KeyModifiers {
@@ -204,6 +212,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
   }
   const key = rawKey.toUpperCase();
   switch (key) {
+    case "E":
+      ctx.toggleEvolve();
+      return true;
     case "L":
       ctx.toggleSound();
       return true;

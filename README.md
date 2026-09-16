@@ -105,6 +105,7 @@ itself once; after that it waits for `?`.
 | `G` | Simulation backend (GPU / CPU) |
 | `S` | Screensaver mode |
 | `L` | Listen to sound (music drives the look) |
+| `E` | Evolve (search for better interaction matrices) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -156,6 +157,22 @@ music instead of twitching at it. **Sensitivity** sets how far it travels.
 The audio is analysed inside the page and never recorded, stored or sent
 anywhere; switching Listen off releases the microphone immediately.
 
+## Evolution
+
+Press `E`, or open the panel's EVOLVE section, and VOID searches its own
+behaviour. A genome is exactly the species interaction matrix the particle
+life runs on; each candidate gets a trial window (**Trial** seconds) to prove
+itself, and fitness rewards both halves of the piece: converging on the memory
+*and* staying alive. A stiff matrix that locks the particles down scores
+poorly, and so does one that never reconstructs.
+
+The best of each generation (with **Mutation** controlling how far children
+drift from their parents) breeds the next through tournament selection,
+uniform crossover and gaussian mutation. Stopping keeps the champion applied:
+the search is a way of finding an organism, not a mode you sit in. Any manual
+change - a preset, a randomize, the `H` key, a different species count - ends
+the search and leaves your change alone.
+
 ## Performance
 
 Simulation is split on purpose:
@@ -185,7 +202,7 @@ src/
   memory/      the five states and their transitions
   sources/     image / PLY / mesh loaders and samplers
   rendering/   sprites, trails, HDR filmic pipeline
-  presets/     preset definitions, randomization, localStorage
+  presets/     preset definitions, randomization, localStorage, evolver
   ui/          control panel, source card, controls guide, shared keymap
   audio/       audio-reactive mode (mic analysis + the band-to-look mapping)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
@@ -194,6 +211,6 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 131 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, sound mapping, presets, rendering
-settings, screensaver logic and the keymap.
+the GPU. 141 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, samples, sound mapping, the evolvable matrix
+search, presets, rendering settings, screensaver logic and the keymap.

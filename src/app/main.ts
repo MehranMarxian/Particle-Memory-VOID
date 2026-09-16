@@ -25,6 +25,7 @@ import {
   type StateSnapshot,
 } from "@/presets/presets";
 import { randomizeParams } from "@/presets/randomize";
+import { Evolver } from "@/presets/evolver";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
@@ -610,6 +611,62 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
+// --- Evolution (VOID searches its own behaviour) -------------------------------
+// A genome is the species interaction matrix itself; fitness rewards both
+// reconstructing the memory and staying alive. Stopping keeps the champion.
+const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2 };
+
+function sampledMeanSpeed(): number {
+  const velocities = engine.velocities;
+  const total = engine.count;
+  const stride = Math.max(1, Math.floor(total / 512));
+  let sum = 0;
+  let samples = 0;
+  for (let i = 0; i < total; i += stride) {
+    const x = velocities[i * 3];
+    const y = velocities[i * 3 + 1];
+    const z = velocities[i * 3 + 2];
+    sum += Math.sqrt(x * x + y * y + z * z);
+    samples++;
+  }
+  return samples > 0 ? sum / samples : 0;
+}
+
+const evolver = new Evolver(
+  {
+    applyGenome(genome) {
+      const n = speciesCount;
+      matrix.resize(n);
+      for (let a = 0; a < n; a++) matrix.setRow(a, genome.slice(a * n, a * n + n));
+      activeMatrix = matrix;
+      matrixIndex = 0;
+    },
+    distance: () => engine.meanTargetDistance(),
+    speed: () => sampledMeanSpeed(),
+  },
+  speciesCount,
+  () => Math.random(),
+  evolve
+);
+
+function applyEvolveToggle(): void {
+  if (evolve.enabled) {
+    if (!evolver.running) evolver.start();
+    flashHint("EVOLUTION: SEARCHING", 3);
+  } else {
+    if (evolver.running) evolver.stop();
+    flashHint("EVOLUTION STOPPED - CHAMPION KEPT", 4);
+  }
+}
+
+/** Any manual matrix change ends the search; the champion is not re-applied. */
+function abandonEvolution(): void {
+  if (!evolver.running) return;
+  evolve.enabled = false;
+  evolver.stop(false);
+  panelApi?.refresh();
+}
+
 // --- Sound (audio-reactive mode) -----------------------------------------------
 // The swarm listens to the microphone; the drive only shapes rendering, and
 // nothing is recorded, stored or transmitted.
@@ -662,10 +719,12 @@ const shortcutCtx: ShortcutContext = {
     panelApi?.setState(memory.active ? memory.state : "MANUAL");
   },
   cycleMatrix: () => {
+    abandonEvolution();
     matrixIndex = (matrixIndex + 1) % matrices.length;
     activeMatrix = matrices[matrixIndex];
   },
   randomizeMatrix: () => {
+    abandonEvolution();
     activeMatrix.randomize(mulberry32((Math.random() * 1e9) | 0));
   },
   toggleFullscreen: () => {
@@ -684,6 +743,11 @@ const shortcutCtx: ShortcutContext = {
     sound.enabled = !sound.enabled;
     panelApi?.refresh();
     void applySoundToggle();
+  },
+  toggleEvolve: () => {
+    evolve.enabled = !evolve.enabled;
+    panelApi?.refresh();
+    applyEvolveToggle();
   },
   isGuideOpen: () => guide.isOpen(),
 };
@@ -754,6 +818,7 @@ let activeMatrix = matrix;
     speciesCount,
     currentCount,
     sound,
+    evolve,
     callbacks: {
       onDensityChange(count) {
         currentCount = count;
@@ -768,6 +833,7 @@ let activeMatrix = matrix;
         const def = PRESET_DEFINITIONS.find((d) => d.name === name);
         if (!def) return;
         pushHistory();
+        abandonEvolution();
         activePreset = name;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
@@ -783,6 +849,7 @@ let activeMatrix = matrix;
       },
       onRandomize() {
         pushHistory();
+        abandonEvolution();
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
@@ -793,6 +860,7 @@ let activeMatrix = matrix;
         flashHint("RANDOMIZED — UNDO AVAILABLE", 3);
       },
       onUndo() {
+        abandonEvolution();
         const snap = history.pop();
         if (!snap) {
           flashHint("NOTHING TO UNDO", 2);
@@ -809,6 +877,7 @@ let activeMatrix = matrix;
       },
       onReset() {
         pushHistory();
+        abandonEvolution();
         Object.assign(params.memory, {
           strength: 0,
           decay: 0,
@@ -863,6 +932,7 @@ let activeMatrix = matrix;
         else void document.documentElement.requestFullscreen();
       },
       onSpeciesChange(n) {
+        abandonEvolution();
         speciesCount = n;
         engine.setSpeciesCount(matrix, n);
         flashHint(`SPECIES: ${n}`, 2);
@@ -880,6 +950,9 @@ let activeMatrix = matrix;
       },
       onSoundToggle() {
         void applySoundToggle();
+      },
+      onEvolveToggle() {
+        applyEvolveToggle();
       },
     },
   });
@@ -1007,6 +1080,7 @@ function frameInner(now: number): void {
     accumulator -= FIXED_DT;
   }
 
+  evolver.tick(dt);
   azimuth += dt * (saver.active ? 0.035 : 0.02);
   // In screensaver the camera slowly dollies in and out — a long breath.
   if (saver.active) {
@@ -1051,6 +1125,13 @@ function frameInner(now: number): void {
     window.setTimeout(() => splash.remove(), 1800);
   }
   if (now - lastFpsTime > 500) {
+    panelApi?.setEvolve(
+      evolver.running
+        ? `generation ${evolver.generation} - candidate ${evolver.candidate} of ${evolver.populationSize}\nbest ${evolver.bestFitness?.toFixed(2) ?? "-"}`
+        : evolver.best
+          ? `champion kept\nbest ${evolver.bestFitness?.toFixed(2) ?? "-"}`
+          : "IDLE"
+    );
     fps = Math.round((frames * 1000) / (now - lastFpsTime));
     frames = 0;
     lastFpsTime = now;
