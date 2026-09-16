@@ -17,7 +17,11 @@ packaging/build.rsp
 /.agents/
 /.cluster/
 /.openclaw/
+/.autoclaw/
 /.openclaw-attachments/
 /*-capability.json
+
+# Website preview delivery area (managed by AutoClaw)
+/projects/
 /.opencode/
 /config/mcporter.json

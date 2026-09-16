@@ -104,6 +104,8 @@ itself once; after that it waits for `?`.
 | `[` `]` | Particle density |
 | `G` | Simulation backend (GPU / CPU) |
 | `S` | Screensaver mode |
+| `L` | Listen to sound (music drives the look) |
+| `E` | Evolve (search for better interaction matrices) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -143,6 +145,42 @@ forgets. The FIELD section of the panel exposes all of it.
 
 <img width="2559" height="1249" alt="Screenshot 2026-09-14 013243" src="https://github.com/user-attachments/assets/86d0d6ab-0d24-47b9-8b11-f3f8e76e9893" />
 
+## Sound
+
+VOID can listen while it remembers. Press `L`, or open the panel's SOUND
+section and switch **Listen** on: the audio is analysed with WebAudio, and the
+swarm answers in how it looks rather than in its physics.
+
+**Input** chooses where the sound comes from:
+
+- **MICROPHONE** - anything the mic hears: a room, speakers, an instrument.
+- **TAB AUDIO** - music playing on your system. The browser asks you to pick a
+  tab (or screen) and, importantly, to tick *share tab audio*; VOID keeps only
+  the audio and ignores the video. Stopping the share from the browser chrome
+  switches listening off by itself.
+Bass swells the particles, overall loudness lifts the glow, and the high end
+opens the exposure, with a quick attack and a slow release so it moves with the
+music instead of twitching at it. **Sensitivity** sets how far it travels.
+
+The audio is analysed inside the page and never recorded, stored or sent
+anywhere; switching Listen off releases the microphone immediately.
+
+## Evolution
+
+Press `E`, or open the panel's EVOLVE section, and VOID searches its own
+behaviour. A genome is exactly the species interaction matrix the particle
+life runs on; each candidate gets a trial window (**Trial** seconds) to prove
+itself, and fitness rewards both halves of the piece: converging on the memory
+*and* staying alive. A stiff matrix that locks the particles down scores
+poorly, and so does one that never reconstructs.
+
+The best of each generation (with **Mutation** controlling how far children
+drift from their parents) breeds the next through tournament selection,
+uniform crossover and gaussian mutation. Stopping keeps the champion applied:
+the search is a way of finding an organism, not a mode you sit in. Any manual
+change - a preset, a randomize, the `H` key, a different species count - ends
+the search and leaves your change alone.
+
 ## Performance
 
 Simulation is split on purpose:
@@ -172,14 +210,15 @@ src/
   memory/      the five states and their transitions
   sources/     image / PLY / mesh loaders and samplers
   rendering/   sprites, trails, HDR filmic pipeline
-  presets/     preset definitions, randomization, localStorage
+  presets/     preset definitions, randomization, localStorage, evolver
   ui/          control panel, source card, controls guide, shared keymap
+  audio/       audio-reactive mode (mic analysis + the band-to-look mapping)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 122 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, presets, rendering settings, screensaver
-logic and the keymap.
+the GPU. 143 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, samples, sound mapping, the evolvable matrix
+search, presets, rendering settings, screensaver logic and the keymap.

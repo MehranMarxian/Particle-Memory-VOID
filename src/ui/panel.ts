@@ -1,4 +1,5 @@
 import type { EngineParams } from "@/types";
+import type { AudioSource } from "@/audio/audioReactive";
 import type { VisualSettings } from "@/rendering/VisualSettings";
 import type { MemorySystem } from "@/memory/MemorySystem";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
@@ -26,6 +27,9 @@ export interface PanelCallbacks {
   onUserInteraction(): void;
   onToggleCycle(): void;
   onToggleGuide(): void;
+  onSoundToggle(): void;
+  onEvolveToggle(): void;
+  onSoundSourceChange(): void;
 }
 
 export interface PanelApi {
@@ -36,6 +40,7 @@ export interface PanelApi {
   setState(name: string): void;
   setStats(text: string): void;
   setHint(text: string, seconds: number, sticky: boolean): void;
+  setEvolve(text: string): void;
   clearHint(): void;
   toggleVisible(): void;
   refresh(): void;
@@ -48,9 +53,11 @@ export function createPanel(opts: {
   matrix: InteractionMatrix;
   speciesCount: number;
   currentCount: number;
+  sound: { enabled: boolean; sensitivity: number; source: AudioSource };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks } = opts;
+  const { params, visual, memory, callbacks, sound, evolve } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -58,6 +65,7 @@ export function createPanel(opts: {
   panel.id = "panel";
 
   const syncFns: Array<() => void> = [];
+  let evolveReadout: HTMLElement | null = null;
 
   function section(title: string): HTMLElement {
     const sec = document.createElement("section");
@@ -307,6 +315,76 @@ export function createPanel(opts: {
   addToggle(visBody, "Trails", () => visual.trails, (v) => (visual.trails = v), "ON", "OFF", "Afterimage of where the organism has been.");
   addToggle(visBody, "Color", () => visual.colorMode === "source", (v) => (visual.colorMode = v ? "source" : "monochrome"), "SOURCE", "MONO", "Monochrome or the source's own colors.");
 
+  // --- SOUND ---------------------------------------------------------------------------
+  const soundBody = section("SOUND");
+  addToggle(
+    soundBody,
+    "Listen",
+    () => sound.enabled,
+    (v) => {
+      sound.enabled = v;
+      callbacks.onSoundToggle();
+    },
+    "ON",
+    "OFF",
+    "Music drives how the swarm looks; the audio is analysed here and never sent."
+  );
+  addObjSlider(soundBody, "Sensitivity", sound, "sensitivity", 0.2, 3, 0.05, num, "How strongly sound moves the swarm.");
+  {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.title = "Where the sound comes from: your microphone, or the audio of a tab you share.";
+    const label = document.createElement("label");
+    label.textContent = "Input";
+    const select = document.createElement("select");
+    for (const option of [{ value: "mic", text: "MICROPHONE" }, { value: "tab", text: "TAB AUDIO" }]) {
+      const opt = document.createElement("option");
+      opt.value = option.value;
+      opt.textContent = option.text;
+      select.appendChild(opt);
+    }
+    select.value = sound.source;
+    select.addEventListener("change", () => {
+      sound.source = select.value as AudioSource;
+      callbacks.onSoundSourceChange();
+    });
+    row.append(label, select);
+    soundBody.appendChild(row);
+    syncFns.push(() => {
+      select.value = sound.source;
+    });
+  }
+  {
+    const note = document.createElement("div");
+    note.className = "meta";
+    note.textContent = "MICROPHONE / LINE-IN - ANALYSED LOCALLY, NEVER UPLOADED";
+    soundBody.appendChild(note);
+  }
+
+  // --- EVOLVE --------------------------------------------------------------------------
+  const evolveBody = section("EVOLVE");
+  addToggle(
+    evolveBody,
+    "Evolve",
+    () => evolve.enabled,
+    (v) => {
+      evolve.enabled = v;
+      callbacks.onEvolveToggle();
+    },
+    "ON",
+    "OFF",
+    "VOID searches its own species matrices and keeps what remembers better."
+  );
+  addObjSlider(evolveBody, "Trial", evolve, "trialSeconds", 2, 20, 0.5, (v) => `${v.toFixed(1)}s`, "How long each candidate gets to prove itself.");
+  addObjSlider(evolveBody, "Mutation", evolve, "mutation", 0.02, 1, 0.01, num, "How far each child drifts from its parents.");
+  {
+    const readout = document.createElement("div");
+    readout.className = "meta";
+    readout.textContent = "IDLE";
+    evolveBody.appendChild(readout);
+    evolveReadout = readout;
+  }
+
   // --- PRESETS --------------------------------------------------------------------------
   const presetBody = section("PRESETS");
   const presetGrid = document.createElement("div");
@@ -420,6 +498,9 @@ export function createPanel(opts: {
     },
     clearHint() {
       status.textContent = "";
+    },
+    setEvolve(text) {
+      if (evolveReadout) evolveReadout.textContent = text;
     },
     toggleVisible() {
       setPanelVisible(panel.style.display !== "none");
