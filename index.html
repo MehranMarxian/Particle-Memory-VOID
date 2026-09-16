@@ -19,45 +19,6 @@
         width: 100%;
         height: 100%;
       }
-      #addsource {
-        position: fixed;
-        left: 16px;
-        bottom: 14px;
-        font: 10px ui-monospace, monospace;
-        color: #6d6d6d;
-        background: none;
-        border: 1px solid #2c2c2c;
-        padding: 6px 14px;
-        letter-spacing: 0.2em;
-        cursor: pointer;
-        z-index: 20;
-      }
-      #addsource:hover {
-        color: #cfcfcf;
-        border-color: #4a4a4a;
-      }
-      #preview {
-        position: fixed;
-        left: 16px;
-        bottom: 52px;
-        display: flex;
-        align-items: flex-end;
-        gap: 10px;
-        z-index: 15;
-      }
-      #preview-canvas {
-        display: none;
-        width: 96px;
-        height: auto;
-        border: 1px solid #262626;
-        image-rendering: auto;
-      }
-      #preview-meta {
-        font: 10px/1.7 ui-monospace, monospace;
-        color: #5c5c5c;
-        letter-spacing: 0.08em;
-        white-space: pre;
-      }
       #dropzone {
         position: fixed;
         inset: 0;
@@ -76,6 +37,13 @@
         letter-spacing: 0.35em;
         text-align: center;
         line-height: 2.2;
+      }
+      #dropzone span {
+        display: block;
+        margin-top: 10px;
+        letter-spacing: 0.18em;
+        color: #666;
+        line-height: 1.9;
       }
       #filepicker {
         display: none;
@@ -100,8 +68,7 @@
       }
       body.screensaver #panel,
       body.screensaver #panel-toggle-btn,
-      body.screensaver #addsource,
-      body.screensaver #preview {
+      body.screensaver #source-card {
         display: none !important;
       }
       body.screensaver,
@@ -132,15 +99,10 @@
       })();
     </script>
     <div id="stage"></div>
-    <div id="preview">
-      <canvas id="preview-canvas"></canvas>
-      <div id="preview-meta"></div>
-    </div>
-    <button id="addsource">ADD SOURCE</button>
     <input id="filepicker" type="file"
       accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.glb,.gltf,.obj,.stl,.ply" />
     <div id="dropzone">
-      <div>DROP SOURCE<br><span style="letter-spacing:0.18em; color:#666;">PNG · JPG · WEBP · GLB · GLTF · OBJ · STL · PLY</span></div>
+      <div>DROP YOUR MEMORY<span>IMAGE&nbsp;&nbsp;PNG · JPG · WEBP · BMP · GIF<br>MODEL&nbsp;&nbsp;GLB · GLTF · OBJ · STL<br>CLOUD&nbsp;&nbsp;PLY</span></div>
     </div>
     <div id="splash"><img src="/void-logo.png" alt="VOID / PARTICLE MEMORY" /></div>
     <script type="module" src="/src/app/main.ts"></script>
