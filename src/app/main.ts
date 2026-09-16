@@ -25,7 +25,7 @@ import {
   type StateSnapshot,
 } from "@/presets/presets";
 import { randomizeParams } from "@/presets/randomize";
-import { loadConfig, saveConfig, toStoredConfig } from "@/presets/storage";
+import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
 import {
@@ -36,8 +36,9 @@ import {
   type StoredSource,
 } from "@/sources/sourceStore";
 import { createSourceCard } from "@/ui/sourceCard";
-import { nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
+import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
+import { planIntro } from "@/ui/intro";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
@@ -410,7 +411,10 @@ function setSourceUi(next: SourceUiState): void {
   sourceUi = next;
   sourceCard.update(next);
 }
-const sourceCard = createSourceCard({ onUpload: () => fileInput.click() });
+const sourceCard = createSourceCard({
+  onUpload: () => fileInput.click(),
+  onSample: (url) => void openUrlSource(url),
+});
 document.body.appendChild(sourceCard.element);
 
 // --- Source persistence: the last memory survives a reload --------------------
@@ -440,6 +444,7 @@ function flashHint(text: string, seconds = 4, sticky = false): void {
 
 memory.onStateChange = (name) => {
   panelApi?.setState(name);
+  guide.setState(name);
 };
 
 // --- Source loading -----------------------------------------------------------
@@ -462,7 +467,7 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
       })
     );
     refreshThumbnail();
-    panelApi?.setSourceInfo(handle.name, guessKindLabel(), handle.detail, engine.count);
+    panelApi?.setSourceInfo(handle.name, kindLabel(handle.kind), handle.detail, engine.count);
     panelApi?.setCount(engine.count);
     flashHint(`SOURCE: ${handle.name} — ${handle.detail}`, 5);
   } catch (err) {
@@ -494,16 +499,21 @@ function failSource(name: string, err: unknown): void {
  * visitor did not ask for this, so a stale record must never raise an error
  * on top of the synthetic memory that is already running.
  */
-async function restoreUrlSource(url: string): Promise<void> {
+async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Promise<void> {
   const name = url.split("/").pop() ?? url;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name }));
   try {
     const { handle } = await loadSourceFromUrl(url, currentCount);
     lastDroppedFile = null;
+    lastSourceUrl = url;
     await adoptHandle(handle);
-  } catch {
-    setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
-    flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
+  } catch (err) {
+    if (options.quiet) {
+      setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
+      flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
+    } else {
+      failSource(name, err);
+    }
   }
 }
 
@@ -598,6 +608,7 @@ function setDensity(index: number): void {
 // that table and handleKey dispatches it, so they cannot drift apart.
 const guide = createControlsGuide();
 document.body.appendChild(guide.element);
+guide.setState(memory.state);
 
 const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
@@ -635,6 +646,7 @@ const shortcutCtx: ShortcutContext = {
   setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
   toggleGuide: () => guide.toggle(),
   closeGuide: () => guide.close(),
+  openSource: () => fileInput.click(),
   isGuideOpen: () => guide.isOpen(),
 };
 
@@ -688,7 +700,7 @@ let activeMatrix = matrix;
       })
       .catch(() => undefined);
   } else if (lastSourceUrl && shouldRestoreUrl(lastSourceUrl)) {
-    void restoreUrlSource(lastSourceUrl);
+    void openUrlSource(lastSourceUrl, { quiet: true });
   } else {
     void restoreStoredSource();
   }
@@ -843,8 +855,24 @@ let activeMatrix = matrix;
   }
 }
 
-// One-time discoverability nudge: the guide exists from the first minute.
-window.setTimeout(() => flashHint("PRESS ? FOR CONTROLS", 6), 2400);
+// First visit: the guide introduces itself once. Afterwards, a quiet nudge.
+// A screensaver that starts after boot still wins (checked at fire time).
+const introPlan = planIntro({
+  seenIntro: hasSeenIntro(),
+  installed: new URLSearchParams(location.search).get("installed") === "1",
+});
+if (introPlan === "guide") {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    guide.open();
+    markIntroSeen();
+  }, 2600);
+} else if (introPlan === "nudge") {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    flashHint("PRESS ? FOR CONTROLS", 6);
+  }, 2400);
+}
 
 // --- Splash: fade once the first frame has rendered -------------------------
 const splash = document.getElementById("splash")!;

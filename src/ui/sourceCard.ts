@@ -1,5 +1,6 @@
 import "./sourceCard.css";
 import { SOURCE_FORMAT_GROUPS } from "@/sources/formats";
+import { SAMPLES, sampleUrl } from "@/sources/samples";
 import { kindLabel, type SourceUiState } from "./sourceFlow";
 
 /**
@@ -14,9 +15,15 @@ export interface SourceCardApi {
   setThumbnail(bmp: ImageBitmap | null): void;
 }
 
-export function createSourceCard(callbacks: { onUpload(): void }): SourceCardApi {
+export function createSourceCard(callbacks: {
+  onUpload(): void;
+  onSample(url: string): void;
+}): SourceCardApi {
   const root = document.createElement("div");
   root.id = "source-card";
+  root.setAttribute("role", "region");
+  root.setAttribute("aria-label", "Memory source");
+  root.setAttribute("aria-live", "polite");
   let thumbnail: ImageBitmap | null = null;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
@@ -73,6 +80,19 @@ export function createSourceCard(callbacks: { onUpload(): void }): SourceCardApi
       const drop = el("div", "sc-drop");
       drop.textContent = "or drop a file anywhere";
       inner.appendChild(drop);
+      const samples = el("div", "sc-samples");
+      const samplesLabel = el("span", "sc-samples-label");
+      samplesLabel.textContent = "OR TRY A SAMPLE";
+      samples.appendChild(samplesLabel);
+      for (const sample of SAMPLES) {
+        const sampleBtn = el("button", "sc-sample");
+        sampleBtn.type = "button";
+        sampleBtn.textContent = sample.label;
+        sampleBtn.title = `Load the bundled ${sample.file}`;
+        sampleBtn.addEventListener("click", () => callbacks.onSample(sampleUrl(sample.file)));
+        samples.appendChild(sampleBtn);
+      }
+      inner.appendChild(samples);
     } else if (state.phase === "loading") {
       kicker("YOUR MEMORY");
       const status = el("div", "sc-status");

@@ -99,3 +99,22 @@ export function toStoredConfig(opts: {
 }
 
 export type { StateSnapshot };
+
+/** First-visit flag: the controls guide introduces itself exactly once. */
+const INTRO_KEY = "void-guide-seen.v1";
+
+export function hasSeenIntro(storage: Storage = safeLocalStorage()): boolean {
+  try {
+    return storage.getItem(INTRO_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markIntroSeen(storage: Storage = safeLocalStorage()): void {
+  try {
+    storage.setItem(INTRO_KEY, "1");
+  } catch {
+    // Private mode: the guide simply introduces itself again next time.
+  }
+}

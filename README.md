@@ -78,11 +78,14 @@ returns to its synthetic memory until you give it something new.
 
 Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 `void-sphere.obj`); regenerate them with `node scripts/make-samples.mjs`.
+The empty card offers them directly (FIGURE / CLOUD / SPHERE), so you can see
+the piece working before you have a file of your own.
 
 ## Controls
 
 Press `?` at any time for the in-app guide, which groups every control by what
-it affects and explains the five memory states.
+it affects and explains the five memory states. On a first visit the guide opens
+itself once; after that it waits for `?`.
 
 <img width="899" height="561" alt="Screenshot 2026-09-14 025443" src="https://github.com/user-attachments/assets/67710bc3-9493-489d-bd9c-c09593eab07e" />
 
@@ -95,6 +98,7 @@ it affects and explains the five memory states.
 | `C` | Color mode (monochrome / source) |
 | `T` | Trails |
 | `D` | Depth of field |
+| `O` | Open a source (file picker) |
 | `P` | Control panel |
 | `F` | Fullscreen |
 | `[` `]` | Particle density |
@@ -176,6 +180,6 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 114 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, presets, rendering settings, screensaver logic and
-the keymap.
+the GPU. 122 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, samples, presets, rendering settings, screensaver
+logic and the keymap.

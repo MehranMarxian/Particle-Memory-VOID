@@ -133,6 +133,15 @@
   color: #5c5c5c;
   font-size: 9px;
 }
+.gd-state.on .gd-state-name {
+  color: #f0f0f0;
+}
+.gd-state.on .gd-bar i {
+  background: #e8e8e8;
+}
+.gd-state.on .gd-state-line {
+  color: #8f8f8f;
+}
 .gd-legend {
   color: #464646;
   font-size: 9px;

@@ -27,6 +27,7 @@ function recordingContext(guideOpen = false) {
     setMemoryState: (index: number) => calls.push(`setMemoryState:${index}`),
     toggleGuide: () => calls.push("toggleGuide"),
     closeGuide: () => calls.push("closeGuide"),
+    openSource: () => calls.push("openSource"),
     isGuideOpen: () => open,
   };
   return {
