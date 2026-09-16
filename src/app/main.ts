@@ -28,6 +28,13 @@ import { randomizeParams } from "@/presets/randomize";
 import { loadConfig, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
+import {
+  openSourceStore,
+  shouldPersist,
+  shouldRestoreUrl,
+  SOURCE_STORE_KEY,
+  type StoredSource,
+} from "@/sources/sourceStore";
 import { createSourceCard } from "@/ui/sourceCard";
 import { nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
@@ -406,6 +413,18 @@ function setSourceUi(next: SourceUiState): void {
 const sourceCard = createSourceCard({ onUpload: () => fileInput.click() });
 document.body.appendChild(sourceCard.element);
 
+// --- Source persistence: the last memory survives a reload --------------------
+const sourceStore = openSourceStore();
+function rememberSource(file: File): void {
+  if (!shouldPersist(file.size)) return;
+  void sourceStore.put(SOURCE_STORE_KEY, {
+    name: file.name,
+    blob: file,
+    savedAt: Date.now(),
+    size: file.size,
+  });
+}
+
 let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
@@ -458,6 +477,7 @@ async function loadFile(file: File): Promise<void> {
   try {
     const handle = await loadSource(file.name, file);
     await adoptHandle(handle);
+    rememberSource(file);
   } catch (err) {
     failSource(file.name, err);
   }
@@ -467,6 +487,49 @@ function failSource(name: string, err: unknown): void {
   const message = humanizeSourceError(name, err);
   setSourceUi(nextSourceUiState(sourceUi, { type: "failed", message }));
   flashHint(`SOURCE ERROR: ${message}`, 8);
+}
+
+/**
+ * Reopen a source a previous visit left behind. Failures stay quiet: the
+ * visitor did not ask for this, so a stale record must never raise an error
+ * on top of the synthetic memory that is already running.
+ */
+async function restoreUrlSource(url: string): Promise<void> {
+  const name = url.split("/").pop() ?? url;
+  setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name }));
+  try {
+    const { handle } = await loadSourceFromUrl(url, currentCount);
+    lastDroppedFile = null;
+    await adoptHandle(handle);
+  } catch {
+    setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
+    flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
+  }
+}
+
+async function restoreStoredSource(): Promise<void> {
+  let record: StoredSource | null = null;
+  try {
+    record = await sourceStore.get(SOURCE_STORE_KEY);
+  } catch {
+    return;
+  }
+  if (!record) return;
+  setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: record.name }));
+  try {
+    const handle = await loadSource(record.name, record.blob);
+    lastDroppedFile = null;
+    await adoptHandle(handle);
+    if (record.blob.type.startsWith("image/")) {
+      // The memory's face comes back with the memory.
+      createImageBitmap(record.blob, { resizeWidth: 96 })
+        .then((bmp) => sourceCard.setThumbnail(bmp))
+        .catch(() => sourceCard.setThumbnail(null));
+    }
+  } catch {
+    setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
+    flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
+  }
 }
 
 function refreshThumbnail(): void {
@@ -592,7 +655,8 @@ const matrices = [matrix];
 let matrixIndex = 0;
 let activeMatrix = matrix;
 
-// --- Optional ?src=/path/to/file demo hook ---------------------------------------
+// --- Source at boot: an explicit ?src=, the installed screensaver, or the memory
+// --- left behind by the previous visit ------------------------------------------
 {
   const search = new URLSearchParams(location.search);
   const srcParam = search.get("src");
@@ -605,27 +669,28 @@ let activeMatrix = matrix;
         return adoptHandle(handle);
       })
       .catch((err) => failSource(srcParam.split("/").pop() ?? srcParam, err));
-  } else {
+  } else if (search.get("installed") === "1") {
     // Installed screensaver: load the user's chosen source from the
     // wrapper's Sources folder (Documents/VOID/Sources).
-    const search = new URLSearchParams(location.search);
-    if (search.get("installed") === "1") {
-      fetch("/sources/list.json")
-        .then((r) => r.json())
-        .then((j: { sources?: string[] }) => {
-          const name = pickInstalledSource(j.sources ?? [], search.get("source"));
-          if (!name) return null;
-          lastSourceUrl = "/sources/" + encodeURIComponent(name);
-          setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: name }));
-          return loadSourceFromUrl(lastSourceUrl, currentCount)
-            .then(({ handle }) => {
-              lastDroppedFile = null;
-              return adoptHandle(handle);
-            })
-            .catch((err: unknown) => failSource(name, err));
-        })
-        .catch(() => undefined);
-    }
+    fetch("/sources/list.json")
+      .then((r) => r.json())
+      .then((j: { sources?: string[] }) => {
+        const name = pickInstalledSource(j.sources ?? [], search.get("source"));
+        if (!name) return null;
+        lastSourceUrl = "/sources/" + encodeURIComponent(name);
+        setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: name }));
+        return loadSourceFromUrl(lastSourceUrl, currentCount)
+          .then(({ handle }) => {
+            lastDroppedFile = null;
+            return adoptHandle(handle);
+          })
+          .catch((err: unknown) => failSource(name, err));
+      })
+      .catch(() => undefined);
+  } else if (lastSourceUrl && shouldRestoreUrl(lastSourceUrl)) {
+    void restoreUrlSource(lastSourceUrl);
+  } else {
+    void restoreStoredSource();
   }
 }
 
