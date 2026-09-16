@@ -39,6 +39,9 @@ cpSync(join(root, "dist"), join(staging, "app"), { recursive: true });
 const landing = readFileSync(join(root, "landing", "index.html"), "utf8").replaceAll("{{VERSION}}", version);
 writeFileSync(join(staging, "index.html"), landing, "utf8");
 
+// The licence, next to the landing page, so testers can read the terms.
+copyFileSync(join(root, "LICENSE"), join(staging, "license.txt"));
+
 // Shared artwork for the landing page (logo + icons) at the site root.
 copyFileSync(join(root, "dist", "void-logo.png"), join(staging, "void-logo.png"));
 cpSync(join(root, "dist", "icons"), join(staging, "icons"), { recursive: true });

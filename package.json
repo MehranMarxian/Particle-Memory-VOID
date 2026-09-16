@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.4.0",
   "author": "Mehran Ahmadi",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
     "dev": "vite",

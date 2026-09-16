@@ -289,6 +289,17 @@ relative asset paths and the samples load relative to the build base, so the
 same output works at a domain root, in a subfolder, or inside the embed on the
 landing page. Edit `landing/index.html` to change the copy around the piece.
 
+## License
+
+VOID is free to experience and share, but it is not open source. It is an
+artwork rather than a template: anyone may view, run, link to and write about
+it, and no one may copy, redistribute, modify or reuse its code or assets, or
+build derivative works from it. Improvement, and authorship of any version of
+VOID, belongs to the author alone.
+
+The full terms are in [LICENSE](LICENSE). The public site links them from its
+footer.
+
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
 the GPU. 166 tests cover the engine, grid, matrix, memory system, organism
