@@ -104,6 +104,7 @@ itself once; after that it waits for `?`.
 | `[` `]` | Particle density |
 | `G` | Simulation backend (GPU / CPU) |
 | `S` | Screensaver mode |
+| `L` | Listen to sound (music drives the look) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -143,6 +144,18 @@ forgets. The FIELD section of the panel exposes all of it.
 
 <img width="2559" height="1249" alt="Screenshot 2026-09-14 013243" src="https://github.com/user-attachments/assets/86d0d6ab-0d24-47b9-8b11-f3f8e76e9893" />
 
+## Sound
+
+VOID can listen while it remembers. Press `L`, or open the panel's SOUND
+section and switch **Listen** on: the microphone (or line-in) is analysed with
+WebAudio, and the swarm answers in how it looks rather than in its physics.
+Bass swells the particles, overall loudness lifts the glow, and the high end
+opens the exposure, with a quick attack and a slow release so it moves with the
+music instead of twitching at it. **Sensitivity** sets how far it travels.
+
+The audio is analysed inside the page and never recorded, stored or sent
+anywhere; switching Listen off releases the microphone immediately.
+
 ## Performance
 
 Simulation is split on purpose:
@@ -174,12 +187,13 @@ src/
   rendering/   sprites, trails, HDR filmic pipeline
   presets/     preset definitions, randomization, localStorage
   ui/          control panel, source card, controls guide, shared keymap
+  audio/       audio-reactive mode (mic analysis + the band-to-look mapping)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 122 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, presets, rendering settings, screensaver
-logic and the keymap.
+the GPU. 131 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, samples, sound mapping, presets, rendering
+settings, screensaver logic and the keymap.

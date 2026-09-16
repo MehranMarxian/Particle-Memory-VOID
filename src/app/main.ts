@@ -39,6 +39,13 @@ import { createSourceCard } from "@/ui/sourceCard";
 import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
+import {
+  audioDrive,
+  createAudioListener,
+  NEUTRAL_DRIVE,
+  smoothDrive,
+  type AudioDrive,
+} from "@/audio/audioReactive";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
@@ -603,6 +610,32 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
+// --- Sound (audio-reactive mode) -----------------------------------------------
+// The swarm listens to the microphone; the drive only shapes rendering, and
+// nothing is recorded, stored or transmitted.
+const sound = { enabled: false, sensitivity: 1.2 };
+const audio = createAudioListener();
+let soundDrive: AudioDrive = NEUTRAL_DRIVE;
+let soundLevel = 0;
+
+async function applySoundToggle(): Promise<void> {
+  if (sound.enabled) {
+    try {
+      await audio.start();
+      flashHint("SOUND: LISTENING", 3);
+    } catch {
+      sound.enabled = false;
+      panelApi?.refresh();
+      flashHint("MICROPHONE UNAVAILABLE - CHECK PERMISSIONS", 6);
+    }
+  } else {
+    audio.stop();
+    soundDrive = NEUTRAL_DRIVE;
+    soundLevel = 0;
+    flashHint("SOUND: OFF", 3);
+  }
+}
+
 // --- Controls guide + keyboard -------------------------------------------------
 // All bindings live in the shared keymap (ui/shortcuts): the guide renders
 // that table and handleKey dispatches it, so they cannot drift apart.
@@ -647,6 +680,11 @@ const shortcutCtx: ShortcutContext = {
   toggleGuide: () => guide.toggle(),
   closeGuide: () => guide.close(),
   openSource: () => fileInput.click(),
+  toggleSound: () => {
+    sound.enabled = !sound.enabled;
+    panelApi?.refresh();
+    void applySoundToggle();
+  },
   isGuideOpen: () => guide.isOpen(),
 };
 
@@ -715,6 +753,7 @@ let activeMatrix = matrix;
     matrix,
     speciesCount,
     currentCount,
+    sound,
     callbacks: {
       onDensityChange(count) {
         currentCount = count;
@@ -838,6 +877,9 @@ let activeMatrix = matrix;
       },
       onToggleGuide() {
         guide.toggle();
+      },
+      onSoundToggle() {
+        void applySoundToggle();
       },
     },
   });
@@ -986,6 +1028,15 @@ function frameInner(now: number): void {
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
   const effective = { ...visual };
   if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
+  // Sound shapes how the swarm looks; the physics stays with memory and life.
+  if (audio.active) {
+    const bands = audio.read();
+    soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
+    soundLevel = bands.level;
+    effective.particleSize = visual.particleSize * soundDrive.size;
+    effective.glow = visual.glow * soundDrive.glow;
+    effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
+  }
   particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
@@ -1005,7 +1056,7 @@ function frameInner(now: number): void {
     lastFpsTime = now;
     panelApi?.setStats(
       `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
-      `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}\n` +
+      `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
     );
   }

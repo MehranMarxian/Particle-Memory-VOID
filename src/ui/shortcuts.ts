@@ -80,6 +80,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "L",
+    keys: ["L"],
+    label: "Listen to sound",
+    hint: "Music drives how the swarm looks (microphone, stays in this tab).",
+  },
+  {
+    group: "SYSTEM",
     display: "P",
     keys: ["P"],
     label: "Control panel",
@@ -160,6 +167,7 @@ export interface ShortcutContext {
   closeGuide(): void;
   isGuideOpen(): boolean;
   openSource(): void;
+  toggleSound(): void;
 }
 
 export interface KeyModifiers {
@@ -196,6 +204,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
   }
   const key = rawKey.toUpperCase();
   switch (key) {
+    case "L":
+      ctx.toggleSound();
+      return true;
     case "O":
       ctx.openSource();
       return true;

@@ -26,6 +26,7 @@ export interface PanelCallbacks {
   onUserInteraction(): void;
   onToggleCycle(): void;
   onToggleGuide(): void;
+  onSoundToggle(): void;
 }
 
 export interface PanelApi {
@@ -48,9 +49,10 @@ export function createPanel(opts: {
   matrix: InteractionMatrix;
   speciesCount: number;
   currentCount: number;
+  sound: { enabled: boolean; sensitivity: number };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks } = opts;
+  const { params, visual, memory, callbacks, sound } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -306,6 +308,28 @@ export function createPanel(opts: {
   addObjSlider(visBody, "Trail", visual, "trailDecay", 0.2, 0.95, 0.01, num, "How long the afterimage lingers.");
   addToggle(visBody, "Trails", () => visual.trails, (v) => (visual.trails = v), "ON", "OFF", "Afterimage of where the organism has been.");
   addToggle(visBody, "Color", () => visual.colorMode === "source", (v) => (visual.colorMode = v ? "source" : "monochrome"), "SOURCE", "MONO", "Monochrome or the source's own colors.");
+
+  // --- SOUND ---------------------------------------------------------------------------
+  const soundBody = section("SOUND");
+  addToggle(
+    soundBody,
+    "Listen",
+    () => sound.enabled,
+    (v) => {
+      sound.enabled = v;
+      callbacks.onSoundToggle();
+    },
+    "ON",
+    "OFF",
+    "Music drives how the swarm looks; the audio is analysed here and never sent."
+  );
+  addObjSlider(soundBody, "Sensitivity", sound, "sensitivity", 0.2, 3, 0.05, num, "How strongly sound moves the swarm.");
+  {
+    const note = document.createElement("div");
+    note.className = "meta";
+    note.textContent = "MICROPHONE / LINE-IN - ANALYSED LOCALLY, NEVER UPLOADED";
+    soundBody.appendChild(note);
+  }
 
   // --- PRESETS --------------------------------------------------------------------------
   const presetBody = section("PRESETS");
