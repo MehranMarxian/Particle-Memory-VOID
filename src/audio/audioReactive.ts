@@ -78,16 +78,34 @@ export function smoothDrive(current: AudioDrive, target: AudioDrive, dtSeconds: 
   };
 }
 
+/** Where the sound comes from. */
+export type AudioSource = "mic" | "tab";
+
+/** Capture constraints per source: a shared tab is captured as video+audio. */
+export function captureConstraints(source: AudioSource): MediaStreamConstraints {
+  return source === "tab" ? { video: true, audio: true } : { audio: true };
+}
+
+/** Permission and capture failures, in the voice the HUD already uses. */
+export function humanizeAudioError(err: unknown): string {
+  const name = typeof DOMException !== "undefined" && err instanceof DOMException ? err.name : "";
+  if (name === "NotAllowedError") return "AUDIO PERMISSION DENIED";
+  if (name === "NotFoundError") return "NO AUDIO INPUT FOUND";
+  if (name === "NotReadableError") return "THE AUDIO INPUT IS BUSY";
+  const message = err instanceof Error ? err.message : "";
+  return message ? message.toUpperCase() : "AUDIO UNAVAILABLE";
+}
+
 export interface AudioListener {
   readonly active: boolean;
   /** Rejects with a human-readable reason when capture is impossible. */
-  start(): Promise<void>;
+  start(source?: AudioSource): Promise<void>;
   stop(): void;
   read(): AudioBands;
 }
 
 /** Microphone listener. Failures reject so the UI can explain them. */
-export function createAudioListener(): AudioListener {
+export function createAudioListener(hooks: { onEnded?: () => void } = {}): AudioListener {
   let ctx: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
   let stream: MediaStream | null = null;
@@ -97,11 +115,26 @@ export function createAudioListener(): AudioListener {
     get active() {
       return analyser !== null;
     },
-    async start() {
+    async start(source: AudioSource = "mic") {
       if (analyser) return;
       const media = navigator.mediaDevices;
-      if (!media?.getUserMedia) throw new Error("audio capture is not supported here");
-      stream = await media.getUserMedia({ audio: true });
+      if (!media) throw new Error("audio capture is not supported here");
+      if (source === "tab") {
+        if (!media.getDisplayMedia) throw new Error("tab audio is not supported here");
+        const captured = await media.getDisplayMedia(captureConstraints("tab"));
+        if (captured.getAudioTracks().length === 0) {
+          captured.getTracks().forEach((track) => track.stop());
+          throw new Error("that share had no audio - pick a tab and tick share tab audio");
+        }
+        stream = captured;
+      } else {
+        if (!media.getUserMedia) throw new Error("audio capture is not supported here");
+        stream = await media.getUserMedia(captureConstraints("mic"));
+      }
+      // A share the user stops from the browser chrome must reach the UI.
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => hooks.onEnded?.();
+      });
       const Ctor = window.AudioContext;
       if (!Ctor) throw new Error("web audio is not supported here");
       ctx = new Ctor();

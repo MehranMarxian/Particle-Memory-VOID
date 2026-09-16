@@ -1,4 +1,5 @@
 import type { EngineParams } from "@/types";
+import type { AudioSource } from "@/audio/audioReactive";
 import type { VisualSettings } from "@/rendering/VisualSettings";
 import type { MemorySystem } from "@/memory/MemorySystem";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
@@ -28,6 +29,7 @@ export interface PanelCallbacks {
   onToggleGuide(): void;
   onSoundToggle(): void;
   onEvolveToggle(): void;
+  onSoundSourceChange(): void;
 }
 
 export interface PanelApi {
@@ -51,7 +53,7 @@ export function createPanel(opts: {
   matrix: InteractionMatrix;
   speciesCount: number;
   currentCount: number;
-  sound: { enabled: boolean; sensitivity: number };
+  sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   evolve: { enabled: boolean; trialSeconds: number; mutation: number };
   callbacks: PanelCallbacks;
 }): PanelApi {
@@ -328,6 +330,30 @@ export function createPanel(opts: {
     "Music drives how the swarm looks; the audio is analysed here and never sent."
   );
   addObjSlider(soundBody, "Sensitivity", sound, "sensitivity", 0.2, 3, 0.05, num, "How strongly sound moves the swarm.");
+  {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.title = "Where the sound comes from: your microphone, or the audio of a tab you share.";
+    const label = document.createElement("label");
+    label.textContent = "Input";
+    const select = document.createElement("select");
+    for (const option of [{ value: "mic", text: "MICROPHONE" }, { value: "tab", text: "TAB AUDIO" }]) {
+      const opt = document.createElement("option");
+      opt.value = option.value;
+      opt.textContent = option.text;
+      select.appendChild(opt);
+    }
+    select.value = sound.source;
+    select.addEventListener("change", () => {
+      sound.source = select.value as AudioSource;
+      callbacks.onSoundSourceChange();
+    });
+    row.append(label, select);
+    soundBody.appendChild(row);
+    syncFns.push(() => {
+      select.value = sound.source;
+    });
+  }
   {
     const note = document.createElement("div");
     note.className = "meta";

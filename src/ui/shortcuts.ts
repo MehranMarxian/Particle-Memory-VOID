@@ -83,7 +83,7 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     display: "L",
     keys: ["L"],
     label: "Listen to sound",
-    hint: "Music drives how the swarm looks (microphone, stays in this tab).",
+    hint: "Music drives how the swarm looks: microphone or a shared tab, analysed here.",
   },
   {
     group: "SYSTEM",

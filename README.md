@@ -148,8 +148,16 @@ forgets. The FIELD section of the panel exposes all of it.
 ## Sound
 
 VOID can listen while it remembers. Press `L`, or open the panel's SOUND
-section and switch **Listen** on: the microphone (or line-in) is analysed with
-WebAudio, and the swarm answers in how it looks rather than in its physics.
+section and switch **Listen** on: the audio is analysed with WebAudio, and the
+swarm answers in how it looks rather than in its physics.
+
+**Input** chooses where the sound comes from:
+
+- **MICROPHONE** - anything the mic hears: a room, speakers, an instrument.
+- **TAB AUDIO** - music playing on your system. The browser asks you to pick a
+  tab (or screen) and, importantly, to tick *share tab audio*; VOID keeps only
+  the audio and ignores the video. Stopping the share from the browser chrome
+  switches listening off by itself.
 Bass swells the particles, overall loudness lifts the glow, and the high end
 opens the exposure, with a quick attack and a slow release so it moves with the
 music instead of twitching at it. **Sensitivity** sets how far it travels.
@@ -211,6 +219,6 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 141 tests cover the engine, grid, matrix, memory system, organism
+the GPU. 143 tests cover the engine, grid, matrix, memory system, organism
 layer, sources, persistence, samples, sound mapping, the evolvable matrix
 search, presets, rendering settings, screensaver logic and the keymap.

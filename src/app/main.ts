@@ -43,9 +43,11 @@ import { planIntro } from "@/ui/intro";
 import {
   audioDrive,
   createAudioListener,
+  humanizeAudioError,
   NEUTRAL_DRIVE,
   smoothDrive,
   type AudioDrive,
+  type AudioSource,
 } from "@/audio/audioReactive";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
 
@@ -670,20 +672,38 @@ function abandonEvolution(): void {
 // --- Sound (audio-reactive mode) -----------------------------------------------
 // The swarm listens to the microphone; the drive only shapes rendering, and
 // nothing is recorded, stored or transmitted.
-const sound = { enabled: false, sensitivity: 1.2 };
-const audio = createAudioListener();
+const sound: { enabled: boolean; sensitivity: number; source: AudioSource } = {
+  enabled: false,
+  sensitivity: 1.2,
+  source: "mic",
+};
+const audio = createAudioListener({
+  onEnded: () => {
+    // The user stopped the share from the browser chrome.
+    sound.enabled = false;
+    panelApi?.refresh();
+    flashHint("SOUND: SHARE ENDED", 4);
+  },
+});
 let soundDrive: AudioDrive = NEUTRAL_DRIVE;
 let soundLevel = 0;
+
+/** Switching input while listening re-opens the capture on the new source. */
+function onSoundSourceChange(): void {
+  if (!sound.enabled) return;
+  audio.stop();
+  void applySoundToggle();
+}
 
 async function applySoundToggle(): Promise<void> {
   if (sound.enabled) {
     try {
-      await audio.start();
-      flashHint("SOUND: LISTENING", 3);
-    } catch {
+      await audio.start(sound.source);
+      flashHint(sound.source === "tab" ? "SOUND: LISTENING TO A SHARED TAB" : "SOUND: LISTENING", 4);
+    } catch (err) {
       sound.enabled = false;
       panelApi?.refresh();
-      flashHint("MICROPHONE UNAVAILABLE - CHECK PERMISSIONS", 6);
+      flashHint(humanizeAudioError(err), 6);
     }
   } else {
     audio.stop();
@@ -950,6 +970,9 @@ let activeMatrix = matrix;
       },
       onSoundToggle() {
         void applySoundToggle();
+      },
+      onSoundSourceChange() {
+        onSoundSourceChange();
       },
       onEvolveToggle() {
         applyEvolveToggle();

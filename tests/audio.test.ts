@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   audioDrive,
   bandsFromMagnitudes,
+  captureConstraints,
+  humanizeAudioError,
   NEUTRAL_DRIVE,
   SILENT_BANDS,
   smoothDrive,
@@ -10,6 +12,21 @@ import {
 
 /** 1000 Hz per bin keeps the arithmetic obvious in these tests. */
 const BIN_HZ = 1000;
+
+describe("capture sources", () => {
+  it("asks for the microphone or a screen share, as appropriate", () => {
+    expect(captureConstraints("mic")).toEqual({ audio: true });
+    expect(captureConstraints("tab")).toEqual({ video: true, audio: true });
+  });
+
+  it("explains permission and sharing failures in the HUD voice", () => {
+    expect(humanizeAudioError(new DOMException("nope", "NotAllowedError"))).toBe("AUDIO PERMISSION DENIED");
+    expect(humanizeAudioError(new DOMException("gone", "NotFoundError"))).toBe("NO AUDIO INPUT FOUND");
+    expect(humanizeAudioError(new DOMException("busy", "NotReadableError"))).toBe("THE AUDIO INPUT IS BUSY");
+    expect(humanizeAudioError(new Error("that share had no audio"))).toBe("THAT SHARE HAD NO AUDIO");
+    expect(humanizeAudioError(null)).toBe("AUDIO UNAVAILABLE");
+  });
+});
 
 function spectrum(levels: Record<number, number>, length = 16): Uint8Array {
   const mags = new Uint8Array(length);
