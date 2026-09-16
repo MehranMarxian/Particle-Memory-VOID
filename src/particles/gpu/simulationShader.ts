@@ -136,6 +136,8 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uWander;
   uniform float uScentOn;
   uniform float uScentSteer;
+  uniform float uHeatOn;
+  uniform float uHeatSteer;
   uniform sampler2D texScent;
   uniform float uScentN;
   uniform float uScentExtent;
@@ -180,6 +182,37 @@ export const gpuVelocityShader = /* glsl */ `
       float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).x;
       float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
       float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).x;
+      vb = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    return mix(va, vb, f.z);
+  }
+  float heatField(vec3 p) {
+    float n = uScentN;
+    float cell = 2.0 * uScentExtent / n;
+    vec3 g = (p + vec3(uScentExtent)) / cell - 0.5;
+    float x0 = floor(g.x), y0 = floor(g.y), z0 = floor(g.z);
+    vec3 f = g - vec3(x0, y0, z0);
+    float xa = clamp(x0, 0.0, n - 1.0), xb = clamp(x0 + 1.0, 0.0, n - 1.0);
+    float ya = clamp(y0, 0.0, n - 1.0), yb = clamp(y0 + 1.0, 0.0, n - 1.0);
+    float za = clamp(z0, 0.0, n - 1.0), zb = clamp(z0 + 1.0, 0.0, n - 1.0);
+    float va = 0.0;
+    float vb = 0.0;
+    // slice za
+    {
+      float row = za * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      va = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+    }
+    // slice zb
+    {
+      float row = zb * n;
+      float s00 = texture2D(texScent, vec2((xa + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s10 = texture2D(texScent, vec2((xb + 0.5) / n, (row + ya + 0.5) / (n * n))).y;
+      float s01 = texture2D(texScent, vec2((xa + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
+      float s11 = texture2D(texScent, vec2((xb + 0.5) / n, (row + yb + 0.5) / (n * n))).y;
       vb = mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
     }
     return mix(va, vb, f.z);
@@ -314,6 +347,19 @@ export const gpuVelocityShader = /* glsl */ `
       accel += (toPointer / pDist) * (uPointerStrength * uPointerMode * pFall);
     }
 
+    // Heat steering: flee the swarm's own warmth, or seek it.
+    if (uHeatOn > 0.5) {
+      float hh = 2.0 * uScentExtent / uScentN;
+      vec3 hc = vec3(pos);
+      vec3 hx = pos + vec3(hh, 0.0, 0.0);
+      vec3 hy = pos + vec3(0.0, hh, 0.0);
+      vec3 hz = pos + vec3(0.0, 0.0, hh);
+      vec3 hgrad = vec3(heatField(hx) - heatField(hc), heatField(hy) - heatField(hc), heatField(hz) - heatField(hc));
+      float hgm = length(hgrad);
+      if (hgm > 1e-5) {
+        accel += hgrad * (uHeatSteer * min(1.0, hgm) / hgm);
+      }
+    }
     // Scent steering: ascend the swarm's own trail gradient (Physarum).
     if (uScentOn > 0.5) {
       float h = 2.0 * uScentExtent / uScentN;

@@ -78,18 +78,20 @@ export class ScentField {
 
   /**
    * Pack into an RGBA float texture of size N x (N*N), texel (x, z*N + y) —
-   * the slice-row-major layout the GPU shader expects. Channel .x carries
-   * the scent value.
+   * the slice-row-major layout the GPU shader expects.
+   *
+   * `target` may be an existing buffer and `channel` the component to write
+   * (0 = .x, 1 = .y), which lets two fields share one texture.
    */
-  packSliceTexture(): Float32Array {
+  packSliceTexture(target?: Float32Array, channel = 0): Float32Array {
     const n = this.n;
-    const out = new Float32Array(n * n * n * 4);
+    const out = target && target.length === n * n * n * 4 ? target : new Float32Array(n * n * n * 4);
     for (let z = 0; z < n; z++) {
       for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
           const src = this.idx(x, y, z);
           const dst = ((z * n + y) * n + x) * 4;
-          out[dst] = this.data[src];
+          out[dst + channel] = this.data[src];
         }
       }
     }

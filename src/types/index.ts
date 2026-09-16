@@ -122,6 +122,27 @@ export const defaultLifeCycleParams = (): LifeCycleParams => ({
   spread: 1,
 });
 
+/**
+ * Heat: the swarm's second writable memory. Particles leave warmth where they
+ * move, it decays quickly, and the swarm can either avoid it or seek it.
+ */
+export interface HeatParams {
+  enabled: boolean;
+  /** Warmth left per particle per second (scaled by how fast it moves). */
+  deposit: number;
+  /** Per-second retention of the whole field. */
+  decay: number;
+  /** Signed gradient steer: negative flees the warmth, positive seeks it. */
+  steer: number;
+}
+
+export const defaultHeatParams = (): HeatParams => ({
+  enabled: false,
+  deposit: 0.5,
+  decay: 0.35,
+  steer: -1.1,
+});
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
@@ -132,6 +153,7 @@ export interface EngineParams {
   scent: ScentParams;
   pointer: PointerParams;
   lifecycle: LifeCycleParams;
+  heat: HeatParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -170,6 +192,7 @@ export const defaultEngineParams = (): EngineParams => ({
   scent: defaultScentParams(),
   pointer: defaultPointerParams(),
   lifecycle: defaultLifeCycleParams(),
+  heat: defaultHeatParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

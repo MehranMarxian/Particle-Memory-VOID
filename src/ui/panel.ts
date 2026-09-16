@@ -309,6 +309,10 @@ export function createPanel(opts: {
   addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
   addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
   addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
+  addToggle(fieldBody, "Heat", () => params.heat.enabled, (v) => (params.heat.enabled = v), "ON", "OFF", "A second memory: warmth left where the swarm moves.");
+  addObjSlider(fieldBody, "Heat deposit", params.heat, "deposit", 0, 2, 0.02, num, "How much warmth each particle leaves behind.");
+  addObjSlider(fieldBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
+  addObjSlider(fieldBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
   addObjSlider(fieldBody, "Cursor", pointer, "strength", 0, 3, 0.05, num, "How strongly the swarm leans toward your pointer.");
   addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
   addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");

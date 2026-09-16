@@ -39,6 +39,7 @@ export class ParticleEngine {
   private grid: SpatialGrid;
   private rng: () => number;
   readonly scent: ScentField;
+  readonly heat: ScentField;
   private ax: Float32Array = new Float32Array(0);
   private ay: Float32Array = new Float32Array(0);
   private az: Float32Array = new Float32Array(0);
@@ -74,6 +75,7 @@ export class ParticleEngine {
     this.renderState = new Float32Array(capacity * 4);
     this.wanderField = new Float32Array(capacity * 3);
     this.scent = new ScentField();
+    this.heat = new ScentField();
     this.rng = mulberry32(seed);
     for (let i = 0; i < capacity; i++) {
       this.renderState[i * 4] = this.rng() * Math.PI * 2; // phase
@@ -277,6 +279,8 @@ export class ParticleEngine {
     const time = this.simTime;
     const frictionFactor = exponentialDamp(params.life.friction, dt);
     const scentOn = params.scent.enabled;
+    const heatOn = params.heat.enabled;
+    const heatSteer = params.heat.steer;
     const scentSteer = params.scent.steer;
     const phaseK = params.phaseCoupling;
     const gradTmp = [0, 0, 0];
@@ -335,6 +339,23 @@ export class ParticleEngine {
         ax[i] += this.wanderField[i * 3] * params.wander * 60 * dt * 4;
         ay[i] += this.wanderField[i * 3 + 1] * params.wander * 60 * dt * 4;
         az[i] += this.wanderField[i * 3 + 2] * params.wander * 60 * dt * 4;
+      }
+
+      // Heat steering: signed gradient — flee the warmth, or seek it.
+      if (heatOn && heatSteer !== 0) {
+        this.heat.gradient(
+          positions[i * 3],
+          positions[i * 3 + 1],
+          positions[i * 3 + 2],
+          gradTmp
+        );
+        const hgmag = Math.sqrt(gradTmp[0] * gradTmp[0] + gradTmp[1] * gradTmp[1] + gradTmp[2] * gradTmp[2]);
+        if (hgmag > 1e-5) {
+          const hk = (heatSteer * Math.min(1, hgmag)) / hgmag;
+          ax[i] += gradTmp[0] * hk;
+          ay[i] += gradTmp[1] * hk;
+          az[i] += gradTmp[2] * hk;
+        }
       }
 
       // Scent steering: ascend the swarm's own trail gradient (Physarum).
@@ -424,6 +445,22 @@ export class ParticleEngine {
       }
       // Phase clock: intrinsic omega + neighbor Kuramoto coupling.
       st3[i * 4] = (st3[i * 4] + (st3[i * 4 + 1] + phaseK * this.phaseAccArr[i]) * dt) % (Math.PI * 2);
+    }
+
+    // --- Heat deposit + decay: warmth where the swarm is moving ----------
+    if (heatOn) {
+      const heatAmt = params.heat.deposit * dt;
+      for (let i = 0; i < n; i++) {
+        const speed =
+          Math.abs(velocities[i * 3]) + Math.abs(velocities[i * 3 + 1]) + Math.abs(velocities[i * 3 + 2]);
+        this.heat.deposit(
+          positions[i * 3],
+          positions[i * 3 + 1],
+          positions[i * 3 + 2],
+          heatAmt * (0.25 + speed)
+        );
+      }
+      this.heat.decay(Math.pow(params.heat.decay, dt));
     }
 
     // --- Scent deposit + decay (the swarm's writable memory) -------------

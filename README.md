@@ -138,6 +138,11 @@ Particles belong to species, and every pair of species has its own affinity in
 an interaction matrix: positive values attract, negative values repel. Three
 force kernels shape the neighbour response (pulse, inverse, linear).
 
+The **heat** field is a second, faster memory: particles leave warmth where they
+move, it cools away quickly, and the swarm can either avoid the hot trails it
+made (**Heat steer** negative, the default) or seek them out. Scent is where the
+swarm has *been*; heat is where it is *working*.
+
 On top of that sit the organism behaviours: per-particle phase clocks that can
 couple into a shared heartbeat, stress and sleep hysteresis, Ornstein-Uhlenbeck
 wander, and a Physarum-style scent field the swarm writes, follows and slowly
@@ -263,7 +268,8 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 163 tests cover the engine, grid, matrix, memory system, organism
-layer, life cycle, sources, persistence, samples, sound mapping and the
-soundscape, the pointer force and its ghost playback, the evolvable matrix
-search, presets, rendering settings, screensaver logic and the keymap.
+the GPU. 165 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, the scent and heat fields, sources, persistence, samples,
+sound mapping and the soundscape, the pointer force and its ghost playback,
+the evolvable matrix search, presets, rendering settings, screensaver logic and
+the keymap.
