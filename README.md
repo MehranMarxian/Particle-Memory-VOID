@@ -271,6 +271,24 @@ tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
+## Putting it online
+
+The public site is a landing page with the app running inside it:
+
+```
+/            landing page (landing/index.html, version stamped at deploy)
+/app/        the built app
+```
+
+```bash
+node scripts/deploy-pages.mjs   # build, stage, and push the gh-pages branch
+```
+
+GitHub Pages serves the `gh-pages` branch at the repo root. The build uses
+relative asset paths and the samples load relative to the build base, so the
+same output works at a domain root, in a subfolder, or inside the embed on the
+landing page. Edit `landing/index.html` to change the copy around the piece.
+
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
 the GPU. 166 tests cover the engine, grid, matrix, memory system, organism

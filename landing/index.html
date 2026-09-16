@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VOID / PARTICLE MEMORY</title>
+    <meta
+      name="description"
+      content="A generative particle artwork. Give VOID a photograph, a 3D model or a point cloud and a swarm of particles becomes a living memory."
+    />
+    <link rel="icon" type="image/png" sizes="64x64" href="./icons/void-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/void-32.png" />
+    <link rel="apple-touch-icon" href="./icons/void-192.png" />
+    <style>
+      :root {
+        --void-bg: #050505;
+        --void-line: #1e1e1e;
+        --void-line-soft: #161616;
+        --void-text: #9a9a9a;
+        --void-bright: #dcdfe4;
+        --void-dim: #5f5f5f;
+        --void-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--void-bg);
+        color: var(--void-text);
+        font: 12px/1.75 var(--void-mono);
+        letter-spacing: 0.06em;
+      }
+      body {
+        background-image: radial-gradient(circle at 50% -20%, #101012 0%, #050505 60%);
+        min-height: 100%;
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 56px 24px 40px;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 40px;
+      }
+      header img {
+        width: 96px;
+        height: 96px;
+        display: block;
+        margin: 0 auto 22px;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 400;
+        letter-spacing: 0.42em;
+        color: var(--void-bright);
+        margin: 0 0 18px;
+      }
+      .lede {
+        max-width: 620px;
+        margin: 0 auto 16px;
+        color: #8a8a8a;
+      }
+      .by {
+        color: var(--void-dim);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+      }
+      a {
+        color: #bdbdbd;
+        text-decoration: none;
+        border-bottom: 1px dotted #3a3a3a;
+      }
+      a:hover,
+      a:focus-visible {
+        color: #fff;
+        border-bottom-color: #6a6a6a;
+      }
+      .frame {
+        border: 1px solid var(--void-line);
+        background: #000;
+        margin-bottom: 40px;
+      }
+      .frame iframe {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        min-height: 420px;
+        border: 0;
+        background: #000;
+      }
+      .frame p {
+        margin: 0;
+        padding: 10px 14px;
+        border-top: 1px solid var(--void-line-soft);
+        color: var(--void-dim);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        justify-content: space-between;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px 40px;
+        margin-bottom: 40px;
+      }
+      h2 {
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 0.36em;
+        color: var(--void-dim);
+        margin: 0 0 12px;
+      }
+      ul,
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        padding: 5px 0;
+        border-bottom: 1px solid var(--void-line-soft);
+      }
+      li:last-child {
+        border-bottom: 0;
+      }
+      li b {
+        color: var(--void-bright);
+        font-weight: 400;
+        letter-spacing: 0.18em;
+        margin-right: 10px;
+      }
+      li code,
+      kbd {
+        font: inherit;
+        color: #cfcfcf;
+        border: 1px solid #2c2c2c;
+        padding: 1px 6px;
+        letter-spacing: 0.12em;
+        white-space: nowrap;
+      }
+      .notes {
+        border: 1px solid var(--void-line);
+        padding: 20px 22px;
+      }
+      .notes li {
+        color: #7f7f7f;
+      }
+      .notes .feedback {
+        margin: 14px 0 0;
+        color: var(--void-dim);
+      }
+      footer {
+        border-top: 1px solid var(--void-line);
+        margin-top: 34px;
+        padding-top: 16px;
+        text-align: center;
+        color: #4a4a4a;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 36px 16px 28px;
+        }
+        .cols {
+          grid-template-columns: 1fr;
+        }
+        .frame iframe {
+          min-height: 320px;
+          aspect-ratio: 4 / 5;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="./void-logo.png" alt="VOID" />
+        <h1>VOID / PARTICLE MEMORY</h1>
+        <p class="lede">
+          A generative particle artwork. Give it a photograph, a 3D model or a point cloud, and a swarm of
+          particles becomes a living memory: it converges on the source, lives with it, drifts away, forgets,
+          and finds its way back.
+        </p>
+        <p class="by">
+          by Mehran Ahmadi &middot; v{{VERSION}} &middot;
+          <a href="https://github.com/MehranMarxian/Particle-Memory-VOID">source</a>
+        </p>
+      </header>
+
+      <section class="frame">
+        <iframe
+          src="./app/"
+          title="VOID / PARTICLE MEMORY"
+          allow="microphone; display-capture; fullscreen; autoplay"
+          loading="lazy"
+        ></iframe>
+        <p>
+          <span>Click inside to give VOID your attention &middot; sound needs one gesture</span>
+          <span><a href="./app/">open full screen &rarr;</a></span>
+        </p>
+      </section>
+
+      <section class="cols">
+        <div>
+          <h2>WHAT YOU ARE LOOKING AT</h2>
+          <ul>
+            <li><b>MEMORY</b>the shape the particles are trying to remember</li>
+            <li><b>LIFE</b>a particle-life ecosystem of attracting and repelling species</li>
+            <li><b>VOID</b>the pull toward dissolution</li>
+          </ul>
+        </div>
+        <div>
+          <h2>TRY THIS FIRST</h2>
+          <ol>
+            <li>Press <kbd>?</kbd> &mdash; the controls guide introduces itself.</li>
+            <li>Drop a photo, a <code>.glb</code>/<code>.obj</code> model or a <code>.ply</code> cloud on the canvas, or press <kbd>O</kbd>.</li>
+            <li>Press <kbd>L</kbd> and play some music &mdash; the swarm answers it.</li>
+            <li>Press <kbd>E</kbd> and watch VOID search its own behaviour.</li>
+            <li>Press <kbd>S</kbd> for the screensaver; any input returns.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="notes">
+        <h2>TESTER NOTES</h2>
+        <ul>
+          <li>Needs WebGL2. The panel's stats line reads <code>[gpu]</code> or <code>[cpu]</code>; <code>[cpu]</code> means the GPU path fell back.</li>
+          <li>Listening (microphone or shared tab audio) needs a secure page. This one is.</li>
+          <li>Your last source is remembered in this browser only. Nothing is recorded, uploaded or sent.</li>
+          <li>If the canvas stays black, reload once. If it still does, that is exactly the kind of thing I want to hear about.</li>
+        </ul>
+        <p class="feedback">
+          Something broken, or something beautiful? Open an issue on
+          <a href="https://github.com/MehranMarxian/Particle-Memory-VOID/issues">GitHub</a>.
+        </p>
+      </section>
+
+      <footer>
+        VOID / PARTICLE MEMORY &middot; v{{VERSION}} &middot;
+        <a href="https://mehran-ahmadi.com/">mehran-ahmadi.com</a>
+      </footer>
+    </main>
+  </body>
+</html>
