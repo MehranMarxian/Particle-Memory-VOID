@@ -17,6 +17,7 @@ packaging/build.rsp
 /.agents/
 /.cluster/
 /.openclaw/
+/.autoclaw/
 /.openclaw-attachments/
 /*-capability.json
 
