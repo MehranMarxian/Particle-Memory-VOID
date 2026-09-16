@@ -18,6 +18,8 @@ export interface GuideApi {
   close(): void;
   toggle(): void;
   isOpen(): boolean;
+  /** Mark which of the five memory states is active right now. */
+  setState(name: string): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] {
@@ -72,6 +74,7 @@ export function createControlsGuide(): GuideApi {
     body.appendChild(column);
   }
 
+  const stateRows = new Map<string, HTMLElement>();
   const states = el("div", "gd-states");
   const statesTitle = el("div", "gd-group-title");
   statesTitle.textContent = "MEMORY STATES";
@@ -89,6 +92,7 @@ export function createControlsGuide(): GuideApi {
     line.textContent = state.line;
     row.append(name, bar, line);
     states.appendChild(row);
+    stateRows.set(state.name, row);
   }
   const legend = el("div", "gd-legend");
   legend.textContent = "BAR: HOW MUCH OF THE SOURCE IS REMEMBERED";
@@ -111,6 +115,12 @@ export function createControlsGuide(): GuideApi {
     root.hidden = true;
   }
 
+  function setState(name: string): void {
+    for (const [state, row] of stateRows) {
+      row.classList.toggle("on", state === name);
+    }
+  }
+
   closeBtn.addEventListener("click", () => close());
   root.addEventListener("click", (e) => {
     if (e.target === root) close();
@@ -125,5 +135,6 @@ export function createControlsGuide(): GuideApi {
       else close();
     },
     isOpen: () => !root.hidden,
+    setState,
   };
 }

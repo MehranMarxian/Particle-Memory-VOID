@@ -157,3 +157,35 @@
 body.screensaver #source-card {
   display: none !important;
 }
+/* Bundled samples: a first memory without a file of your own */
+#source-card .sc-samples {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #161616;
+}
+#source-card .sc-samples-label {
+  color: #565656;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+#source-card .sc-sample {
+  background: none;
+  border: none;
+  padding: 0 0 1px;
+  color: #8f8f8f;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  border-bottom: 1px dotted #333;
+}
+#source-card .sc-sample:hover,
+#source-card .sc-sample:focus-visible {
+  color: #e8e8e8;
+  border-bottom-color: #6a6a6a;
+  outline: none;
+}
