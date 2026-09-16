@@ -15,5 +15,5 @@ export const SAMPLES: readonly SampleSource[] = [
 ];
 
 export function sampleUrl(file: string): string {
-  return "/samples/" + file;
+  return `${import.meta.env.BASE_URL}samples/${file}`;
 }

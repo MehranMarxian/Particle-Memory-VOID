@@ -2,9 +2,7 @@
 
 Same shape as the piece itself: memory first, then life.
 
-## [Unreleased]
-
-In review on `feature/life-heat-soundscape` (PR #6):
+## [0.4.0] - 2026-09-17
 
 ### Added
 
@@ -24,7 +22,7 @@ In review on `feature/life-heat-soundscape` (PR #6):
   species interaction strength by the local fields, so the swarm grows stickier
   along its own trails and where it is working.
 
-## [0.3.0]
+## [0.3.0] - 2026-09-17
 
 ### Added
 

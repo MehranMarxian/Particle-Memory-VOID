@@ -23,9 +23,9 @@ describe("bundled sample sources", () => {
   });
 
   it("builds URLs under /samples (so they survive a reload)", () => {
-    expect(sampleUrl("void-cloud.ply")).toBe("/samples/void-cloud.ply");
+    expect(sampleUrl("void-cloud.ply").endsWith("/samples/void-cloud.ply")).toBe(true);
     for (const sample of SAMPLES) {
-      expect(sampleUrl(sample.file).startsWith("/samples/")).toBe(true);
+      expect(sampleUrl(sample.file)).toContain("/samples/");
     }
   });
 });

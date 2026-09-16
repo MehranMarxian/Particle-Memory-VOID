@@ -461,8 +461,10 @@ export function createPanel(opts: {
   status.id = "panel-status";
   const credit = document.createElement("div");
   credit.className = "credit";
+  // Credit, with the version the app was built from (package.json).
   credit.innerHTML =
-    '<a href="https://mehran-ahmadi.com/" target="_blank" rel="noopener">DEVELOPED BY MEHRAN AHMADI © 2026</a>';
+    '<a href="https://mehran-ahmadi.com/" target="_blank" rel="noopener">DEVELOPED BY MEHRAN AHMADI \u00a9 2026</a>';
+  credit.append(` \u00b7 v${__APP_VERSION__}`);
   footer.append(stats, status, credit);
   panel.appendChild(footer);
 
