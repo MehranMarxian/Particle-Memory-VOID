@@ -55,9 +55,10 @@ export function createPanel(opts: {
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   evolve: { enabled: boolean; trialSeconds: number; mutation: number };
+  pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -303,6 +304,9 @@ export function createPanel(opts: {
   addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
   addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
   addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
+  addObjSlider(fieldBody, "Cursor", pointer, "strength", 0, 3, 0.05, num, "How strongly the swarm leans toward your pointer.");
+  addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
+  addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
 
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");

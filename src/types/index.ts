@@ -79,6 +79,30 @@ export interface ScentParams {
   steer: number;
 }
 
+/**
+ * A touch on the canvas: the swarm leans toward it or away from it. Written
+ * every frame by the input layer, read by both engines, so the CPU and GPU
+ * paths stay identical.
+ */
+export interface PointerParams {
+  /** Effective strength; 0 means no touch. */
+  strength: number;
+  /** +1 attracts, -1 repels. */
+  mode: number;
+  /** World-space position of the touch. */
+  x: number;
+  y: number;
+  z: number;
+}
+
+export const defaultPointerParams = (): PointerParams => ({
+  strength: 0,
+  mode: 1,
+  x: 0,
+  y: 0,
+  z: 0,
+});
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
@@ -87,6 +111,7 @@ export interface EngineParams {
   /** Kuramoto phase coupling between neighbors (heartbeat sync). */
   phaseCoupling: number;
   scent: ScentParams;
+  pointer: PointerParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -123,6 +148,7 @@ export const defaultEngineParams = (): EngineParams => ({
   wander: 0.06,
   phaseCoupling: 1.2,
   scent: defaultScentParams(),
+  pointer: defaultPointerParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

@@ -165,6 +165,22 @@ music instead of twitching at it. **Sensitivity** sets how far it travels.
 The audio is analysed inside the page and never recorded, stored or sent
 anywhere; switching Listen off releases the microphone immediately.
 
+## Touch
+
+Move the pointer across the canvas and the swarm leans after it. **Cursor**
+sets how hard, and its toggle switches between **PULL** (attract) and **PUSH**
+(repel). The touch fades out when your hand rests, so it reads as contact
+rather than a permanent magnet, and the point is recomputed through the live
+camera every frame, so it stays true while the view drifts. Both engines run
+the same falloff, so CPU and GPU behave identically.
+
+**Ghost** answers the screensaver's one hard rule: any mouse movement exits it,
+so a real pointer can never nudge a screensaver. Instead VOID records the path
+your pointer takes while you work (a rolling ~40 s of it) and replays that path
+as a ghost hand while the saver runs, through the same camera and the same
+force. Before anything has been recorded, a slow figure-of-eight stands in.
+Switch Ghost off if you would rather the screensaver be left alone.
+
 ## Evolution
 
 Press `E`, or open the panel's EVOLVE section, and VOID searches its own
@@ -212,13 +228,15 @@ src/
   rendering/   sprites, trails, HDR filmic pipeline
   presets/     preset definitions, randomization, localStorage, evolver
   ui/          control panel, source card, controls guide, shared keymap
-  audio/       audio-reactive mode (mic analysis + the band-to-look mapping)
+  audio/       audio-reactive mode (mic or shared-tab analysis)
+  input/       pointer track, ghost playback, idle fade
 tests/         vitest suites (engine, memory, organism, sources, keymap)
 scripts/       sample generator
 ```
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 143 tests cover the engine, grid, matrix, memory system, organism
-layer, sources, persistence, samples, sound mapping, the evolvable matrix
-search, presets, rendering settings, screensaver logic and the keymap.
+the GPU. 153 tests cover the engine, grid, matrix, memory system, organism
+layer, sources, persistence, samples, sound mapping, the pointer force and its
+ghost playback, the evolvable matrix search, presets, rendering settings,
+screensaver logic and the keymap.

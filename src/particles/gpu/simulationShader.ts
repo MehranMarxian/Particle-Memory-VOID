@@ -125,6 +125,9 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uTurbulence;
   uniform float uDrift;
   uniform float uGravity;
+  uniform vec3 uPointer;
+  uniform float uPointerStrength;
+  uniform float uPointerMode;
   uniform float uSpeciesCount;
   uniform float uKernel; // 0 = pulse, 1 = inverse, 2 = linear
   uniform float uWander;
@@ -279,6 +282,15 @@ export const gpuVelocityShader = /* glsl */ `
     }
     accel.x += uDrift * uDt;
     accel.y -= uGravity * uDt;
+
+    // The touch: soft attractor or repulsor at the pointer (mirrors the CPU engine).
+    if (uPointerStrength > 0.0) {
+      vec3 toPointer = uPointer - pos;
+      float pDist2 = dot(toPointer, toPointer);
+      float pDist = sqrt(pDist2) + 0.0001;
+      float pFall = 1.0 / (1.0 + pDist2 * 0.25);
+      accel += (toPointer / pDist) * (uPointerStrength * uPointerMode * pFall);
+    }
 
     // Scent steering: ascend the swarm's own trail gradient (Physarum).
     if (uScentOn > 0.5) {

@@ -160,9 +160,12 @@ export class GpuParticleEngine {
       "uTurbulence",
       "uDrift",
       "uGravity",
+      "uPointerStrength",
+      "uPointerMode",
     ]) {
       vu[name] = { value: 0 };
     }
+    vu["uPointer"] = { value: new THREE.Vector3() };
     vu["uKernel"] = { value: 0 };
     vu["uWander"] = { value: 0.06 };
     vu["uScentOn"] = { value: 0 };
@@ -459,6 +462,9 @@ export class GpuParticleEngine {
     u["uTurbulence"].value = params.turbulence;
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
+    u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);
+    u["uPointerStrength"].value = params.pointer.strength;
+    u["uPointerMode"].value = params.pointer.mode;
     u["uKernel"].value =
       L.kernel === "pulse" ? 0 : L.kernel === "inverse" ? 1 : 2;
     u["uRegain"].value = this.pendingRegain;

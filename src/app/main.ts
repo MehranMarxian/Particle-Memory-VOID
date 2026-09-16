@@ -26,6 +26,7 @@ import {
 } from "@/presets/presets";
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
+import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
@@ -613,6 +614,67 @@ function setDensity(index: number): void {
   flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
 }
 
+// --- The touch: pointer force, and the hand VOID remembers ---------------------
+// A screensaver cannot be nudged by a real mouse (any movement exits it), so the
+// pointer path is recorded while you work and replayed as a ghost in the saver.
+const pointer = { strength: 0, mode: 1, ghost: true };
+const pointerTrack = new PointerTrack();
+const pointerInfluence = new PointerInfluence();
+const pointerRay = new THREE.Raycaster();
+const pointerNdcVec = new THREE.Vector2();
+const pointerPlane = new THREE.Plane();
+const pointerHit = new THREE.Vector3();
+const pointerNormal = new THREE.Vector3();
+const pointerOrigin = new THREE.Vector3(0, 0, 0);
+let pointerNdc: { x: number; y: number } | null = null;
+let ghostClock = 0;
+pointerTrack.begin(performance.now() / 1000);
+
+renderer3d.domElement.addEventListener("pointermove", (e) => {
+  const rect = renderer3d.domElement.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
+  pointerNdc = { x, y };
+  pointerInfluence.touch();
+  pointerTrack.record(performance.now() / 1000, x, y);
+});
+
+function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: number; z: number } {
+  pointerNdcVec.set(ndc.x, ndc.y);
+  pointerRay.setFromCamera(pointerNdcVec, camera);
+  camera.getWorldDirection(pointerNormal);
+  pointerPlane.setFromNormalAndCoplanarPoint(pointerNormal, pointerOrigin);
+  const hit = pointerRay.ray.intersectPlane(pointerPlane, pointerHit);
+  if (!hit) return { x: 0, y: 0, z: 0 };
+  return { x: hit.x, y: hit.y, z: hit.z };
+}
+
+function updateTouch(dt: number): void {
+  pointerInfluence.tick(dt);
+  let ndc = pointerNdc;
+  if (saver.active) {
+    // Real input would end the screensaver, so play back the recorded hand.
+    if (!pointer.ghost) {
+      params.pointer.strength = 0;
+      return;
+    }
+    ghostClock += dt;
+    ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
+    pointerInfluence.touch();
+  }
+  const strength = pointer.strength * pointerInfluence.current;
+  if (!ndc || strength <= 0.0001) {
+    params.pointer.strength = 0;
+    return;
+  }
+  const world = pointerWorldPosition(ndc);
+  params.pointer.x = world.x;
+  params.pointer.y = world.y;
+  params.pointer.z = world.z;
+  params.pointer.mode = pointer.mode;
+  params.pointer.strength = strength;
+}
+
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
@@ -839,6 +901,7 @@ let activeMatrix = matrix;
     currentCount,
     sound,
     evolve,
+    pointer,
     callbacks: {
       onDensityChange(count) {
         currentCount = count;
@@ -1103,6 +1166,7 @@ function frameInner(now: number): void {
     accumulator -= FIXED_DT;
   }
 
+  updateTouch(dt);
   evolver.tick(dt);
   azimuth += dt * (saver.active ? 0.035 : 0.02);
   // In screensaver the camera slowly dollies in and out — a long breath.

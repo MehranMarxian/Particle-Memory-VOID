@@ -266,6 +266,11 @@ export class ParticleEngine {
     const turb = params.turbulence;
     const drift = params.drift;
     const grav = params.gravity;
+    const pointerStrength = params.pointer.strength;
+    const pointerMode = params.pointer.mode;
+    const pointerX = params.pointer.x;
+    const pointerY = params.pointer.y;
+    const pointerZ = params.pointer.z;
     const time = this.simTime;
     const frictionFactor = exponentialDamp(params.life.friction, dt);
     const scentOn = params.scent.enabled;
@@ -346,6 +351,21 @@ export class ParticleEngine {
       }
       if (grav !== 0) {
         ay[i] -= grav * dt;
+      }
+
+      // The touch: a soft attractor or repulsor at the pointer, with the
+      // same falloff and mode sign as the GPU shader.
+      if (pointerStrength > 0) {
+        const pdx = pointerX - positions[i * 3];
+        const pdy = pointerY - positions[i * 3 + 1];
+        const pdz = pointerZ - positions[i * 3 + 2];
+        const pd2 = pdx * pdx + pdy * pdy + pdz * pdz;
+        const pd = Math.sqrt(pd2) + 1e-4;
+        // A true acceleration: the integrator applies dt, exactly like the GPU shader.
+        const pull = (pointerStrength * pointerMode) / (1 + pd2 * 0.25);
+        ax[i] += (pdx / pd) * pull;
+        ay[i] += (pdy / pd) * pull;
+        az[i] += (pdz / pd) * pull;
       }
 
       // Integrate.
