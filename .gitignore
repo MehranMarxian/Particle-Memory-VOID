@@ -4,3 +4,20 @@ dist/
 .DS_Store
 packaging/VOID.scr
 packaging/build.rsp
+
+# This folder doubles as the OpenClaw agent workspace; keep its files out of the repo.
+/AGENTS.md
+/HEARTBEAT.md
+/IDENTITY.md
+/MEMORY.md
+/SOUL.md
+/TOOLS.md
+/USER.md
+/memory/
+/.agents/
+/.cluster/
+/.openclaw/
+/.openclaw-attachments/
+/*-capability.json
+/.opencode/
+/config/mcporter.json
