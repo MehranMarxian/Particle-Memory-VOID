@@ -245,9 +245,23 @@ export class ParticleEngine {
         }
       }
 
-      ax[i] = fx;
-      ay[i] = fy;
-      az[i] = fz;
+      // Environment-modulated affinities: the swarm's own fields change how
+      // sociable it is where it has been (scent) and where it is busy (heat).
+      // (Read straight from params: this runs before the FIELD hoists.)
+      let envMod = 1;
+      const envScent = params.environment.scent;
+      const envHeat = params.environment.heat;
+      if (envScent !== 0 || envHeat !== 0) {
+        const ex = positions[i * 3];
+        const ey = positions[i * 3 + 1];
+        const ez = positions[i * 3 + 2];
+        const fieldS = params.scent.enabled ? this.scent.sample(ex, ey, ez) : 0;
+        const fieldH = params.heat.enabled ? this.heat.sample(ex, ey, ez) : 0;
+        envMod = Math.min(3, Math.max(0.05, 1 + envScent * fieldS + envHeat * fieldH));
+      }
+      ax[i] = fx * envMod;
+      ay[i] = fy * envMod;
+      az[i] = fz * envMod;
       this.phaseAccArr[i] = phaseN > 0 ? phaseAcc / phaseN : 0;
     }
 

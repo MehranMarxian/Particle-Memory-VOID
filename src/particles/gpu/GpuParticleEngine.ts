@@ -175,6 +175,8 @@ export class GpuParticleEngine {
     vu["uScentOn"] = { value: 0 };
     vu["uHeatOn"] = { value: 0 };
     vu["uHeatSteer"] = { value: -1.1 };
+    vu["uEnvScent"] = { value: 0 };
+    vu["uEnvHeat"] = { value: 0 };
     vu["uScentSteer"] = { value: 1.4 };
     vu["texScent"] = { value: this.scentTex };
     vu["uScentN"] = { value: this.scent.n };
@@ -472,6 +474,8 @@ export class GpuParticleEngine {
     u["uScentOn"].value = params.scent.enabled ? 1 : 0;
     u["uHeatOn"].value = params.heat.enabled ? 1 : 0;
     u["uHeatSteer"].value = params.heat.steer;
+    u["uEnvScent"].value = params.environment.scent;
+    u["uEnvHeat"].value = params.environment.heat;
     u["uScentSteer"].value = params.scent.steer;
     su["uPhaseK"].value = params.phaseCoupling;
     const L = params.life;

@@ -138,6 +138,11 @@ Particles belong to species, and every pair of species has its own affinity in
 an interaction matrix: positive values attract, negative values repel. Three
 force kernels shape the neighbour response (pulse, inverse, linear).
 
+The fields bend the swarm back: **Scent affinity** and **Heat affinity** scale the
+species affinities by how much of each field is around a particle, so the swarm
+can grow stickier (or looser) along its own trails and in the places it works -
+the environment it makes, shaping the behaviour that made it.
+
 The **heat** field is a second, faster memory: particles leave warmth where they
 move, it cools away quickly, and the swarm can either avoid the hot trails it
 made (**Heat steer** negative, the default) or seek them out. Scent is where the
@@ -268,8 +273,8 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 165 tests cover the engine, grid, matrix, memory system, organism
-layer, life cycle, the scent and heat fields, sources, persistence, samples,
-sound mapping and the soundscape, the pointer force and its ghost playback,
-the evolvable matrix search, presets, rendering settings, screensaver logic and
-the keymap.
+the GPU. 166 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, the scent and heat fields, environment-modulated affinities,
+sources, persistence, samples, sound mapping and the soundscape, the pointer
+force and its ghost playback, the evolvable matrix search, presets, rendering
+settings, screensaver logic and the keymap.

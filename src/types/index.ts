@@ -143,6 +143,21 @@ export const defaultHeatParams = (): HeatParams => ({
   steer: -1.1,
 });
 
+/**
+ * Environment-modulated affinities: how strongly the swarm's own fields bend
+ * its species affinities where it has been (scent) and where it is busy (heat).
+ * Positive values make the swarm stickier in those places, negative looser.
+ */
+export interface EnvironmentParams {
+  scent: number;
+  heat: number;
+}
+
+export const defaultEnvironmentParams = (): EnvironmentParams => ({
+  scent: 0,
+  heat: 0,
+});
+
 export interface EngineParams {
   life: LifeParams;
   memory: MemoryParams;
@@ -154,6 +169,7 @@ export interface EngineParams {
   pointer: PointerParams;
   lifecycle: LifeCycleParams;
   heat: HeatParams;
+  environment: EnvironmentParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -193,6 +209,7 @@ export const defaultEngineParams = (): EngineParams => ({
   pointer: defaultPointerParams(),
   lifecycle: defaultLifeCycleParams(),
   heat: defaultHeatParams(),
+  environment: defaultEnvironmentParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

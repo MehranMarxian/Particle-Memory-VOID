@@ -138,6 +138,8 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uScentSteer;
   uniform float uHeatOn;
   uniform float uHeatSteer;
+  uniform float uEnvScent;
+  uniform float uEnvHeat;
   uniform sampler2D texScent;
   uniform float uScentN;
   uniform float uScentExtent;
@@ -283,7 +285,15 @@ export const gpuVelocityShader = /* glsl */ `
     }
 
     vec4 stS = texture2D(textureState, uv);
-    vec3 accel = force;
+    // Environment-modulated affinities: the swarm's own fields bend how
+    // sociable it is where it has been (scent) and where it is busy (heat).
+    float envMod = 1.0;
+    if (uEnvScent != 0.0 || uEnvHeat != 0.0) {
+      float envS = (uScentOn > 0.5) ? scentField(pos) : 0.0;
+      float envH = (uHeatOn > 0.5) ? heatField(pos) : 0.0;
+      envMod = clamp(1.0 + uEnvScent * envS + uEnvHeat * envH, 0.05, 3.0);
+    }
+    vec3 accel = force * envMod;
     // Asleep particles: life yields (memory below stays at full strength).
     accel *= stS.w > 0.5 ? 0.25 : 1.0;
 

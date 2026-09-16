@@ -15,6 +15,55 @@ describe("field packing", () => {
   });
 });
 
+describe("environment-modulated affinities", () => {
+  /** Settled mean radius of a swarm whose attraction is bent by its own trail. */
+  function run(scentAffinity: number): number {
+    const params = defaultEngineParams();
+    params.memory.strength = 0;
+    params.life.attraction = 1.2;
+    params.life.repulsion = 1.0;
+    params.life.chaos = 0;
+    params.turbulence = 0;
+    params.drift = 0;
+    params.gravity = 0;
+    params.wander = 0;
+    params.phaseCoupling = 0;
+    params.scent.enabled = true;
+    params.scent.steer = 0;
+    params.scent.deposit = 0;
+    params.scent.decay = 0.9;
+    params.heat.enabled = false;
+    params.environment = { scent: scentAffinity, heat: 0 };
+    const matrix = new InteractionMatrix(2);
+    matrix.setRow(0, [1, 1]);
+    matrix.setRow(1, [1, 1]);
+
+    const engine = new ParticleEngine(240, 2, 17);
+    engine.configureGrid(params);
+    for (let i = 0; i < engine.count; i++) {
+      const angle = (i / engine.count) * Math.PI * 2;
+      engine.positions[i * 3] = Math.cos(angle) * 2.5;
+      engine.positions[i * 3 + 1] = Math.sin(angle) * 2.5;
+      engine.positions[i * 3 + 2] = 0;
+      for (let c = 0; c < 3; c++) engine.velocities[i * 3 + c] = 0;
+    }
+    engine.scent.deposit(0, 0, 0, 30); // a strong trail through the middle
+    for (let step = 0; step < 300; step++) engine.step(1 / 60, params, matrix);
+
+    let sum = 0;
+    for (let i = 0; i < engine.count; i++) {
+      sum += Math.hypot(engine.positions[i * 3], engine.positions[i * 3 + 1], engine.positions[i * 3 + 2]);
+    }
+    return sum / engine.count;
+  }
+
+  it("makes the swarm stickier where its own trail is strong", () => {
+    const plain = run(0);
+    const sticky = run(1.6);
+    expect(sticky).toBeLessThan(plain);
+  });
+});
+
 describe("heat steering", () => {
   /** A swarm with every other force off, so the heat gradient is the only one. */
   function run(steer: number): number {
