@@ -30,6 +30,7 @@ export interface PanelCallbacks {
   onSoundToggle(): void;
   onEvolveToggle(): void;
   onSoundSourceChange(): void;
+  onSoundscapeToggle(): void;
 }
 
 export interface PanelApi {
@@ -54,11 +55,12 @@ export function createPanel(opts: {
   speciesCount: number;
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
+  soundscape: { enabled: boolean; volume: number };
   evolve: { enabled: boolean; trialSeconds: number; mutation: number };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -361,10 +363,23 @@ export function createPanel(opts: {
       select.value = sound.source;
     });
   }
+  addToggle(
+    soundBody,
+    "Soundscape",
+    () => soundscape.enabled,
+    (v) => {
+      soundscape.enabled = v;
+      callbacks.onSoundscapeToggle();
+    },
+    "ON",
+    "OFF",
+    "A hum that rises with stress, and a whisper while the memory re-forms."
+  );
+  addObjSlider(soundBody, "Volume", soundscape, "volume", 0, 1, 0.01, num, "How loud the soundscape is.");
   {
     const note = document.createElement("div");
     note.className = "meta";
-    note.textContent = "MICROPHONE / LINE-IN - ANALYSED LOCALLY, NEVER UPLOADED";
+    note.textContent = "AUDIO STAYS IN THIS TAB - ANALYSED AND SYNTHESISED LOCALLY";
     soundBody.appendChild(note);
   }
 

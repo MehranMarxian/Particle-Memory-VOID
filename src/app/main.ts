@@ -42,6 +42,7 @@ import { createSourceCard } from "@/ui/sourceCard";
 import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
+import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import {
   audioDrive,
   createAudioListener,
@@ -760,6 +761,41 @@ function onSoundSourceChange(): void {
   void applySoundToggle();
 }
 
+// The soundscape is generated, not captured: a hum for stress, a whisper for
+// reconstruction. It works in the screensaver too, where nothing listens.
+const soundscape = { enabled: false, volume: 0.55 };
+const ambience = createSoundscape();
+
+function applySoundscapeToggle(): void {
+  if (soundscape.enabled) {
+    try {
+      ambience.start();
+      flashHint("SOUNDSCAPE: ON", 3);
+    } catch {
+      soundscape.enabled = false;
+      panelApi?.refresh();
+      flashHint("AUDIO UNAVAILABLE IN THIS BROWSER", 6);
+    }
+  } else {
+    ambience.stop();
+    flashHint("SOUNDSCAPE: OFF", 3);
+  }
+}
+
+/** Mean organism stress, sampled: drives the hum. */
+function meanRenderStress(): number {
+  const state = engine.renderState;
+  const total = engine.count;
+  const stride = Math.max(1, Math.floor(total / 256));
+  let sum = 0;
+  let samples = 0;
+  for (let i = 0; i < total; i += stride) {
+    sum += state[i * 4 + 2];
+    samples++;
+  }
+  return samples > 0 ? sum / samples : 0;
+}
+
 async function applySoundToggle(): Promise<void> {
   if (sound.enabled) {
     try {
@@ -903,6 +939,7 @@ let activeMatrix = matrix;
     speciesCount,
     currentCount,
     sound,
+    soundscape,
     evolve,
     pointer,
     callbacks: {
@@ -1039,6 +1076,9 @@ let activeMatrix = matrix;
       },
       onSoundSourceChange() {
         onSoundSourceChange();
+      },
+      onSoundscapeToggle() {
+        applySoundscapeToggle();
       },
       onEvolveToggle() {
         applyEvolveToggle();
@@ -1232,6 +1272,14 @@ function frameInner(now: number): void {
     window.setTimeout(() => splash.remove(), 1800);
   }
   if (now - lastFpsTime > 500) {
+    if (soundscape.enabled && ambience.active) {
+      const distance = engine.meanTargetDistance();
+      const driven = Math.min(1, Math.max(0, memory.memoryStrength / 12)) * (1 - Math.min(1, distance / 8));
+      ambience.setTargets(
+        soundscapeLevels({ stress: meanRenderStress(), reconstruction: driven, density: engine.count }),
+        soundscape.volume
+      );
+    }
     panelApi?.setEvolve(
       evolver.running
         ? `generation ${evolver.generation} - candidate ${evolver.candidate} of ${evolver.populationSize}\nbest ${evolver.bestFitness?.toFixed(2) ?? "-"}`

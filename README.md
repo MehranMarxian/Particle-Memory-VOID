@@ -165,6 +165,14 @@ music instead of twitching at it. **Sensitivity** sets how far it travels.
 The audio is analysed inside the page and never recorded, stored or sent
 anywhere; switching Listen off releases the microphone immediately.
 
+### Soundscape
+
+VOID can also breathe out loud, with no audio files involved: a synthesised
+ambience whose **hum** intensifies with the swarm's stress, whose **whisper**
+swells while the memory is re-forming, and whose faint shimmer follows density.
+Switch **Soundscape** on in the SOUND section and set its **Volume**. Because
+it is generated rather than captured, it keeps working in the screensaver.
+
 ## Life cycle
 
 Switch **Life** on in the panel's LIFE section (or leave it off for the quiet
@@ -246,7 +254,7 @@ src/
   rendering/   sprites, trails, HDR filmic pipeline
   presets/     preset definitions, randomization, localStorage, evolver
   ui/          control panel, source card, controls guide, shared keymap
-  audio/       audio-reactive mode (mic or shared-tab analysis)
+  audio/       audio-reactive mode (mic or shared-tab analysis) and the soundscape
   input/       pointer track, ghost playback, idle fade
   (life cycle lives in particles/lifeCycle.ts, shared by both engines)
 tests/         vitest suites (engine, memory, organism, sources, keymap)
@@ -255,7 +263,7 @@ scripts/       sample generator
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 160 tests cover the engine, grid, matrix, memory system, organism
-layer, life cycle, sources, persistence, samples, sound mapping, the pointer
-force and its ghost playback, the evolvable matrix search, presets, rendering
-settings, screensaver logic and the keymap.
+the GPU. 163 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, sources, persistence, samples, sound mapping and the
+soundscape, the pointer force and its ghost playback, the evolvable matrix
+search, presets, rendering settings, screensaver logic and the keymap.
