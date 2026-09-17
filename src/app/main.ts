@@ -17,6 +17,7 @@ import {
 } from "@/rendering/VisualSettings";
 import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
+import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -156,6 +157,8 @@ let lookSeed = 1;
 let lastLookMode = "";
 /** The source's own radius, measured once per source (RADIAL ramp only). */
 let subjectRadius = 1;
+/** Appearance genes of the current champion, once the search has found one. */
+let phenotypeLook: Phenotype | null = null;
 
 /**
  * Re-bake per-particle colour and shape for the current look settings.
@@ -168,7 +171,7 @@ function applyLook(): void {
   if (!particleRenderer) return;
   const mode = visual.colorMode;
   if (mode === "species") {
-    writeSpeciesColors(engine.colors, engine.count, speciesCount);
+    writeSpeciesColors(engine.colors, engine.count, speciesCount, undefined, phenotypeLook?.hue);
   } else if (mode === "random") {
     if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
     writeRandomColors(engine.colors, engine.count, lookSeed);
@@ -176,7 +179,9 @@ function applyLook(): void {
     engine.colors.set(sourceColors);
   }
   lastLookMode = mode;
-  if (visual.shapeBySpecies) writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount);
+  if (visual.shapeBySpecies) {
+    writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
+  }
   else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
   particleRenderer.markColorsDirty();
   particleRenderer.markShapesDirty();
@@ -747,7 +752,7 @@ function updateTouch(dt: number): void {
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
-const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2 };
+const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false };
 
 function sampledMeanSpeed(): number {
   const velocities = engine.velocities;
@@ -773,6 +778,10 @@ const evolver = new Evolver(
       for (let a = 0; a < n; a++) matrix.setRow(a, genome.slice(a * n, a * n + n));
       activeMatrix = matrix;
       matrixIndex = 0;
+    },
+    applyPhenotype(phenotype) {
+      phenotypeLook = clampPhenotype(phenotype, speciesCount);
+      applyLook();
     },
     distance: () => engine.meanTargetDistance(),
     speed: () => sampledMeanSpeed(),
@@ -1133,6 +1142,7 @@ let activeMatrix = matrix;
         abandonEvolution();
         speciesCount = n;
         engine.setSpeciesCount(matrix, n);
+        phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
         applyLook();
         flashHint(`SPECIES: ${n}`, 2);
       },

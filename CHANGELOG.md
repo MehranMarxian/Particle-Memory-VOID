@@ -25,6 +25,12 @@ Same shape as the piece itself: memory first, then life.
   ?color=species|random|gradient&axis=age|depth|radial&palette=ICE&shape=star
 - The RADIAL gradient axis, measured from the source's own radius (computed
   once per source, not per frame), so a ramp can read as a volume.
+- Evolvable appearance: the EVOLVE panel gains a Look toggle. Each candidate
+  then also carries a hue and a shape per species, inherited from the same
+  trial winner, mutated at the same rate and crossed over by the same rules.
+  The search cannot select for appearance directly - nothing about a hue makes
+  a swarm remember better - so the genes ride the behaviour it does select, and
+  a champion arrives looking unlike its ancestors.
 
 ### Changed
 

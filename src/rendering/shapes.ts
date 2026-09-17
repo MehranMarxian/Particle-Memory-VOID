@@ -58,11 +58,15 @@ export function writeSpeciesShapes(
   shapes: Float32Array,
   count: number,
   speciesCount: number,
-  speciesOf: (i: number) => number = (i) => i % Math.max(1, speciesCount)
+  speciesOf: (i: number) => number = (i) => i % Math.max(1, speciesCount),
+  /** Optional evolved shape index per species, overriding the default order. */
+  shapeOverride?: number[]
 ): void {
   const n = PARTICLE_SHAPES.length;
   for (let i = 0; i < count; i++) {
-    shapes[i] = Math.abs(speciesOf(i)) % n;
+    const species = Math.abs(speciesOf(i));
+    const chosen = shapeOverride?.[species];
+    shapes[i] = chosen === undefined ? species % n : ((Math.floor(chosen) % n) + n) % n;
   }
 }
 

@@ -22,6 +22,8 @@ export interface TrialSample {
   meanSpeed: number;
 }
 
+import { clampPhenotype, nextPhenotypes, randomPhenotype, type Phenotype } from "./phenotype";
+
 export interface EvolverOptions {
   /** Candidates per generation. */
   population: number;
@@ -31,6 +33,11 @@ export interface EvolverOptions {
   mutation: number;
   /** How many top candidates survive unchanged. */
   elite: number;
+  /**
+   * Evolve appearance (hue and shape per species) alongside the behaviour.
+   * Optional so a caller that predates the gene pool keeps working.
+   */
+  phenotype?: boolean;
 }
 
 export const DEFAULT_EVOLVER_OPTIONS: EvolverOptions = {
@@ -38,6 +45,7 @@ export const DEFAULT_EVOLVER_OPTIONS: EvolverOptions = {
   trialSeconds: 6,
   mutation: 0.25,
   elite: 2,
+  phenotype: false,
 };
 
 /** Standard normal sample (Box-Muller) built on the supplied rng. */
@@ -117,6 +125,8 @@ export function trialFitness(sample: TrialSample): number {
 /** What the evolver needs from the app (everything else stays pure). */
 export interface EvolverHost {
   applyGenome(genome: number[]): void;
+  /** Called with the candidate's appearance genes while phenotype evolution is on. */
+  applyPhenotype?(phenotype: Phenotype): void;
   /** Mean distance from the particles to the memory, right now. */
   distance(): number;
   /** Mean particle speed, right now. */
@@ -142,6 +152,8 @@ export class Evolver {
   private generationNumber = 0;
   private champion: number[] | null = null;
   private championFitness: number | null = null;
+  private phenotypes: Phenotype[] | null = null;
+  private championPhenotype: Phenotype | null = null;
 
   constructor(
     private host: EvolverHost,
@@ -175,11 +187,22 @@ export class Evolver {
     return this.champion ? [...this.champion] : null;
   }
 
+  /** The champion's appearance genes, when phenotype evolution is on. */
+  get bestPhenotype(): Phenotype | null {
+    return this.championPhenotype ? { hue: [...this.championPhenotype.hue], shape: [...this.championPhenotype.shape] } : null;
+  }
+
   /** Start (or restart) the search, keeping the champion in the running. */
   start(): void {
     this.population = Array.from({ length: this.options.population }, () => randomGenome(this.species, this.rng));
     if (this.champion && this.champion.length === this.species * this.species) {
       this.population[0] = [...this.champion];
+    }
+    this.phenotypes = this.options.phenotype
+      ? Array.from({ length: this.options.population }, () => randomPhenotype(this.species, this.rng))
+      : null;
+    if (this.phenotypes && this.championPhenotype) {
+      this.phenotypes[0] = clampPhenotype(this.championPhenotype, this.species);
     }
     this.fitnesses = [];
     this.generationNumber = 0;
@@ -193,6 +216,7 @@ export class Evolver {
    */
   stop(reapply = true): void {
     if (reapply && this.champion) this.host.applyGenome(this.champion);
+    if (reapply && this.championPhenotype) this.host.applyPhenotype?.(this.championPhenotype);
     this.population = [];
     this.fitnesses = [];
     this.index = 0;
@@ -219,6 +243,7 @@ export class Evolver {
   private beginTrial(index: number): void {
     this.index = index;
     this.host.applyGenome(this.population[index]);
+    if (this.phenotypes) this.host.applyPhenotype?.(this.phenotypes[index]);
     this.startDistance = this.host.distance();
     this.speedSum = 0;
     this.speedSamples = 0;
@@ -231,10 +256,13 @@ export class Evolver {
     if (this.championFitness === null || score > this.championFitness) {
       this.championFitness = score;
       this.champion = [...this.population[winner]];
+      if (this.phenotypes) this.championPhenotype = clampPhenotype(this.phenotypes[winner], this.species);
     }
     this.generationNumber++;
     this.population = nextPopulation(this.population, this.fitnesses, this.rng, this.options);
     if (this.champion) this.population[0] = [...this.champion];
+    // Appearance rides the same winner, so a champion looks unlike its ancestors.
+    if (this.phenotypes) this.phenotypes = nextPhenotypes(this.phenotypes, winner, this.rng, this.options);
     this.fitnesses = [];
     this.beginTrial(0);
   }

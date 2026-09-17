@@ -262,6 +262,13 @@ the search is a way of finding an organism, not a mode you sit in. Any manual
 change - a preset, a randomize, the `H` key, a different species count - ends
 the search and leaves your change alone.
 
+Appearance is evolvable too. With **Look** on in the EVOLVE panel, each
+candidate also carries a hue and a shape per species, inherited from the same
+winner and mutated at the same rate. Nothing about a colour makes a swarm
+remember better, so these genes cannot be selected for directly: they hitch a
+ride on the behaviour that can, and a champion arrives looking unlike its
+ancestors.
+
 ## Performance
 
 Simulation is split on purpose:

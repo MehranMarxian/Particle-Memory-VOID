@@ -104,8 +104,14 @@ export function speciesHue(species: number, count: number): number {
  * searched until the luminance lands on the target — the swarms then differ in
  * hue, never in presence.
  */
-export function speciesColor(species: number, count: number, targetLuminance = 0.62): [number, number, number] {
-  const h = speciesHue(species, count);
+export function speciesColor(
+  species: number,
+  count: number,
+  targetLuminance = 0.62,
+  /** Turns of the wheel added to the even spacing (an evolved appearance gene). */
+  hueShift = 0
+): [number, number, number] {
+  const h = ((speciesHue(species, count) + hueShift) % 1 + 1) % 1;
   const saturation = 0.8;
   let lo = 0;
   let hi = 1;
@@ -177,10 +183,14 @@ export function writeSpeciesColors(
   colors: Float32Array,
   count: number,
   speciesCount: number,
-  speciesOf: (i: number) => number = (i) => i % Math.max(1, speciesCount)
+  speciesOf: (i: number) => number = (i) => i % Math.max(1, speciesCount),
+  /** Optional evolved hue offset per species. */
+  hueOffsets?: number[]
 ): void {
   const cache: [number, number, number][] = [];
-  for (let s = 0; s < Math.max(1, speciesCount); s++) cache.push(speciesColor(s, speciesCount));
+  for (let s = 0; s < Math.max(1, speciesCount); s++) {
+    cache.push(speciesColor(s, speciesCount, 0.62, hueOffsets?.[s] ?? 0));
+  }
   for (let i = 0; i < count; i++) {
     const c = cache[Math.min(cache.length - 1, Math.max(0, speciesOf(i)))];
     colors[i * 3] = c[0];

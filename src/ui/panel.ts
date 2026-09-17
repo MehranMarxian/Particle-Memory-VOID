@@ -65,7 +65,7 @@ export function createPanel(opts: {
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   soundscape: { enabled: boolean; volume: number };
-  evolve: { enabled: boolean; trialSeconds: number; mutation: number };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
@@ -521,6 +521,17 @@ export function createPanel(opts: {
   );
   addObjSlider(evolveBody, "Trial", evolve, "trialSeconds", 2, 20, 0.5, (v) => `${v.toFixed(1)}s`, "How long each candidate gets to prove itself.");
   addObjSlider(evolveBody, "Mutation", evolve, "mutation", 0.02, 1, 0.01, num, "How far each child drifts from its parents.");
+  addToggle(
+    evolveBody,
+    "Look",
+    () => evolve.phenotype,
+    (v) => {
+      evolve.phenotype = v;
+    },
+    "ON",
+    "OFF",
+    "Let the search evolve each species' hue and shape alongside its behaviour. Appearance cannot be scored, so it rides the winner."
+  );
   {
     const readout = document.createElement("div");
     readout.className = "meta";
