@@ -43,7 +43,17 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     scent: { enabled: false },
     wander: 0.03,
     phaseCoupling: 0.8,
-    visual: { particleSize: 1.0, glow: 0.3, opacity: 0.7, dof: 0.2, colorMode: "monochrome", trails: false },
+    visual: {
+      particleSize: 1.0,
+      glow: 0.3,
+      opacity: 0.7,
+      dof: 0.2,
+      trails: false,
+      // A face remembered faithfully: its own colours, the plain disc.
+      colorMode: "source",
+      shape: "circle",
+      shapeBySpecies: false,
+    },
   },
   {
     name: "organic",
@@ -65,7 +75,16 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     scent: { enabled: true, deposit: 0.7, decay: 0.4, steer: 2.2 },
     wander: 0.08,
     phaseCoupling: 1.6,
-    visual: { particleSize: 1.0, glow: 0.4, opacity: 0.6, dof: 0.25, colorMode: "monochrome", trails: false },
+    visual: {
+      particleSize: 1.0,
+      glow: 0.4,
+      opacity: 0.6,
+      dof: 0.25,
+      trails: false,
+      // The organism at its most itself: species visible as hue and shape.
+      colorMode: "species",
+      shapeBySpecies: true,
+    },
   },
   {
     name: "scan",
@@ -84,7 +103,20 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 6,
     },
     field: { turbulence: 0.3, drift: 0, gravity: 0 },
-    visual: { particleSize: 0.8, glow: 0.5, opacity: 0.55, dof: 0.1, colorMode: "monochrome", trails: true, trailDecay: 0.72, fogDensity: 0.04 },
+    visual: {
+      particleSize: 0.8,
+      glow: 0.5,
+      opacity: 0.55,
+      dof: 0.1,
+      trails: true,
+      trailDecay: 0.72,
+      fogDensity: 0.04,
+      // A cold pass over the subject: depth read as colour, boxed samples.
+      colorMode: "gradient",
+      gradientPalette: "ICE",
+      gradientAxis: "depth",
+      shape: "box",
+    },
   },
   {
     name: "architecture",
@@ -103,7 +135,18 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 3,
     },
     field: { turbulence: 0, drift: 0, gravity: 0 },
-    visual: { particleSize: 0.9, glow: 0.15, opacity: 0.8, dof: 0.35, colorMode: "monochrome", trails: false },
+    visual: {
+      particleSize: 0.9,
+      glow: 0.15,
+      opacity: 0.8,
+      dof: 0.35,
+      trails: false,
+      // Structure, quietly: ash ramp across each particle's own life.
+      colorMode: "gradient",
+      gradientPalette: "ASH",
+      gradientAxis: "age",
+      shape: "box",
+    },
   },
   {
     name: "void",
@@ -125,7 +168,18 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     scent: { enabled: true, deposit: 0.9, decay: 0.62, steer: 1.9 },
     wander: 0.1,
     phaseCoupling: 1.8,
-    visual: { particleSize: 1.0, glow: 0.35, opacity: 0.6, dof: 0.35, colorMode: "monochrome", trails: false, fogDensity: 0.05 },
+    visual: {
+      particleSize: 1.0,
+      glow: 0.35,
+      opacity: 0.6,
+      dof: 0.35,
+      trails: false,
+      fogDensity: 0.05,
+      // The piece's own default: no colour but the light.
+      colorMode: "monochrome",
+      shape: "circle",
+      shapeBySpecies: false,
+    },
   },
   {
     name: "chaos",
@@ -144,7 +198,17 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       maxSpeed: 8,
     },
     field: { turbulence: 0.32, drift: 0, gravity: 0 },
-    visual: { particleSize: 1.1, glow: 0.5, opacity: 0.6, dof: 0.3, colorMode: "monochrome", trails: false },
+    visual: {
+      particleSize: 1.1,
+      glow: 0.5,
+      opacity: 0.6,
+      dof: 0.3,
+      trails: false,
+      // A field of stars: seeded hues, star sprites.
+      colorMode: "random",
+      shape: "star",
+      shapeBySpecies: false,
+    },
     matrix: "random",
   },
 ];

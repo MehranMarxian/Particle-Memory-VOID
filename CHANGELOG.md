@@ -2,6 +2,35 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [Unreleased]
+
+### Added
+
+- Species made visible: COLOR gains SPECIES (a hue per species, spaced around
+  the wheel and matched in perceived brightness, so blue does not read darker
+  than yellow) and RANDOM (one seeded hue per particle).
+- Ramp mode: COLOR GRADIENT maps an authored palette across a particle's own
+  life cycle (AGE) or its distance from the camera (DEPTH), with five palettes:
+  DUSK, EMBER, ICE, ASH, SPECTRAL. The vertex shader already had both values,
+  so no new state and no extra varying were needed.
+- Sprite shapes: circle, box, triangle, ring and star, resolved analytically in
+  the fragment shader as a 0..1 field. One pair of thresholds draws all of
+  them, and the circle entry reproduces the original disc exactly, so nothing
+  changes until a shape is chosen.
+- Shape by species: each species gets its own sprite, so an ecosystem that was
+  invisible becomes the headline. K cycles the base shape.
+- Each of the six presets now carries its own palette and shape pairing,
+  applied with the same data-driven path as its memory and life parameters.
+- URL parameters for the look, for the screensaver and tester links:
+  ?color=species|random|gradient&axis=age|depth&palette=ICE&shape=star
+
+### Changed
+
+- Colour is no longer a two-state toggle: C cycles monochrome, source, species,
+  random and gradient.
+- three is emitted as its own build chunk, which keeps the app chunk small and
+  cacheable; the total is unchanged.
+
 ## [0.4.0] - 2026-09-17
 
 ### Added

@@ -95,7 +95,8 @@ itself once; after that it waits for `?`.
 | `A` | Toggle the automatic memory cycle |
 | `H` | Cycle species interaction matrices |
 | `R` | Randomize the interaction matrix |
-| `C` | Color mode (monochrome / source) |
+| `C` | Color mode (cycles monochrome, source, species, random, gradient) |
+| `K` | Sprite shape (circle, box, triangle, ring, star) |
 | `T` | Trails |
 | `D` | Depth of field |
 | `O` | Open a source (file picker) |
@@ -114,6 +115,33 @@ MEMORY, LIFE, FIELD, VISUAL, PRESETS and ACTIONS, with short tooltips on the
 semantic controls. Six authored presets ship with the piece (Portrait,
 Organic, Scan, Architecture, Void, Chaos); the whole instrument state persists
 to localStorage and restores on the next visit.
+
+## Look
+
+The piece is monochrome by default, and every option below is off until you
+choose it: the artwork is unchanged unless you ask for more.
+
+| Color | What it does |
+| --- | --- |
+| MONOCHROME | One cool grey, brightness only. The default. |
+| SOURCE | The source's own colours: an image's pixels, a cool white for models and clouds. |
+| SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
+| RANDOM | One seeded hue per particle, stable for the whole run. |
+| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle) or DEPTH (its distance from the camera). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
+
+Shapes are drawn analytically in the fragment shader: circle, box, triangle,
+ring, star. No textures, no extra geometry, no simulation change. With **By
+species** on, each species gets its own sprite, which pairs with SPECIES colour
+to make the organism readable at a glance.
+
+The look is also reachable from the URL, which is how the screensaver and tester
+links configure it:
+
+```
+?color=species            ?color=random
+?color=gradient&axis=age&palette=ICE
+?shape=star&color=monochrome
+```
 
 ## Memory States
 
@@ -302,8 +330,9 @@ footer.
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 166 tests cover the engine, grid, matrix, memory system, organism
+the GPU. 202 tests cover the engine, grid, matrix, memory system, organism
 layer, life cycle, the scent and heat fields, environment-modulated affinities,
 sources, persistence, samples, sound mapping and the soundscape, the pointer
 force and its ghost playback, the evolvable matrix search, presets, rendering
-settings, screensaver logic and the keymap.
+settings, colour sources, gradient ramps, sprite shapes, screensaver logic
+and the keymap.
