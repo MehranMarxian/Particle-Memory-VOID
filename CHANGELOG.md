@@ -4,6 +4,30 @@ Same shape as the piece itself: memory first, then life.
 
 ## [Unreleased]
 
+### Added - the ecology layer
+
+- Predation: a species the interaction matrix makes predatory can now catch what
+  it chases. Detection rides the neighbour query the force pass already runs on
+  both engines; a capture feeds the hunter and ends the prey.
+- Population: death and birth are real. The living are a prefix of the buffers
+  and the dead are the tail, so a death swaps into the tail and a birth reclaims
+  the slot a death freed - no dormant mask, no extra buffer, nothing for the
+  renderer to know about.
+- Mortality, following the menu individual-based ecology models use rather than
+  one hand-waved death: predation, starvation (a hunter that has not fed), and an
+  age risk that grows as a particle is spent.
+- Sound as an ecological force, not a filter: loud makes the swarm hungrier, low
+  end makes it breed on the beat, and a transient startles the prey. One toggle,
+  off by default, so the quiet piece is untouched.
+- A new ECOLOGY panel section, the living population with births and deaths in
+  the stats line, and `Y` to switch it on.
+
+  It runs on the CPU backend on purpose. Population dynamics need allocation and
+  scatter, which WebGL2 cannot do portably and the CPU already does for the
+  grid; the GPU path keeps its behaviour and the panel says so rather than
+  pretending. The plan for this layer says the same thing: prototype on the CPU
+  engine first.
+
 ### Added
 
 - Species made visible: COLOR gains SPECIES (a hue per species, spaced around

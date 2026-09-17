@@ -36,6 +36,7 @@ export interface PanelCallbacks {
   onUserInteraction(): void;
   onToggleCycle(): void;
   onToggleGuide(): void;
+  onEcologyToggle(): void;
   onSoundToggle(): void;
   onEvolveToggle(): void;
   onSoundSourceChange(): void;
@@ -68,10 +69,20 @@ export function createPanel(opts: {
   evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
+  ecology: {
+    enabled: boolean;
+    captureRadius: number;
+    killChance: number;
+    starveSeconds: number;
+    ageRisk: number;
+    reproductionSatiation: number;
+    audioReactive: boolean;
+  };
+  ecologyEvents: { births: number; deaths: number };
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, onLookChange } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -375,6 +386,48 @@ export function createPanel(opts: {
   addObjSlider(fieldBody, "Cursor", pointer, "strength", 0, 3, 0.05, num, "How strongly the swarm leans toward your pointer.");
   addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
   addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
+
+  // --- ECOLOGY -------------------------------------------------------------------------
+  const ecoBody = section("ECOLOGY");
+  addToggle(
+    ecoBody,
+    "Ecology",
+    () => ecology.enabled,
+    (v) => {
+      ecology.enabled = v;
+      callbacks.onEcologyToggle();
+    },
+    "ON",
+    "OFF",
+    "Predation, birth and death. Species that hunt eat, starve, and reproduce."
+  );
+  addObjSlider(ecoBody, "Reach", ecology, "captureRadius", 0.2, 3, 0.05, num, "How close a hunt has to get before it can succeed.");
+  addObjSlider(ecoBody, "Kill", ecology, "killChance", 0, 3, 0.05, num, "How likely a hunt in range is to succeed.");
+  addObjSlider(ecoBody, "Starve", ecology, "starveSeconds", 2, 60, 1, (v) => `${v.toFixed(0)}s`, "How long a hunter can go without a meal.");
+  addObjSlider(ecoBody, "Age risk", ecology, "ageRisk", 0, 0.4, 0.005, (v) => v.toFixed(3), "Per-second mortality for spent particles.");
+  addObjSlider(ecoBody, "Reproduce", ecology, "reproductionSatiation", 0.3, 3, 0.05, num, "How well fed a particle must be to leave offspring.");
+  addToggle(
+    ecoBody,
+    "Sound",
+    () => ecology.audioReactive,
+    (v) => {
+      ecology.audioReactive = v;
+    },
+    "ON",
+    "OFF",
+    "Let the room drive the ecology: loud is hungry, low end breeds, a transient startles."
+  );
+  {
+    const readout = document.createElement("div");
+    readout.className = "meta";
+    const note = document.createElement("div");
+    note.className = "meta";
+    note.textContent = "CPU BACKEND ONLY - PRESS G TO SWITCH";
+    ecoBody.append(readout, note);
+    syncFns.push(() => {
+      readout.textContent = `+ ${ecologyEvents.births} BORN   - ${ecologyEvents.deaths} DIED`;
+    });
+  }
 
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");

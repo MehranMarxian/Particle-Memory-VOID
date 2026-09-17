@@ -18,6 +18,13 @@ import {
 import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
+import {
+  EcologySystem,
+  defaultEcologyParams,
+  type EcologyParams,
+  type EcologyView,
+} from "@/ecology/ecologySystem";
+import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -159,6 +166,91 @@ let lastLookMode = "";
 let subjectRadius = 1;
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
+
+// --- Ecology state ---------------------------------------------------------
+// Predation, population and mortality. CPU backend only, on purpose: death and
+// birth need allocation and scatter, which is the kind of bookkeeping the CPU
+// already owns for the grid. The GPU path keeps its behaviour and says so.
+const ecologyParams: EcologyParams = defaultEcologyParams();
+let ecologyDrive = { aggression: 1, satiationBias: 0, panic: 0 };
+let ecologyOnset = initialOnset();
+let ecologySystem: EcologySystem | null = null;
+let ecologyView: EcologyView | null = null;
+const ecologyEvents = { births: 0, deaths: 0 };
+
+/** Swap `stride` elements of two slots in a flat per-particle array. */
+function swapSlots(array: Float32Array, a: number, b: number, stride: number): void {
+  for (let k = 0; k < stride; k++) {
+    const ia = a * stride + k;
+    const ib = b * stride + k;
+    const tmp = array[ia];
+    array[ia] = array[ib];
+    array[ib] = tmp;
+  }
+}
+
+/** Point the ecology at the current engine's buffers. Called on every build. */
+function installEcology(): void {
+  // The union type does not promise mass or a grid query: those belong to the
+  // CPU engine, which is the only backend the ecology runs on.
+  const cpu = engine as ParticleEngine;
+  ecologySystem = new EcologySystem(cpu.capacity);
+  ecologySystem.reset(cpu.count);
+  ecologyView = {
+    count: cpu.count,
+    capacity: cpu.capacity,
+    speciesCount,
+    species: cpu.species,
+    positions: cpu.positions,
+    velocities: cpu.velocities,
+    mass: cpu.mass,
+  };
+  ecologyEvents.births = 0;
+  ecologyEvents.deaths = 0;
+}
+
+/** One ecology step. Does nothing unless it is switched on. */
+function stepEcology(dt: number): void {
+  if (!ecologyParams.enabled || !ecologySystem || !ecologyView) return;
+  if (activeBackend !== "cpu") return;
+  const view = ecologyView;
+  view.count = engine.count;
+  view.speciesCount = speciesCount;
+  ecologySystem.step({
+    dt,
+    matrix: activeMatrix,
+    params: ecologyParams,
+    view,
+    hooks: {
+      swap(a, b) {
+        // The system swaps species/position/velocity/mass itself. This covers
+        // the per-particle state that lives outside the engine.
+        swapSlots(engine.renderState, a, b, 4);
+        swapSlots(engine.memoryPerParticle, a, b, 1);
+        swapSlots(engine.targets, a, b, 3);
+        if (particleRenderer) {
+          swapSlots(particleRenderer.lifeBuffer, a, b, 1);
+          swapSlots(particleRenderer.shapeBuffer, a, b, 1);
+        }
+      },
+      onBirth() {
+        ecologyEvents.births++;
+      },
+      onDeath() {
+        ecologyEvents.deaths++;
+      },
+    },
+    neighbors: (i, radius, visit) => (engine as ParticleEngine).forEachNeighbor(i, radius, visit),
+    // Spent particles (life near 0) carry the age risk; newborns do not.
+    ageOf: (i) => 1 - (particleRenderer?.lifeBuffer[i] ?? 1),
+    rng: Math.random,
+    drive: ecologyDrive,
+  });
+  engine.count = view.count;
+  particleRenderer?.setCount(view.count);
+  particleRenderer?.markLifeDirty();
+  applyLook();
+}
 
 /**
  * Re-bake per-particle colour and shape for the current look settings.
@@ -307,6 +399,7 @@ function buildFromSource(sample: FlatSource): void {
     engine.velocities
   );
   sourceColors = new Float32Array(engine.colors);
+  installEcology();
   applyLook();
   scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
@@ -374,6 +467,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.velocities
   );
   sourceColors = new Float32Array(engine.colors);
+  installEcology();
   applyLook();
   scene.add(particleRenderer.points);
   flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
@@ -902,6 +996,15 @@ const shortcutCtx: ShortcutContext = {
     applyLook();
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
   },
+  toggleEcology: () => {
+    ecologyParams.enabled = !ecologyParams.enabled;
+    if (ecologyParams.enabled && activeBackend !== "cpu") {
+      flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+    } else {
+      flashHint(`ECOLOGY: ${ecologyParams.enabled ? "ON" : "OFF"}`, 3);
+    }
+    panelApi?.refresh();
+  },
   toggleShape: () => {
     visual.shapeBySpecies = false;
     visual.shape = nextShape(visual.shape);
@@ -1016,6 +1119,8 @@ let activeMatrix = matrix;
     params,
     visual,
     onLookChange: applyLook,
+    ecology: ecologyParams,
+    ecologyEvents,
     memory,
     matrix,
     speciesCount,
@@ -1169,6 +1274,11 @@ let activeMatrix = matrix;
       onEvolveToggle() {
         applyEvolveToggle();
       },
+      onEcologyToggle() {
+        if (ecologyParams.enabled && activeBackend !== "cpu") {
+          flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+        }
+      },
     },
   });
   document.body.appendChild(panelApi.element);
@@ -1292,6 +1402,7 @@ function frameInner(now: number): void {
     if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
+    stepEcology(FIXED_DT);
     accumulator -= FIXED_DT;
   }
 
@@ -1340,6 +1451,11 @@ function frameInner(now: number): void {
     const bands = audio.read();
     soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
+    if (ecologyParams.audioReactive) {
+      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity);
+      ecologyDrive = mapped.drive;
+      ecologyOnset = mapped.state;
+    }
     effective.particleSize = visual.particleSize * soundDrive.size;
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);

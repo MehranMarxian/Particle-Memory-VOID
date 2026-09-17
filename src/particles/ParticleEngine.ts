@@ -503,6 +503,35 @@ export class ParticleEngine {
   }
 
   /** Mean distance from each particle to its target. */
+  /**
+   * Visit every living particle within `radius` of particle `i`.
+   *
+   * The grid has already been built for the force pass, so this costs nothing
+   * extra: the ecology layer reads the same neighbourhood the simulation just
+   * did. The radius test is applied here, on top of the grid's cell range.
+   */
+  forEachNeighbor(
+    i: number,
+    radius: number,
+    visit: (j: number, dx: number, dy: number, dz: number, dist: number) => void
+  ): void {
+    if (i < 0 || i >= this.count) return;
+    const positions = this.positions;
+    const x = positions[i * 3];
+    const y = positions[i * 3 + 1];
+    const z = positions[i * 3 + 2];
+    const r2 = radius * radius;
+    this.grid.forEachNeighbor(positions, x, y, z, (j) => {
+      if (j === i || j >= this.count) return;
+      const dx = positions[j * 3] - x;
+      const dy = positions[j * 3 + 1] - y;
+      const dz = positions[j * 3 + 2] - z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > r2) return;
+      visit(j, dx, dy, dz, Math.sqrt(d2));
+    });
+  }
+
   meanTargetDistance(): number {
     let sum = 0;
     for (let i = 0; i < this.count; i++) {

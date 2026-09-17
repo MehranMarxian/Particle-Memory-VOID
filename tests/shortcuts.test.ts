@@ -31,6 +31,7 @@ function recordingContext(guideOpen = false) {
     openSource: () => calls.push("openSource"),
     toggleSound: () => calls.push("toggleSound"),
     toggleEvolve: () => calls.push("toggleEvolve"),
+    toggleEcology: () => calls.push("toggleEcology"),
     isGuideOpen: () => open,
   };
   return {

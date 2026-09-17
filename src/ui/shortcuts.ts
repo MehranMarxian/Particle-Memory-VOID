@@ -51,6 +51,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     hint: "A fresh species matrix, never seen before.",
   },
   {
+    group: "LIFE",
+    display: "Y",
+    keys: ["Y"],
+    label: "Ecology",
+    hint: "Predation, birth and death. Species that hunt eat and starve.",
+  },
+  {
     group: "VISUAL",
     display: "C",
     keys: ["C"],
@@ -184,6 +191,7 @@ export interface ShortcutContext {
   openSource(): void;
   toggleSound(): void;
   toggleEvolve(): void;
+  toggleEcology(): void;
 }
 
 export interface KeyModifiers {
@@ -222,6 +230,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
   switch (key) {
     case "E":
       ctx.toggleEvolve();
+      return true;
+    case "Y":
+      ctx.toggleEcology();
       return true;
     case "L":
       ctx.toggleSound();

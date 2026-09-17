@@ -107,6 +107,7 @@ itself once; after that it waits for `?`.
 | `S` | Screensaver mode |
 | `L` | Listen to sound (music drives the look) |
 | `E` | Evolve (search for better interaction matrices) |
+| `Y` | Ecology (predation, birth and death) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -268,6 +269,32 @@ winner and mutated at the same rate. Nothing about a colour makes a swarm
 remember better, so these genes cannot be selected for directly: they hitch a
 ride on the behaviour that can, and a champion arrives looking unlike its
 ancestors.
+
+## Ecology
+
+Off by default, and CPU-backend only. With **Ecology** on, the chase the
+interaction matrix already describes becomes literal: a species the matrix makes
+predatory can catch what it chases. A capture ends the prey's life and feeds the
+hunter, and hunger is real - a predator that does not eat starves, spent
+particles carry an age risk, and a well-fed particle leaves offspring in the slot
+a death freed. The living are a prefix of the buffers and the dead are the tail,
+so death and birth need no extra buffers and nothing for the renderer to know.
+
+It runs on the CPU engine deliberately. WebGL2 cannot do the allocation and
+scatter that population dynamics need; the CPU already owns that kind of
+bookkeeping for the grid. On the GPU backend the panel says so rather than
+pretending - press `G` to switch, and the stats line shows the living
+population with births and deaths counted.
+
+| Mortality | Cause |
+| --- | --- |
+| Predation | Caught by a species the matrix makes a hunter. |
+| Starvation | A hunter that has gone too long without a meal. |
+| Age risk | A per-second chance that grows as a particle is spent. |
+
+With **Sound** on in the same section, the room drives the ecology as well as the
+look: a loud room makes the swarm hungrier, low end makes it breed on the beat,
+and a transient startles the prey away from whatever is hunting them.
 
 ## Performance
 
