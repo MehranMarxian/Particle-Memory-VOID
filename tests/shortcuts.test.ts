@@ -14,6 +14,7 @@ function recordingContext(guideOpen = false) {
   const ctx: ShortcutContext = {
     togglePanel: () => calls.push("togglePanel"),
     toggleColor: () => calls.push("toggleColor"),
+    toggleShape: () => calls.push("toggleShape"),
     toggleTrails: () => calls.push("toggleTrails"),
     toggleDof: () => calls.push("toggleDof"),
     toggleCycle: () => calls.push("toggleCycle"),

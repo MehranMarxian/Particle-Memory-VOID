@@ -17,6 +17,7 @@ describe("visual settings", () => {
 
   it("clamps every numeric range", () => {
     const s = clampVisualSettings({
+      ...defaultVisualSettings(),
       particleSize: 99,
       glow: -5,
       opacity: 12,

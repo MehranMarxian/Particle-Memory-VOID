@@ -5,7 +5,18 @@ import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer } from "@/rendering/ParticleRenderer";
 import { TrailPass } from "@/rendering/TrailPass";
-import { defaultVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
+import {
+  COLOR_MODES,
+  defaultVisualSettings,
+  GRADIENT_AXES,
+  PARTICLE_SHAPES,
+  type ColorMode,
+  type GradientAxis,
+  type ParticleShape,
+  type VisualSettings,
+} from "@/rendering/VisualSettings";
+import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -137,6 +148,38 @@ params.turbulence = 0.02;
 
 const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 815 });
 
+// --- Look state ------------------------------------------------------------
+// The source's own baked colours are kept aside so switching back from
+// SPECIES/RANDOM to MONOCHROME/SOURCE restores them exactly.
+let sourceColors: Float32Array | null = null;
+let lookSeed = 1;
+let lastLookMode = "";
+
+/**
+ * Re-bake per-particle colour and shape for the current look settings.
+ *
+ * Called when the engine is rebuilt and whenever the look changes — not per
+ * frame: colours and shapes are baked values, exactly like the source's own
+ * colours, so nothing here costs anything at render time.
+ */
+function applyLook(): void {
+  if (!particleRenderer) return;
+  const mode = visual.colorMode;
+  if (mode === "species") {
+    writeSpeciesColors(engine.colors, engine.count, speciesCount);
+  } else if (mode === "random") {
+    if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
+    writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (sourceColors) {
+    engine.colors.set(sourceColors);
+  }
+  lastLookMode = mode;
+  if (visual.shapeBySpecies) writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount);
+  else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
+  particleRenderer.markColorsDirty();
+  particleRenderer.markShapesDirty();
+}
+
 // --- Default source: tilted torus (the synthetic "memory") ---------------
 function makeTorusSource(count: number): FlatSource {
   const positions = new Float32Array(count * 3);
@@ -245,7 +288,8 @@ function buildFromSource(sample: FlatSource): void {
     engine.renderState,
     engine.velocities
   );
-  particleRenderer.markColorsDirty();
+  sourceColors = new Float32Array(engine.colors);
+  applyLook();
   scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
   scheduleSave();
@@ -311,7 +355,8 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.renderState,
     engine.velocities
   );
-  particleRenderer.markColorsDirty();
+  sourceColors = new Float32Array(engine.colors);
+  applyLook();
   scene.add(particleRenderer.points);
   flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
 }
@@ -335,7 +380,14 @@ const visual: VisualSettings = defaultVisualSettings();
   // URL overrides — also the eventual screensaver config path.
   const search = new URLSearchParams(location.search);
   const color = search.get("color");
-  if (color === "source" || color === "mono") visual.colorMode = color === "source" ? "source" : "monochrome";
+  if (color === "mono") visual.colorMode = "monochrome";
+  else if (color && (COLOR_MODES as readonly string[]).includes(color)) visual.colorMode = color as ColorMode;
+  const shape = search.get("shape");
+  if (shape && (PARTICLE_SHAPES as readonly string[]).includes(shape)) visual.shape = shape as ParticleShape;
+  const axis = search.get("axis");
+  if (axis && (GRADIENT_AXES as readonly string[]).includes(axis)) visual.gradientAxis = axis as GradientAxis;
+  const palette = search.get("palette");
+  if (palette) visual.gradientPalette = palette;
   const trails = search.get("trails");
   if (trails !== null) visual.trails = trails !== "0";
   const dof = search.get("dof");
@@ -824,8 +876,15 @@ guide.setState(memory.state);
 const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
   toggleColor: () => {
-    visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
+    visual.colorMode = nextColorMode(visual.colorMode);
+    applyLook();
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
+  },
+  toggleShape: () => {
+    visual.shapeBySpecies = false;
+    visual.shape = nextShape(visual.shape);
+    applyLook();
+    flashHint(`SHAPE: ${visual.shape.toUpperCase()}`, 3);
   },
   toggleTrails: () => {
     visual.trails = !visual.trails;
@@ -934,6 +993,7 @@ let activeMatrix = matrix;
   panelApi = createPanel({
     params,
     visual,
+    onLookChange: applyLook,
     memory,
     matrix,
     speciesCount,
@@ -965,6 +1025,7 @@ let activeMatrix = matrix;
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
         engine.configureGrid(params);
+        applyLook();
         panelApi?.refresh();
         panelApi?.setActivePreset(name);
         panelApi?.setCount(currentCount);
@@ -990,6 +1051,7 @@ let activeMatrix = matrix;
           return;
         }
         applySnapshot(snap, params, visual, matrix);
+        applyLook();
         engine.configureGrid(params);
         activePreset = null;
         memory.active = memory.auto = false;
@@ -1058,6 +1120,7 @@ let activeMatrix = matrix;
         abandonEvolution();
         speciesCount = n;
         engine.setSpeciesCount(matrix, n);
+        applyLook();
         flashHint(`SPECIES: ${n}`, 2);
       },
       onUserInteraction() {

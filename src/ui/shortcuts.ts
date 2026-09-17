@@ -55,7 +55,14 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     display: "C",
     keys: ["C"],
     label: "Color mode",
-    hint: "Monochrome or the source's own colors.",
+    hint: "Cycle monochrome, source, species, random, gradient.",
+  },
+  {
+    group: "VISUAL",
+    display: "K",
+    keys: ["K"],
+    label: "Sprite shape",
+    hint: "Cycle circle, box, triangle, ring, star.",
   },
   {
     group: "VISUAL",
@@ -159,6 +166,7 @@ export const MEMORY_STATE_GUIDE: readonly { name: MemoryStateName; line: string 
 export interface ShortcutContext {
   togglePanel(): void;
   toggleColor(): void;
+  toggleShape(): void;
   toggleTrails(): void;
   toggleDof(): void;
   toggleCycle(): void;
@@ -226,6 +234,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       return true;
     case "C":
       ctx.toggleColor();
+      return true;
+    case "K":
+      ctx.toggleShape();
       return true;
     case "T":
       ctx.toggleTrails();
