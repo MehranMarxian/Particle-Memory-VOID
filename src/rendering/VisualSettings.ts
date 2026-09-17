@@ -19,10 +19,14 @@ export type ColorMode = "monochrome" | "source" | "species" | "random" | "gradie
 /** Panel and cycle order. */
 export const COLOR_MODES: readonly ColorMode[] = ["monochrome", "source", "species", "random", "gradient"];
 
-/** What a GRADIENT is mapped across: a particle's own life, or its distance. */
-export type GradientAxis = "age" | "depth";
+/**
+ * What a GRADIENT is mapped across: a particle's own life cycle (AGE), its
+ * distance from the camera (DEPTH), or its distance from the subject's centre
+ * (RADIAL, which makes the ramp read as a volume rather than a plane).
+ */
+export type GradientAxis = "age" | "depth" | "radial";
 
-export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth"];
+export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial"];
 
 /** Sprite shape, resolved analytically in the fragment shader. */
 export type ParticleShape = "circle" | "box" | "triangle" | "ring" | "star";

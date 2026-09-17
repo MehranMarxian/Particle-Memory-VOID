@@ -154,6 +154,8 @@ const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 8
 let sourceColors: Float32Array | null = null;
 let lookSeed = 1;
 let lastLookMode = "";
+/** The source's own radius, measured once per source (RADIAL ramp only). */
+let subjectRadius = 1;
 
 /**
  * Re-bake per-particle colour and shape for the current look settings.
@@ -255,6 +257,17 @@ function buildFromSource(sample: FlatSource): void {
   const count = sample.count;
   const seed = (Math.random() * 1e9) | 0;
   const rng = mulberry32(seed ^ 0x9e3779b9);
+
+  // The subject's own radius, for the RADIAL ramp. Measured once here rather
+  // than per frame: it is a property of the source, not of the swarm.
+  let radiusSq = 0;
+  for (let i = 0; i < count; i++) {
+    const x = sample.positions[i * 3];
+    const y = sample.positions[i * 3 + 1];
+    const z = sample.positions[i * 3 + 2];
+    radiusSq = Math.max(radiusSq, x * x + y * y + z * z);
+  }
+  subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
 
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
@@ -1321,7 +1334,7 @@ function frameInner(now: number): void {
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
   }
-  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius);
+  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius, subjectRadius);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;

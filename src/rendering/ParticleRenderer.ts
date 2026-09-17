@@ -83,6 +83,7 @@ export class ParticleRenderer {
         uStopCount: { value: 3 },
         uShape: { value: 0 },
         uShapeBySpecies: { value: 0 },
+        uRadialScale: { value: 1 },
         uPixelRatio: { value: 1 },
         uFocus: { value: 17 },
         uDof: { value: 0.25 },
@@ -108,6 +109,7 @@ export class ParticleRenderer {
         uniform vec4 uStopC;
         uniform vec4 uStopD;
         uniform float uStopCount;
+        uniform float uRadialScale;
         varying vec3 vColor;
         varying float vFade;
         varying vec3 vState;
@@ -150,7 +152,9 @@ export class ParticleRenderer {
           if (uGradient > 0.5) {
             float gt = uGradAxis < 0.5
               ? clamp(lifeM, 0.0, 1.0)
-              : clamp((dist - uFocus * 0.4) / max(1.0, uFocus * 1.6), 0.0, 1.0);
+              : (uGradAxis < 1.5
+                ? clamp((dist - uFocus * 0.4) / max(1.0, uFocus * 1.6), 0.0, 1.0)
+                : clamp(length(position) / max(0.001, uRadialScale), 0.0, 1.0));
             vColor = gradientColor(gt);
           } else {
             vColor = aColor;
@@ -231,7 +235,11 @@ export class ParticleRenderer {
     this.geometry.setDrawRange(0, count);
   }
 
-  applySettings(settings: VisualSettings, pixelRatio: number, focusDistance: number): void {
+  /**
+   * `subjectRadius` is the source's own radius, measured once per source, and
+   * only used by the RADIAL gradient axis.
+   */
+  applySettings(settings: VisualSettings, pixelRatio: number, focusDistance: number, subjectRadius = 1): void {
     const s = clampVisualSettings(settings);
     const u = this.material.uniforms;
     u.uSize.value = s.particleSize;
@@ -251,6 +259,7 @@ export class ParticleRenderer {
     }
     u.uShape.value = Math.max(0, PARTICLE_SHAPES.indexOf(s.shape));
     u.uShapeBySpecies.value = s.shapeBySpecies ? 1 : 0;
+    u.uRadialScale.value = Math.max(0.001, subjectRadius);
     u.uPixelRatio.value = pixelRatio;
     u.uFocus.value = Math.max(0.5, focusDistance);
     u.uDof.value = s.dof;

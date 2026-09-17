@@ -127,7 +127,7 @@ choose it: the artwork is unchanged unless you ask for more.
 | SOURCE | The source's own colours: an image's pixels, a cool white for models and clouds. |
 | SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
 | RANDOM | One seeded hue per particle, stable for the whole run. |
-| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle) or DEPTH (its distance from the camera). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
+| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera) or RADIAL (its distance from the subject's centre). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
 
 Shapes are drawn analytically in the fragment shader: circle, box, triangle,
 ring, star. No textures, no extra geometry, no simulation change. With **By
@@ -140,6 +140,7 @@ links configure it:
 ```
 ?color=species            ?color=random
 ?color=gradient&axis=age&palette=ICE
+?color=gradient&axis=radial&palette=SPECTRAL
 ?shape=star&color=monochrome
 ```
 

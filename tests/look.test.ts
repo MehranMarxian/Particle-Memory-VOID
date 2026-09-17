@@ -82,6 +82,14 @@ describe("renderer wiring", () => {
     renderer.applySettings({ ...defaultVisualSettings() }, 1, 17);
     expect(u.uMonochrome.value).toBe(1);
     expect(u.uGradient.value).toBe(0);
+
+    // RADIAL: the axis index is the list position, and the scale comes from the
+    // source radius, passed per source rather than stored in the settings.
+    renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "radial" }, 1, 17, 3.5);
+    expect(u.uGradAxis.value).toBe(GRADIENT_AXES.indexOf("radial"));
+    expect((u.uRadialScale.value as number)).toBeCloseTo(3.5, 6);
+    renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "radial" }, 1, 17, 0);
+    expect((u.uRadialScale.value as number)).toBeGreaterThan(0);
     renderer.dispose();
   });
 

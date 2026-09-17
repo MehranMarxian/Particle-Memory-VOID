@@ -22,7 +22,9 @@ Same shape as the piece itself: memory first, then life.
 - Each of the six presets now carries its own palette and shape pairing,
   applied with the same data-driven path as its memory and life parameters.
 - URL parameters for the look, for the screensaver and tester links:
-  ?color=species|random|gradient&axis=age|depth&palette=ICE&shape=star
+  ?color=species|random|gradient&axis=age|depth|radial&palette=ICE&shape=star
+- The RADIAL gradient axis, measured from the source's own radius (computed
+  once per source, not per frame), so a ramp can read as a volume.
 
 ### Changed
 
