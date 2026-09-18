@@ -52,6 +52,7 @@ import { HintGate } from "@/ui/hintGate";
 import { carryLiveState } from "@/particles/carryState";
 import { FIXED_DT, scheduleSteps } from "@/app/stepper";
 import {
+  DENSITY_CEILING,
   DENSITY_LEVELS,
   DEFAULT_DENSITY_INDEX,
   TOUCH_DENSITY_INDEX,
@@ -319,7 +320,12 @@ function applyLookColors(): void {
       fieldTintScale(field.peak())
     );
   } else if (sourceColors) {
-    engine.colors.set(sourceColors);
+    // Count-scoped, deliberately: the GPU engine's colour buffer is
+    // texture-padded (texW*texH >= count) while the CPU engine's is exactly
+    // count, so a full-buffer set threw RangeError on the first look bake
+    // after every backend switch - and left the new renderer's points out
+    // of the scene, a black canvas.
+    engine.colors.set(sourceColors.subarray(0, Math.min(sourceColors.length, engine.count * 3)));
   }
   lastLookMode = mode;
   particleRenderer.markColorsDirty();
@@ -469,7 +475,10 @@ function buildFromSource(sample: FlatSource): void {
     engine.renderState,
     engine.velocities
   );
-  sourceColors = new Float32Array(engine.colors);
+  // Count-scoped like every consumer: a backend switch builds the new engine
+  // at the live count with a different capacity, and the pristine copy must
+  // follow the count, not the buffer it was captured from.
+  sourceColors = engine.colors.slice(0, engine.count * 3);
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
@@ -546,7 +555,17 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
-  flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
+  // The backend toggle is an explicit override, so the count is kept rather
+  // than clamped to the ceiling - clamping would resample the memory and
+  // crop it. The cost is said out loud instead, and the scheduler keeps the
+  // piece alive in slow motion until the density comes down.
+  const ceiling = DENSITY_CEILING[backend];
+  flashHint(
+    engine.count > ceiling
+      ? `SIM BACKEND: ${backend.toUpperCase()} AT ${engine.count.toLocaleString()} - PAST ITS ${ceiling.toLocaleString()} REAL-TIME CEILING, SO IT RUNS SLOW`
+      : `SIM BACKEND: ${backend.toUpperCase()}`,
+    5
+  );
 }
 
 // --- Scene -----------------------------------------------------------------
