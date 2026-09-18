@@ -18,6 +18,13 @@ import {
 } from "@/rendering/VisualSettings";
 import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
 import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import {
+  DEFAULT_CAMERA_CHOREOGRAPHY,
+  breatheOffset,
+  cameraPose,
+  clampCameraChoreography,
+  type CameraChoreography,
+} from "@/rendering/cameraChoreography";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
 import {
@@ -149,12 +156,13 @@ function persistNow(): void {
       lastSourceName,
       lastSourceUrl,
       activePreset,
+      camera: activeCamera,
     })
   );
 }
 
 function pushHistory(): void {
-  history.push(captureSnapshot(params, visual, matrix));
+  history.push(captureSnapshot(params, visual, matrix, activeCamera));
   if (history.length > 30) history.shift();
 }
 let particleRenderer: ParticleRenderer | null = null;
@@ -630,6 +638,12 @@ const trailPass = new TrailPass(renderer3d, trailSize().w, trailSize().h);
 let azimuth = 0;
 let elevation = 0.5;
 let radius = 17;
+// The screensaver camera, as data: the active preset's choreography merged
+// over today's default motion (see cameraChoreography). The editor keeps
+// its own slow orbit and the user's radius.
+const activeCamera: CameraChoreography = { ...DEFAULT_CAMERA_CHOREOGRAPHY };
+// Where the ghost hand is while the screensaver plays, for the recorded path.
+let ghostNdc: { x: number; y: number } | null = null;
 // The camera orbits a target; two-finger pan moves the target in the
 // camera's own plane. The screensaver resets it to the subject.
 const cameraTarget = new THREE.Vector3();
@@ -689,6 +703,8 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     params.scent = { ...fresh.scent, ...(cfg.params.scent ?? {}) };
     if (cfg.params.wander !== undefined) params.wander = cfg.params.wander;
     if (cfg.params.phaseCoupling !== undefined) params.phaseCoupling = cfg.params.phaseCoupling;
+    // v1 configs predate the camera and hydrate to the default motion.
+    Object.assign(activeCamera, clampCameraChoreography({ ...DEFAULT_CAMERA_CHOREOGRAPHY, ...(cfg.camera ?? {}) }));
   }
 }
 {
@@ -994,6 +1010,7 @@ function updateTouch(dt: number): void {
     ghostClock += dt;
     ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
     pointerInfluence.touch();
+    ghostNdc = ndc; // the recorded path leans the camera toward the hand
   }
   const strength = pointer.strength * pointerInfluence.current;
   if (!ndc || strength <= 0.0001) {
@@ -1334,7 +1351,7 @@ let activeMatrix = matrix;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
-        if (applyPreset(def, params, visual, matrix, ecologyParams)) {
+        if (applyPreset(def, params, visual, matrix, ecologyParams, activeCamera)) {
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
         // A preset that resizes the matrix owns the species count; without
@@ -1362,6 +1379,7 @@ let activeMatrix = matrix;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
         randomizeParams(params, matrix, (Math.random() * 1e9) | 0);
+        Object.assign(activeCamera, DEFAULT_CAMERA_CHOREOGRAPHY);
         engine.configureGrid(params);
         panelApi?.refresh();
         panelApi?.setActivePreset(null);
@@ -1374,7 +1392,7 @@ let activeMatrix = matrix;
           flashHint("NOTHING TO UNDO", 2);
           return;
         }
-        applySnapshot(snap, params, visual, matrix);
+        applySnapshot(snap, params, visual, matrix, activeCamera);
         applyLook();
         engine.configureGrid(params);
         activePreset = null;
@@ -1412,6 +1430,7 @@ let activeMatrix = matrix;
         // the 4x4 matrix read out of range — the same defect the presets
         // suffered, reachable through RESET.
         if (speciesCount !== 4) applySpeciesCount(4);
+        Object.assign(activeCamera, DEFAULT_CAMERA_CHOREOGRAPHY);
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
@@ -1617,18 +1636,24 @@ function frameInner(now: number): void {
   }
 
   evolver.tick(dt);
-  azimuth += dt * (saver.active ? 0.035 : 0.02);
-  // In screensaver the camera slowly dollies in and out — a long breath.
+  azimuth += dt * (saver.active ? activeCamera.orbitSpeed * activeCamera.orbitDirection : 0.02);
+  let radiusNow = radius;
+  let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
+  let azimuthNow = azimuth;
   if (saver.active) {
-    radius = 15.5 + 4.5 * Math.sin(now * 0.00004 * Math.PI * 2);
+    // In screensaver the camera follows the active preset's choreography:
+    // the dolly breath, and (by path) the figure8 weave or the lean toward
+    // the recorded hand. Defaults reproduce the authored motion exactly.
+    const pose = cameraPose(activeCamera, now / 1000, azimuth, elevation, ghostNdc);
+    azimuthNow = pose.azimuth;
+    elevationNow = pose.elevation;
+    radius = pose.radius;
+    radiusNow = pose.radius;
   }
-  // Slow vertical breathing on top of user elevation — the camera drifts
-  // like a held breath rather than a turntable.
-  const breathe = Math.sin(now * 0.00012) * 0.05;
   camera.position.set(
-    cameraTarget.x + radius * Math.cos(elevation + breathe) * Math.sin(azimuth),
-    cameraTarget.y + radius * Math.sin(elevation + breathe),
-    cameraTarget.z + radius * Math.cos(elevation + breathe) * Math.cos(azimuth)
+    cameraTarget.x + radiusNow * Math.cos(elevationNow) * Math.sin(azimuthNow),
+    cameraTarget.y + radiusNow * Math.sin(elevationNow),
+    cameraTarget.z + radiusNow * Math.cos(elevationNow) * Math.cos(azimuthNow)
   );
   camera.lookAt(cameraTarget);
   // Two-finger pan moves the target in the camera's own plane, applied here

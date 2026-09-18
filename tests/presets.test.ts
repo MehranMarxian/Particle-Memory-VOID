@@ -13,6 +13,7 @@ import { loadConfig, saveConfig, clearConfig, toStoredConfig, type Storage } fro
 import { defaultEngineParams, defaultLifeParams } from "@/types";
 import { defaultVisualSettings } from "@/rendering/VisualSettings";
 import { defaultEcologyParams } from "@/ecology/ecologySystem";
+import { DEFAULT_CAMERA_CHOREOGRAPHY } from "@/rendering/cameraChoreography";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { ParticleEngine } from "@/particles/ParticleEngine";
 import { mulberry32 } from "@/utils/math";
@@ -28,7 +29,7 @@ function makeMemoryStorage(): Storage & { dump(): string } {
 }
 
 describe("presets", () => {
-  it("defines exactly the seven authored presets with unique names", () => {
+  it("defines exactly the twelve authored presets with unique names", () => {
     expect(PRESET_DEFINITIONS.map((d) => d.name)).toEqual([
       "portrait",
       "organic",
@@ -37,6 +38,11 @@ describe("presets", () => {
       "void",
       "chaos",
       "predator",
+      "galaxy",
+      "fireworks",
+      "hearth",
+      "traces",
+      "exhale",
     ]);
   });
 
@@ -129,6 +135,55 @@ describe("presets are full states", () => {
       }
     }
   });
+
+  it("a preset without a camera restores today's default motion", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    const matrix = new InteractionMatrix(4);
+    const camera = { ...DEFAULT_CAMERA_CHOREOGRAPHY, orbitSpeed: 0.005, path: "figure8" as const };
+    applyPreset(byName("galaxy"), params, visual, matrix, undefined, camera);
+    expect(camera.path).toBe("orbit");
+    expect(camera.orbitSpeed).toBeCloseTo(0.012);
+    // leaving the galaxy for a camera-less preset returns today's motion
+    applyPreset(byName("organic"), params, visual, matrix, undefined, camera);
+    expect(camera.orbitSpeed).toBeCloseTo(DEFAULT_CAMERA_CHOREOGRAPHY.orbitSpeed);
+    expect(camera.zoomAmplitude).toBeCloseTo(DEFAULT_CAMERA_CHOREOGRAPHY.zoomAmplitude);
+  });
+
+  it("a preset's camera carries its sections: fireworks lives, hearth seeks heat", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    const matrix = new InteractionMatrix(4);
+    applyPreset(byName("fireworks"), params, visual, matrix);
+    expect(params.lifecycle.enabled).toBe(true);
+    expect(params.lifecycle.lifespan).toBe(9);
+    expect(visual.gradientPalette).toBe("EMBER");
+    applyPreset(byName("hearth"), params, visual, matrix);
+    expect(params.lifecycle.enabled).toBe(false); // full state: not inherited
+    expect(params.heat.enabled).toBe(true);
+    expect(params.heat.steer).toBeGreaterThan(0); // seeks its own warmth
+    expect(visual.gradientAxis).toBe("heat");
+  });
+
+  it("presets round-trip through undo with the camera", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    const matrix = new InteractionMatrix(4);
+    const camera = { ...DEFAULT_CAMERA_CHOREOGRAPHY };
+    applyPreset(byName("galaxy"), params, visual, matrix, undefined, camera);
+    const snap = captureSnapshot(params, visual, matrix, camera);
+    // a different look with a different camera
+    applyPreset(byName("fireworks"), params, visual, matrix, undefined, camera);
+    expect(camera.path).toBe("recorded");
+    applySnapshot(snap, params, visual, matrix, camera);
+    expect(camera.path).toBe("orbit");
+    expect(camera.zoomPeriodSeconds).toBeCloseTo(240);
+    // undoing to a pre-camera snapshot restores the default motion
+    const oldSnap = captureSnapshot(params, visual, matrix);
+    applyPreset(byName("galaxy"), params, visual, matrix, undefined, camera);
+    applySnapshot(oldSnap, params, visual, matrix, camera);
+    expect(camera).toEqual(DEFAULT_CAMERA_CHOREOGRAPHY);
+  });
 });
 
 describe("presets own their species count", () => {
@@ -159,6 +214,24 @@ describe("presets own their species count", () => {
       expect(Number.isFinite(engine.positions[i * 3]), `particle ${i} x`).toBe(true);
       expect(Number.isFinite(engine.positions[i * 3 + 1]), `particle ${i} y`).toBe(true);
       expect(Number.isFinite(engine.positions[i * 3 + 2]), `particle ${i} z`).toBe(true);
+    }
+  });
+
+  it("every preset, applied to a fresh default state, keeps the swarm finite", () => {
+    // The BUG 1 regression generalized over the whole book: each preset
+    // resizes the matrix and the species the way the app does, then runs.
+    for (const def of PRESET_DEFINITIONS) {
+      const engine = new ParticleEngine(800, 4, 5);
+      engine.spawnGaussian(800, 6);
+      const params = defaultEngineParams();
+      const matrix = new InteractionMatrix(4);
+      applyPreset(def, params, defaultVisualSettings(), matrix);
+      engine.configureGrid(params);
+      engine.setSpeciesCount(matrix, presetSpeciesCount(def));
+      for (let i = 0; i < 90; i++) engine.step(1 / 60, params, matrix);
+      for (let j = 0; j < engine.count; j++) {
+        expect(Number.isFinite(engine.positions[j * 3]), `${def.name} particle ${j}`).toBe(true);
+      }
     }
   });
 });
@@ -354,5 +427,47 @@ describe("config storage", () => {
     const a = mulberry32(7)();
     const b = mulberry32(7)();
     expect(a).toBe(b);
+  });
+
+  it("v2 stores the camera, and v1 files still load without one", () => {
+    saveConfig(
+      toStoredConfig({
+        params: defaultEngineParams(),
+        visual: defaultVisualSettings(),
+        matrix: new InteractionMatrix(4).toFlat(),
+        speciesCount: 4,
+        currentCount: 12000,
+        cycleActive: false,
+        lastSourceName: null,
+        lastSourceUrl: null,
+        activePreset: "galaxy",
+        camera: { ...DEFAULT_CAMERA_CHOREOGRAPHY, path: "figure8", figureWeave: 1.2 },
+      }),
+      storage
+    );
+    const v2 = loadConfig(storage);
+    expect(v2!.version).toBe(2);
+    expect(v2!.camera!.path).toBe("figure8");
+    expect(v2!.camera!.figureWeave).toBeCloseTo(1.2);
+    expect(v2!.activePreset).toBe("galaxy");
+    // a v1 file (pre-camera) loads and simply hydrates no camera
+    storage.setItem(
+      "void-particle-memory.config.v1",
+      JSON.stringify({
+        version: 1,
+        params: defaultEngineParams(),
+        visual: defaultVisualSettings(),
+        matrix: new InteractionMatrix(4).toFlat(),
+        speciesCount: 4,
+        currentCount: 12000,
+        cycleActive: false,
+        lastSourceName: null,
+        lastSourceUrl: null,
+        activePreset: null,
+      })
+    );
+    const v1 = loadConfig(storage);
+    expect(v1!.version).toBe(1);
+    expect(v1!.camera).toBeUndefined();
   });
 });

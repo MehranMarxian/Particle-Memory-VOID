@@ -226,8 +226,8 @@ describe("the Predator preset", () => {
     expect(predator?.visual?.shapeBySpecies).toBe(true);
   });
 
-  it("ships seven presets, each with a distinct label", () => {
-    expect(PRESET_DEFINITIONS).toHaveLength(7);
-    expect(new Set(PRESET_DEFINITIONS.map((d) => d.label)).size).toBe(7);
+  it("ships twelve presets, each with a distinct label", () => {
+    expect(PRESET_DEFINITIONS).toHaveLength(12);
+    expect(new Set(PRESET_DEFINITIONS.map((d) => d.label)).size).toBe(12);
   });
 });
