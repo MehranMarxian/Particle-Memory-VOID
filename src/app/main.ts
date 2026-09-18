@@ -9,13 +9,15 @@ import {
   COLOR_MODES,
   defaultVisualSettings,
   GRADIENT_AXES,
+  isFieldAxis,
   PARTICLE_SHAPES,
   type ColorMode,
   type GradientAxis,
   type ParticleShape,
   type VisualSettings,
 } from "@/rendering/VisualSettings";
-import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { FIELD_TINT_REFRESH_FRAMES, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
 import {
@@ -76,6 +78,9 @@ import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcu
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
+  /** The two stigmergic fields, which the field ramp axis samples on the CPU. */
+  readonly scent: { sample(x: number, y: number, z: number): number; peak(): number };
+  readonly heat: { sample(x: number, y: number, z: number): number; peak(): number };
   count: number;
   positions: Float32Array;
   velocities: Float32Array;
@@ -165,6 +170,8 @@ let lookSeed = 1;
 let lastLookMode = "";
 /** The source's own radius, measured once per source (RADIAL ramp only). */
 let subjectRadius = 1;
+/** Frames since a field ramp was last re-baked (see the tick in the render). */
+let fieldTintTick = 0;
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
 
@@ -268,6 +275,18 @@ function applyLook(): void {
   } else if (mode === "random") {
     if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
     writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (mode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+    // Field tints are baked from the CPU-side fields, so both backends look the
+    // same and no new texture has to reach the shader.
+    const field = visual.gradientAxis === "heat" ? engine.heat : engine.scent;
+    writeFieldTintColors(
+      engine.colors,
+      engine.positions,
+      engine.count,
+      field,
+      paletteStops(visual.gradientPalette),
+      fieldTintScale(field.peak())
+    );
   } else if (sourceColors) {
     engine.colors.set(sourceColors);
   }
@@ -1457,6 +1476,16 @@ function frameInner(now: number): void {
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
   const effective = { ...visual };
+  // A ramp that follows a live field has to be refreshed, but the pass is not
+  // free: once every FIELD_TINT_REFRESH_FRAMES frames, not every frame.
+  if (visual.colorMode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+    if (++fieldTintTick >= FIELD_TINT_REFRESH_FRAMES) {
+      fieldTintTick = 0;
+      applyLook();
+    }
+  } else {
+    fieldTintTick = 0;
+  }
   if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {

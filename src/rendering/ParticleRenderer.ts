@@ -1,5 +1,12 @@
 import * as THREE from "three";
-import { clampVisualSettings, defaultVisualSettings, GRADIENT_AXES, PARTICLE_SHAPES, type VisualSettings } from "./VisualSettings";
+import {
+  clampVisualSettings,
+  defaultVisualSettings,
+  GRADIENT_AXES,
+  isFieldAxis,
+  PARTICLE_SHAPES,
+  type VisualSettings,
+} from "./VisualSettings";
 import { packGradientStops, paletteStops } from "./palette";
 import { SHAPE_FIELD_GLSL } from "./shapes";
 
@@ -246,7 +253,9 @@ export class ParticleRenderer {
     u.uOpacity.value = s.opacity;
     u.uGlow.value = s.glow;
     u.uMonochrome.value = s.colorMode === "monochrome" ? 1 : 0;
-    u.uGradient.value = s.colorMode === "gradient" ? 1 : 0;
+    // A field axis is baked per particle on the CPU, so the shader ramp must
+    // stay off for it: two sources of colour would fight.
+    u.uGradient.value = s.colorMode === "gradient" && !isFieldAxis(s.gradientAxis) ? 1 : 0;
     u.uGradAxis.value = Math.max(0, GRADIENT_AXES.indexOf(s.gradientAxis));
     if (s.gradientPalette !== this.lastPalette) {
       this.lastPalette = s.gradientPalette;

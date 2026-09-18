@@ -128,7 +128,7 @@ choose it: the artwork is unchanged unless you ask for more.
 | SOURCE | The source's own colours: an image's pixels, a cool white for models and clouds. |
 | SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
 | RANDOM | One seeded hue per particle, stable for the whole run. |
-| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera) or RADIAL (its distance from the subject's centre). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
+| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera), RADIAL (its distance from the subject's centre), or the two stigmergic fields: SCENT (where the swarm has been) and HEAT (where it is working hardest right now). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
 
 Shapes are drawn analytically in the fragment shader: circle, box, triangle,
 ring, star. No textures, no extra geometry, no simulation change. With **By
@@ -142,6 +142,7 @@ links configure it:
 ?color=species            ?color=random
 ?color=gradient&axis=age&palette=ICE
 ?color=gradient&axis=radial&palette=SPECTRAL
+?color=gradient&axis=heat&palette=EMBER
 ?shape=star&color=monochrome
 ```
 
@@ -298,6 +299,12 @@ and a transient startles the prey away from whatever is hunting them.
 
 **Predator** in the presets is the clearest way in: three species in a
 rock-paper-scissors chase, the ecology on, species colour and shape.
+
+Where the swarm has been and where it is working are already two fields the
+simulation steers by. With COLOR on GRADIENT and Axis on SCENT or HEAT they
+become visible: the ramp is baked from the local field value, refreshed a few
+times a second, and normalised against the field's own peak so the contrast
+survives a long run.
 
 With **Ecology** on in the EVOLVE panel, the search evolves the ecology too -
 how far a hunt reaches, how deadly it is, how long a hunter lasts between meals,

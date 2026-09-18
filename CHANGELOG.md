@@ -4,6 +4,19 @@ Same shape as the piece itself: memory first, then life.
 
 ## [Unreleased]
 
+### Added - field ramps
+
+- The two stigmergic fields become visible. With COLOR on GRADIENT, Axis gains
+  SCENT (where the swarm has been) and HEAT (where it is working hardest right
+  now), and the ramp is baked from the local field value through whichever
+  palette is chosen.
+- Baked on the CPU on purpose: the fields live on the CPU and both engines keep
+  the same copy, so one pass gives identical colours on both backends - no new
+  texture binding, no transform to keep in step, and no shader path that cannot
+  be verified here. The pass is refreshed every 20 frames rather than every
+  frame, and normalised against the field's own peak so contrast survives a long
+  run instead of saturating.
+
 ### Added - the ecology, evolved
 
 - Ecology genes: a third gene pool. Each candidate also carries how far its hunt

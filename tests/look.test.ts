@@ -90,6 +90,15 @@ describe("renderer wiring", () => {
     expect((u.uRadialScale.value as number)).toBeCloseTo(3.5, 6);
     renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "radial" }, 1, 17, 0);
     expect((u.uRadialScale.value as number)).toBeGreaterThan(0);
+
+    // A field axis is baked per particle on the CPU, so the shader ramp has to
+    // stay out of it: two sources of colour would fight.
+    renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "scent" }, 1, 17);
+    expect(u.uGradient.value).toBe(0);
+    renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "heat" }, 1, 17);
+    expect(u.uGradient.value).toBe(0);
+    renderer.applySettings({ ...defaultVisualSettings(), colorMode: "gradient", gradientAxis: "age" }, 1, 17);
+    expect(u.uGradient.value).toBe(1);
     renderer.dispose();
   });
 
