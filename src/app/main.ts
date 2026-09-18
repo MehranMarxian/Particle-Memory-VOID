@@ -1517,7 +1517,7 @@ if (introPlan === "guide") {
 } else if (introPlan === "nudge") {
   window.setTimeout(() => {
     if (saver.active) return;
-    flashHint(coarsePointer ? "TAP ? FOR CONTROLS" : "PRESS ? FOR CONTROLS", 6);
+    flashHint(coarsePointer ? "TAP PANEL FOR SETTINGS" : "PRESS ? FOR CONTROLS", 6);
   }, 2400);
 }
 
