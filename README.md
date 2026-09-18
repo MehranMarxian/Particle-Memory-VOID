@@ -296,6 +296,17 @@ With **Sound** on in the same section, the room drives the ecology as well as th
 look: a loud room makes the swarm hungrier, low end makes it breed on the beat,
 and a transient startles the prey away from whatever is hunting them.
 
+**Predator** in the presets is the clearest way in: three species in a
+rock-paper-scissors chase, the ecology on, species colour and shape.
+
+With **Ecology** on in the EVOLVE panel, the search evolves the ecology too -
+how far a hunt reaches, how deadly it is, how long a hunter lasts between meals,
+and how well fed a particle must be to breed. These are the first genes the
+search can score on their own terms: a hue cannot be measured, but an ecology
+can, because one that eats and breeds sustains its population and one that does
+not collapses. The population term is bounded by its weight, so a thriving swarm
+can never out-score real progress toward the memory.
+
 ## Performance
 
 Simulation is split on purpose:

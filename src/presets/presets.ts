@@ -2,6 +2,7 @@ import type { EngineParams, ScentParams } from "@/types";
 import { defaultEngineParams } from "@/types";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { clampVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
+import { clampEcologyParams, type EcologyParams } from "@/ecology/ecologySystem";
 
 /**
  * Data-driven presets. A preset is a JSON blob of parameter *overrides* —
@@ -15,6 +16,8 @@ export interface PresetDefinition {
   life?: Partial<EngineParams["life"]>;
   field?: Partial<Pick<EngineParams, "turbulence" | "drift" | "gravity">>;
   visual?: Partial<VisualSettings>;
+  /** Ecology overrides. Only meaningful on the CPU backend. */
+  ecology?: Partial<EcologyParams>;
   /** "random" regenerates the matrix on apply; otherwise a flat 4x4-style row. */
   matrix?: readonly number[] | "random";
   scent?: Partial<ScentParams>;
@@ -211,6 +214,50 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     },
     matrix: "random",
   },
+  {
+    name: "predator",
+    label: "Predator",
+    description: "A hunt: three species chase each other in a cycle, and eat",
+    memory: { strength: 3.5, decay: 0.05, reconstructionEase: 1 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 1.1,
+      coreRadius: 0.32,
+      forceScale: 7,
+      friction: 0.86,
+      attraction: 1,
+      repulsion: 1.2,
+      chaos: 0.08,
+      maxSpeed: 5,
+    },
+    field: { turbulence: 0.1, drift: 0.1, gravity: 0.15 },
+    scent: { enabled: true, deposit: 0.4, steer: 0.4 },
+    wander: 0.1,
+    phaseCoupling: 0.1,
+    // Rock paper scissors: 0 hunts 1, 1 hunts 2, 2 hunts 0. Each row carries a
+    // strong pull toward its prey and the prey's row pushes back just as hard,
+    // which is the asymmetry that makes a chase.
+    matrix: [0.2, 2, -2, -2, 0.2, 2, 2, -2, 0.2],
+    ecology: {
+      enabled: true,
+      captureRadius: 1.1,
+      killChance: 1.1,
+      starveSeconds: 14,
+      ageRisk: 0.03,
+      reproductionSatiation: 1.3,
+      capacityFraction: 0.7,
+    },
+    visual: {
+      particleSize: 0.9,
+      glow: 0.45,
+      opacity: 0.62,
+      dof: 0.2,
+      trails: true,
+      trailDecay: 0.55,
+      colorMode: "species",
+      shapeBySpecies: true,
+    },
+  },
 ];
 
 /** Snapshot of everything a preset / randomize / undo round-trip touches. */
@@ -244,7 +291,8 @@ export function applyPreset(
   def: PresetDefinition,
   params: EngineParams,
   visual: VisualSettings,
-  matrix: InteractionMatrix
+  matrix: InteractionMatrix,
+  ecology?: EcologyParams
 ): boolean {
   if (def.memory) Object.assign(params.memory, def.memory);
   if (def.life) Object.assign(params.life, def.life);
@@ -253,6 +301,7 @@ export function applyPreset(
   if (def.wander !== undefined) params.wander = def.wander;
   if (def.phaseCoupling !== undefined) params.phaseCoupling = def.phaseCoupling;
   if (def.visual) Object.assign(visual, clampVisualSettings({ ...visual, ...def.visual }));
+  if (def.ecology && ecology) Object.assign(ecology, clampEcologyParams({ ...ecology, ...def.ecology }));
   let reroll = false;
   if (def.matrix === "random") {
     reroll = true;

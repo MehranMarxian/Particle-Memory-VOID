@@ -4,6 +4,21 @@ Same shape as the piece itself: memory first, then life.
 
 ## [Unreleased]
 
+### Added - the ecology, evolved
+
+- Ecology genes: a third gene pool. Each candidate also carries how far its hunt
+  reaches, how deadly it is, how long a hunter lasts between meals, and how well
+  fed a particle must be to breed.
+- These are the first genes the search can score on their own terms. A hue
+  cannot be measured; an ecology can, because one that eats and breeds sustains
+  its population and one that does not collapses. So the fitness gains a
+  population term - bounded by its weight, so a thriving swarm can never
+  out-score real progress toward the memory.
+- A Predator preset: three species in a rock-paper-scissors chase, the ecology
+  on, species colour and shape. The clearest way to see the layer work.
+- Presets can carry ecology overrides at all, so a look and its ecology travel
+  together.
+
 ### Added - the ecology layer
 
 - Predation: a species the interaction matrix makes predatory can now catch what
