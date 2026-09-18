@@ -25,6 +25,7 @@ import {
   type EcologyView,
 } from "@/ecology/ecologySystem";
 import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
+import { applyEcologyGenes } from "@/presets/ecologyGenes";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -846,7 +847,7 @@ function updateTouch(dt: number): void {
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
-const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false };
+const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false, ecology: false };
 
 function sampledMeanSpeed(): number {
   const velocities = engine.velocities;
@@ -877,6 +878,13 @@ const evolver = new Evolver(
       phenotypeLook = clampPhenotype(phenotype, speciesCount);
       applyLook();
     },
+    applyEcology(genes) {
+      // Ecology genes are scored through the population term, so the search
+      // reaches parameters the matrix alone could never move.
+      Object.assign(ecologyParams, applyEcologyGenes(ecologyParams, genes));
+      panelApi?.refresh();
+    },
+    population: () => engine.count / Math.max(1, (engine as ParticleEngine).capacity),
     distance: () => engine.meanTargetDistance(),
     speed: () => sampledMeanSpeed(),
   },
@@ -1148,11 +1156,15 @@ let activeMatrix = matrix;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
-        if (applyPreset(def, params, visual, matrix)) {
+        if (applyPreset(def, params, visual, matrix, ecologyParams)) {
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
         engine.configureGrid(params);
         applyLook();
+        if (ecologyParams.enabled) {
+          installEcology();
+          if (activeBackend !== "cpu") flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+        }
         panelApi?.refresh();
         panelApi?.setActivePreset(name);
         panelApi?.setCount(currentCount);

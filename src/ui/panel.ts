@@ -66,7 +66,7 @@ export function createPanel(opts: {
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   soundscape: { enabled: boolean; volume: number };
-  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean; ecology: boolean };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
   ecology: {
@@ -584,6 +584,17 @@ export function createPanel(opts: {
     "ON",
     "OFF",
     "Let the search evolve each species' hue and shape alongside its behaviour. Appearance cannot be scored, so it rides the winner."
+  );
+  addToggle(
+    evolveBody,
+    "Ecology",
+    () => evolve.ecology,
+    (v) => {
+      evolve.ecology = v;
+    },
+    "ON",
+    "OFF",
+    "Let the search evolve the ecology too: how far a hunt reaches, how deadly it is, who starves. Scored through the population."
   );
   {
     const readout = document.createElement("div");
