@@ -4,6 +4,8 @@ import {
   MEMORY_STATE_GUIDE,
   SHORTCUT_GROUP_ORDER,
   SHORTCUT_ROWS,
+  handleKey,
+  type ShortcutContext,
   type ShortcutGroup,
 } from "./shortcuts";
 
@@ -13,6 +15,10 @@ import {
  * it can never document a key the app does not actually handle. The panel
  * page maps the instrument's sections — the guide explains the whole
  * surface, not only the keys.
+ *
+ * On a touch device the guide is also the keyboard: every key chip is
+ * tappable and dispatches through the same handleKey path the physical
+ * keyboard uses. bindShortcuts() wires it; until then the chips are inert.
  */
 export interface GuideApi {
   readonly element: HTMLElement;
@@ -22,6 +28,8 @@ export interface GuideApi {
   isOpen(): boolean;
   /** Mark which of the five memory states is active right now. */
   setState(name: string): void;
+  /** Make every key chip run its shortcut (the touch keyboard). */
+  bindShortcuts(ctx: ShortcutContext): void;
 }
 
 /** The instrument's sections, in tier order, with their one-line meaning. */
@@ -43,17 +51,31 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLEle
   return node;
 }
 
-function renderRow(display: string, label: string, hint: string): HTMLElement {
+/** The shortcut context the key chips dispatch through; inert until bound. */
+let boundContext: ShortcutContext | null = null;
+
+function renderRow(display: string, label: string, hint: string, keys: string[]): HTMLElement {
   const row = el("div", "gd-row");
-  const key = el("span", "gd-key");
-  key.textContent = display;
+  const keyCell = el("div", "gd-keys");
+  for (const key of keys) {
+    const chip = el("button", "gd-key gd-key-tap") as HTMLButtonElement;
+    chip.type = "button";
+    chip.textContent = key === "Escape" ? "ESC" : key;
+    chip.title = `Run: ${label}`;
+    chip.setAttribute("aria-label", `Run shortcut: ${label}`);
+    chip.addEventListener("click", () => {
+      if (boundContext) handleKey(key, boundContext);
+    });
+    keyCell.appendChild(chip);
+  }
+  void display; // the chips carry the keys; the range text is theirs now
   const text = el("span", "gd-text");
   const name = el("span", "gd-label");
   name.textContent = label;
   const meaning = el("span", "gd-hint");
   meaning.textContent = hint;
   text.append(name, meaning);
-  row.append(key, text);
+  row.append(keyCell, text);
   return row;
 }
 
@@ -84,9 +106,14 @@ export function createControlsGuide(): GuideApi {
     heading.textContent = group;
     column.appendChild(heading);
     for (const row of SHORTCUT_ROWS.filter((r) => r.group === (group as ShortcutGroup))) {
-      column.appendChild(renderRow(row.display, row.label, row.hint));
+      column.appendChild(renderRow(row.display, row.label, row.hint, row.keys));
     }
     body.appendChild(column);
+  }
+
+  // The touch keyboard: inert until the app hands over the shortcut context.
+  function bindShortcuts(ctx: ShortcutContext): void {
+    boundContext = ctx;
   }
 
   const stateRows = new Map<string, HTMLElement>();
@@ -133,7 +160,7 @@ export function createControlsGuide(): GuideApi {
   body.appendChild(memoryStates);
 
   const foot = el("div", "gd-foot");
-  foot.textContent = "DRAG TO ORBIT / SCROLL TO ZOOM";
+  foot.textContent = "DRAG TO ORBIT / PINCH TO ZOOM / TAP A KEY TO RUN IT";
   card.append(head, body, foot);
   root.appendChild(card);
 
@@ -174,5 +201,6 @@ export function createControlsGuide(): GuideApi {
     },
     isOpen: () => !root.hidden,
     setState,
+    bindShortcuts,
   };
 }

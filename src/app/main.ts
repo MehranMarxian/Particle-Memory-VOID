@@ -1242,6 +1242,10 @@ window.addEventListener("keydown", (e) => {
   handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
 });
 
+// Touch has no keyboard: the guide's key chips dispatch through the same
+// handleKey path, so the shortcuts stay reachable from any device.
+guide.bindShortcuts(shortcutCtx);
+
 let altMatrix: InteractionMatrix | null = null;
 let activeMatrix = matrix;
 
@@ -1707,7 +1711,9 @@ function frameInner(now: number): void {
     panelApi?.setStats(
       `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
-      `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
+      (coarsePointer
+        ? `guide: the ? button - tap any key in it to run it`
+        : `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`)
     );
   }
 }
