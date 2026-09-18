@@ -261,6 +261,35 @@ Three findings, each load-bearing:
    the showpiece, and the slow-motion scheduler covers the rest.
 3. The iGPU and phone columns are still open — they need a human with the device.
 
+### measured: slice 3 closed the renderer's readback loop
+
+After slice 3 (vertices sample the compute textures; one readback per frame; the
+state mirror rides the drained pipeline at a 30-frame cadence; velocity readbacks
+replaced by estimates; the scent texture re-packed every 10th step), same machine,
+same method, same session as the baseline:
+
+| particles | sim before | sim after | fps after |
+|---|---|---|---|
+| 4,000 | ~9–14 | 8.0 | 60 |
+| 12,000 | 8.7 | 10.1 | 60 |
+| 32,000 | 11.2 | 12.2 | 60 |
+| 50,000 | 16.8 | 15.9 (avg 16.0, max 17.3) | 60 |
+
+Honest reading: the step itself is a **wash** — it is dominated by the one remaining
+synchronous readback, which drains whatever the GPU queue holds, and the queue holds a
+frame's work either way. The slice's real wins are structural and sit outside
+`lastStepTime`: ~2 MB/frame of per-frame position/state/velocity attribute uploads are
+gone at 50k, GPU→CPU sync traffic fell from three full-texture readbacks to one (the
+budget's ≤ 1 readback and ≤ 1 MB/frame now hold at every density), the scent texture
+upload is throttled 10× while the simulation still steers on a field at most 10 frames
+old, and the organism-state readback moved to the drained pipeline — where the
+instrumentation showed it costs ~1 ms instead of the ~39 ms mid-frame hitch it caused
+when it drained compute + render serially (the stats' 500 ms window had phase-locked
+to that hitch, which briefly looked like a 2× regression in the numbers above). The
+two lessons recorded for slice 6: readback cost is queue cost, so budget on
+*max frame* not *mean step*; and a stats window commensurate with a periodic cost
+will always sample it.
+
 ### not measured, and why: GPU engine fps
 
 `GpuParticleEngine` needs a live WebGL2 context; this environment has no headless GPU,

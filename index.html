@@ -84,10 +84,12 @@
   <body>
     <script>
       window.addEventListener("error", function (e) {
-        document.title = "ERR " + (e.message || "unknown");
+        document.title = ("ERR " + (e.message || "unknown") + " @ " + (e.error && e.error.stack ? String(e.error.stack) : "")).slice(0, 900);
       });
       window.addEventListener("unhandledrejection", function (e) {
-        document.title = "REJ " + ((e.reason && e.reason.message) || "unknown");
+        var r = e.reason;
+        var frame = r && r.stack ? String(r.stack).split("\n")[1] : "";
+        document.title = ("REJ " + ((r && r.message) || "unknown") + " @ " + frame).slice(0, 300);
       });
       (function () {
         var orig = console.error;

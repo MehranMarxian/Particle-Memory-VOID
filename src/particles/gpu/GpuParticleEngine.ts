@@ -5,20 +5,31 @@ import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulationShader";
 import { packGridTextures, type PackedGridTextures } from "./gridTextures";
+import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
  *
  *   CPU: spatial grid rebuild per step (a ~0.5 ms counting sort — the one
- *        stage that resists WebGL2, which lacks portable scatter atomics).
+ *        stage that resists WebGL2, which lacks portable scatter atomics),
+ *        plus the stigmergic field deposits, for the same reason.
  *   GPU: everything O(n · neighbors) — species forces, memory springs,
  *        fields, integration — as position/velocity texture ping-pong.
  *
- * Keeps a CPU mirror of positions for rendering and for the grid build
- * (one readback per frame, one frame stale — invisible at 60fps).
+ * The readback diet (v0.9.0 slice 3): the renderer samples the compute
+ * textures directly (ParticleRenderer.attachCompute), so the only
+ * synchronous readback left is the position mirror — the grid, the field
+ * deposits and the tint bake all read it. The organism-state mirror is
+ * read back on a low rate for its CPU-side consumers (the soundscape's
+ * stress probe, the backend carry), and velocities are estimated from
+ * consecutive position mirrors instead of being read back at all.
+ *
  * Force formulas are identical to ParticleEngine.step.
  */
+const FIELD_TEXTURE_SYNC_FRAMES = 10;
+const STATE_READBACK_FRAMES = 30;
+
 export class GpuParticleEngine {
   readonly capacity: number;
   count: number;
@@ -38,10 +49,9 @@ export class GpuParticleEngine {
   private stateVar: { material: THREE.ShaderMaterial };
   private positionVar: { material: THREE.ShaderMaterial };
   private velocityVar: { material: THREE.ShaderMaterial };
-  /** CPU-side mirror of the organism state (fed to the renderer). */
+  /** CPU-side mirror of the organism state (soundscape probe, backend carry). */
   readonly renderState: Float32Array;
   private stateReadback: Float32Array;
-  private velReadback: Float32Array;
   readonly scent = new ScentField();
   readonly heat = new ScentField();
   private scentTex: THREE.DataTexture;
@@ -58,6 +68,13 @@ export class GpuParticleEngine {
   private pendingRegain = 0;
   private pendingRestore = 0;
   private rebuiltGridTextures = false;
+  /** The position mirror one step back: velocities are its delta. */
+  private prevPositions: Float32Array;
+  private havePrevPositions = false;
+  private fieldSyncTick = FIELD_TEXTURE_SYNC_FRAMES;
+  private stateSyncTick = 0;
+  /** Compute texture dimensions, for the renderer's per-vertex references. */
+  readonly textureSize: { width: number; height: number };
 
   private constructor(
     renderer: THREE.WebGLRenderer,
@@ -80,7 +97,8 @@ export class GpuParticleEngine {
     this.readback = new Float32Array(this.capacity * 4);
     this.renderState = new Float32Array(this.capacity * 4);
     this.stateReadback = new Float32Array(this.capacity * 4);
-    this.velReadback = new Float32Array(this.capacity * 4);
+    this.prevPositions = new Float32Array(this.capacity * 3);
+    this.textureSize = { width: texW, height: texH };
     this.scentTex = this.makeFloatTex(this.scent.n, this.scent.n * this.scent.n);
     this.packed = packGridTextures(new Int32Array(1), 0, new Int32Array(2));
 
@@ -356,6 +374,11 @@ export class GpuParticleEngine {
     matrix.resize(speciesCount);
     this.speciesCount = speciesCount;
     for (let i = 0; i < this.count; i++) this.species[i] = i % speciesCount;
+    // Species is baked into the position texture's w channel, so a change is
+    // a re-upload - and the organism state goes in with it. Sync the
+    // throttled state mirror first, so the re-upload carries the live
+    // phases rather than a 30-frame-old snapshot.
+    this.syncStateMirror();
     this.uploadInitialState();
   }
 
@@ -370,8 +393,49 @@ export class GpuParticleEngine {
   step(dt: number, params: EngineParams, matrix: InteractionMatrix): void {
     const t0 = performance.now();
 
-    // 0. Fields: the CPU owns deposit/decay; the GPU samples them from one
-    // texture (scent in .x, heat in .y).
+    // 1. Read back the position mirror — the ONE synchronous readback per
+    //    frame the hybrid design cannot avoid: the grid, the CPU-side field
+    //    deposits and the tint bake all read positions here. The readback
+    //    drains the GPU queue (compute + render of the previous frame), so
+    //    it is the cheap place for any other readback to ride.
+    const rt = this.compute.getCurrentRenderTarget(this.positionVar as never);
+    this.renderer.readRenderTargetPixels(
+      rt as THREE.WebGLRenderTarget,
+      0,
+      0,
+      this.texW,
+      this.texH,
+      this.readback
+    );
+    for (let i = 0; i < this.count; i++) {
+      this.positions[i * 3] = this.readback[i * 4];
+      this.positions[i * 3 + 1] = this.readback[i * 4 + 1];
+      this.positions[i * 3 + 2] = this.readback[i * 4 + 2];
+    }
+
+    // 1b. The organism-state mirror rides the drained pipeline: here a state
+    //     readback costs ~1 ms; after this frame's compute it would drain
+    //     the render pass with it and hitch the frame it lands on. Its CPU
+    //     consumers (the soundscape's stress probe, the backend carry) are
+    //     slow, so a 30-frame cadence serves them fine.
+    if (++this.stateSyncTick >= STATE_READBACK_FRAMES) {
+      this.stateSyncTick = 0;
+      this.syncStateMirror();
+    }
+
+    // 2. Velocities are estimated from the consecutive mirrors. The renderer
+    //    samples the live velocity texture; the estimate feeds only the CPU
+    //    side (heat deposit weight, the evolver's speed fitness, the carry
+    //    across a backend switch), where one frame of staleness is free.
+    if (this.havePrevPositions) {
+      estimateVelocities(this.prevPositions, this.positions, this.count, dt, this.velocities);
+    } else {
+      this.havePrevPositions = true;
+    }
+    this.prevPositions.set(this.positions.subarray(0, this.count * 3));
+
+    // 3. Fields: the CPU owns deposit/decay; the GPU samples them from one
+    //    texture (scent in .x, heat in .y). Deposits run on the fresh mirror.
     if (params.scent.enabled) {
       const amt = params.scent.deposit * dt;
       for (let i = 0; i < this.count; i++) {
@@ -400,27 +464,18 @@ export class GpuParticleEngine {
       this.heat.decay(Math.pow(params.heat.decay, dt));
     }
     if (params.scent.enabled || params.heat.enabled) {
-      const fieldData = this.scentTex.image.data as unknown as Float32Array;
-      fieldData.fill(0);
-      if (params.scent.enabled) this.scent.packSliceTexture(fieldData, 0);
-      if (params.heat.enabled) this.heat.packSliceTexture(fieldData, 1);
-      this.scentTex.needsUpdate = true;
-    }
-
-    // 1. Read back latest GPU positions → mirror (grid input + rendering).
-    const rt = this.compute.getCurrentRenderTarget(this.positionVar as never);
-    this.renderer.readRenderTargetPixels(
-      rt as THREE.WebGLRenderTarget,
-      0,
-      0,
-      this.texW,
-      this.texH,
-      this.readback
-    );
-    for (let i = 0; i < this.count; i++) {
-      this.positions[i * 3] = this.readback[i * 4];
-      this.positions[i * 3 + 1] = this.readback[i * 4 + 1];
-      this.positions[i * 3 + 2] = this.readback[i * 4 + 2];
+      // The texture snapshot is re-packed on a low rate: deposit and decay
+      // keep running every step on the CPU copies, and the simulation
+      // steers on a field at most FIELD_TEXTURE_SYNC_FRAMES frames old.
+      // The tint bake proved 20 is invisible; 10 keeps the sim closer.
+      if (++this.fieldSyncTick >= FIELD_TEXTURE_SYNC_FRAMES) {
+        this.fieldSyncTick = 0;
+        const fieldData = this.scentTex.image.data as unknown as Float32Array;
+        fieldData.fill(0);
+        if (params.scent.enabled) this.scent.packSliceTexture(fieldData, 0);
+        if (params.heat.enabled) this.heat.packSliceTexture(fieldData, 1);
+        this.scentTex.needsUpdate = true;
+      }
     }
     // 2. CPU grid rebuild → textures.
     this.grid.build(this.positions, this.count);
@@ -509,7 +564,42 @@ export class GpuParticleEngine {
     this.pendingRestore = 0;
     this.simTime += dt;
 
-    // 6. Mirror organism state + velocities for the renderer.
+    this.lastStepTime = (performance.now() - t0) / 1000;
+  }
+
+  meanTargetDistance(): number {
+    let sum = 0;
+    for (let i = 0; i < this.count; i++) {
+      const dx = this.targets[i * 3] - this.positions[i * 3];
+      const dy = this.targets[i * 3 + 1] - this.positions[i * 3 + 1];
+      const dz = this.targets[i * 3 + 2] - this.positions[i * 3 + 2];
+      sum += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return sum / Math.max(1, this.count);
+  }
+
+  /**
+   * The compute textures, for the renderer's texture-lookup vertex path.
+   * Queried at render time, after this frame's compute, so each getter
+   * returns the target the sim just wrote (the ping-pong swaps on compute).
+   */
+  getPositionTexture(): THREE.Texture {
+    return (this.compute.getCurrentRenderTarget(this.positionVar as never) as THREE.WebGLRenderTarget)
+      .texture;
+  }
+
+  getStateTexture(): THREE.Texture {
+    return (this.compute.getCurrentRenderTarget(this.stateVar as never) as THREE.WebGLRenderTarget)
+      .texture;
+  }
+
+  getVelocityTexture(): THREE.Texture {
+    return (this.compute.getCurrentRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget)
+      .texture;
+  }
+
+  /** Pull the organism state back into the CPU mirror (throttled callers). */
+  private syncStateMirror(): void {
     this.renderer.readRenderTargetPixels(
       this.compute.getCurrentRenderTarget(this.stateVar as never) as THREE.WebGLRenderTarget,
       0,
@@ -524,32 +614,6 @@ export class GpuParticleEngine {
       this.renderState[i * 4 + 2] = this.stateReadback[i * 4 + 2];
       this.renderState[i * 4 + 3] = this.stateReadback[i * 4 + 3];
     }
-    this.renderer.readRenderTargetPixels(
-      this.compute.getCurrentRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget,
-      0,
-      0,
-      this.texW,
-      this.texH,
-      this.velReadback
-    );
-    for (let i = 0; i < this.count; i++) {
-      this.velocities[i * 3] = this.velReadback[i * 4];
-      this.velocities[i * 3 + 1] = this.velReadback[i * 4 + 1];
-      this.velocities[i * 3 + 2] = this.velReadback[i * 4 + 2];
-    }
-
-    this.lastStepTime = (performance.now() - t0) / 1000;
-  }
-
-  meanTargetDistance(): number {
-    let sum = 0;
-    for (let i = 0; i < this.count; i++) {
-      const dx = this.targets[i * 3] - this.positions[i * 3];
-      const dy = this.targets[i * 3 + 1] - this.positions[i * 3 + 1];
-      const dz = this.targets[i * 3 + 2] - this.positions[i * 3 + 2];
-      sum += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-    return sum / Math.max(1, this.count);
   }
 
   dispose(): void {

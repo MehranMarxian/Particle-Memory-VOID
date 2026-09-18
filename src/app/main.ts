@@ -3,7 +3,7 @@ import { ParticleEngine } from "@/particles/ParticleEngine";
 import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
-import { ParticleRenderer } from "@/rendering/ParticleRenderer";
+import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
 import { TrailPass } from "@/rendering/TrailPass";
 import {
   COLOR_MODES,
@@ -475,6 +475,10 @@ function buildFromSource(sample: FlatSource): void {
     engine.renderState,
     engine.velocities
   );
+  if (backend === "gpu" && "getPositionTexture" in next) {
+    // The readback-free render path: vertices sample the compute textures.
+    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
+  }
   // Count-scoped like every consumer: a backend switch builds the new engine
   // at the live count with a different capacity, and the pristine copy must
   // follow the count, not the buffer it was captured from.
@@ -549,6 +553,9 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.renderState,
     engine.velocities
   );
+  if (backend === "gpu" && "getPositionTexture" in next) {
+    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
+  }
   // sourceColors stays untouched: it still describes this source, and
   // re-deriving it from engine.colors would capture whatever look
   // applyLook baked last.
