@@ -1,7 +1,7 @@
 {
   "name": "void-particle-memory",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.9.0",
   "author": "Mehran Ahmadi",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

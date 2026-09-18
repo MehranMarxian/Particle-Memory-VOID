@@ -111,11 +111,26 @@ itself once; after that it waits for `?`.
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
-Drag to orbit, scroll to zoom. The panel holds the full instrument: SOURCE,
-MEMORY, LIFE, FIELD, VISUAL, PRESETS and ACTIONS, with short tooltips on the
-semantic controls. Six authored presets ship with the piece (Portrait,
-Organic, Scan, Architecture, Void, Chaos); the whole instrument state persists
-to localStorage and restores on the next visit.
+Drag to orbit, scroll to zoom; on touch, one finger orbits, two fingers pinch
+to zoom and drag to pan, and a touch-and-hold is the touch itself — touch has
+no hover, so the swarm leans on an explicit hold. On a touch device the guide
+is the keyboard: every key chip in it is tappable and runs its shortcut.
+
+The panel folds by consequence. **THE PIECE** is always visible: the source
+chip, the density, RECONSTRUCT / RELEASE, screensaver and fullscreen, and the
+doors. **THE INSTRUMENT** is an accordion behind its door — SOURCE, MEMORY,
+LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, PRESETS, ACTIONS —
+closed by default, one section open at a time, with press-and-hold
+explanations for touch. **THE LAB** holds the backend switch, the ghost
+replay, the quiet modulators and the stats. On phones the panel docks as a
+bottom sheet and the source card collapses to a chip.
+
+Twelve authored presets ship with the piece: Portrait, Organic, Scan,
+Architecture, Void, Chaos, Predator, and five subject-first looks — Galaxy,
+Fireworks, Hearth, Traces and Exhale. Each preset is a full state (nothing
+leaks from one look into the next), several carry their own screensaver
+camera, and the whole instrument state persists to localStorage and restores
+on the next visit.
 
 ## Look
 
@@ -324,8 +339,18 @@ Simulation is split on purpose:
 - When WebGL2 is missing the CPU engine runs instead; `G` switches live and
   carries the current memory across.
 
-Measured in a dev VM: 12k particles at 3 fps on the CPU became 60 fps on the
-GPU path; the neighbour stage stays around 7 ms at 32k particles.
+Measured in the running app (dev GPU): the GPU path holds 60 fps from 4k to
+50k particles with a single synchronous readback per frame — the renderer
+samples the simulation's own compute textures, so no vertex data is uploaded
+per frame. The CPU engine sustains real time to its 4k ceiling; past it the
+frame loop dilates time instead of spiralling. Density is per-backend honest:
+the CPU menu ends at 4k, the GPU menu at 50k.
+
+Budgets are enforced, not hoped for: the build fails if the eager JS exceeds
+220 kB gzip (183 kB today), the perf suite carries a 30 ms catastrophic
+ceiling and a 12 ms real-time budget on a pinned runner
+(`VOID_ENFORCE_BUDGETS=1`), and the LAB stats show the per-frame readback
+count and bytes.
 
 ## Windows Screensaver
 
@@ -383,9 +408,12 @@ footer.
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 202 tests cover the engine, grid, matrix, memory system, organism
-layer, life cycle, the scent and heat fields, environment-modulated affinities,
-sources, persistence, samples, sound mapping and the soundscape, the pointer
-force and its ghost playback, the evolvable matrix search, presets, rendering
-settings, colour sources, gradient ramps, sprite shapes, screensaver logic
-and the keymap.
+the GPU. 337 tests cover the engine, grid, matrix, memory system, organism
+layer, life cycle, the scent and heat fields, environment-modulated
+affinities, sources, persistence, samples, sound mapping and the soundscape,
+the pointer force and its ghost playback, the touch-gesture decisions, the
+evolvable matrix search and its gene pools, presets as full states, the
+camera choreography, rendering settings, colour sources, gradient ramps,
+sprite shapes, the three-tier panel, the controls guide and its tap-to-run
+keyboard, the source lifecycle, screensaver logic, the keymap, and the
+simulation and bundle budgets.
