@@ -10,7 +10,9 @@ import {
 /**
  * The controls guide (?): a quiet overlay that explains every control by
  * meaning, grouped by what it affects. Rendered from the shared keymap, so
- * it can never document a key the app does not actually handle.
+ * it can never document a key the app does not actually handle. The panel
+ * page maps the instrument's sections — the guide explains the whole
+ * surface, not only the keys.
  */
 export interface GuideApi {
   readonly element: HTMLElement;
@@ -21,6 +23,19 @@ export interface GuideApi {
   /** Mark which of the five memory states is active right now. */
   setState(name: string): void;
 }
+
+/** The instrument's sections, in tier order, with their one-line meaning. */
+export const PANEL_SECTIONS_GUIDE: readonly { name: string; line: string }[] = [
+  { name: "MEMORY", line: "The authored cycle, and how hard the swarm pulls toward its source." },
+  { name: "LIFE", line: "The species forces: who gathers, who pushes, how far they sense." },
+  { name: "FIELD", line: "The weather: turbulence, drift, gravity, wander - and your touch." },
+  { name: "SCENT & HEAT", line: "The two writable memories: where it has been, where it burns." },
+  { name: "ECOLOGY", line: "Predation, hunger, birth. The swarm that eats." },
+  { name: "VISUAL", line: "Size, light, trails, colour and shape." },
+  { name: "SOUND", line: "Listen to the room, or let the piece breathe out loud." },
+  { name: "EVOLVE", line: "The search that keeps what remembers better." },
+  { name: "LAB", line: "The backend, the ghost replay, the quiet modulators, the stats." },
+];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -77,8 +92,26 @@ export function createControlsGuide(): GuideApi {
   const stateRows = new Map<string, HTMLElement>();
   const states = el("div", "gd-states");
   const statesTitle = el("div", "gd-group-title");
-  statesTitle.textContent = "MEMORY STATES";
+  statesTitle.textContent = "THE PANEL";
   states.appendChild(statesTitle);
+  for (const sec of PANEL_SECTIONS_GUIDE) {
+    const row = el("div", "gd-state");
+    const name = el("span", "gd-state-name");
+    name.textContent = sec.name;
+    const line = el("span", "gd-state-line");
+    line.textContent = sec.line;
+    row.append(name, line);
+    states.appendChild(row);
+  }
+  const legend = el("div", "gd-legend");
+  legend.textContent = "TIER 1 IS ALWAYS VISIBLE - INSTRUMENT AND LAB OPEN FROM IT";
+  states.appendChild(legend);
+  body.appendChild(states);
+
+  const memoryStates = el("div", "gd-states");
+  const memoryTitle = el("div", "gd-group-title");
+  memoryTitle.textContent = "MEMORY STATES";
+  memoryStates.appendChild(memoryTitle);
   for (const state of MEMORY_STATE_GUIDE) {
     const row = el("div", "gd-state");
     const name = el("span", "gd-state-name");
@@ -91,13 +124,13 @@ export function createControlsGuide(): GuideApi {
     const line = el("span", "gd-state-line");
     line.textContent = state.line;
     row.append(name, bar, line);
-    states.appendChild(row);
+    memoryStates.appendChild(row);
     stateRows.set(state.name, row);
   }
-  const legend = el("div", "gd-legend");
-  legend.textContent = "BAR: HOW MUCH OF THE SOURCE IS REMEMBERED";
-  states.appendChild(legend);
-  body.appendChild(states);
+  const memoryLegend = el("div", "gd-legend");
+  memoryLegend.textContent = "BAR: HOW MUCH OF THE SOURCE IS REMEMBERED";
+  memoryStates.appendChild(memoryLegend);
+  body.appendChild(memoryStates);
 
   const foot = el("div", "gd-foot");
   foot.textContent = "DRAG TO ORBIT / SCROLL TO ZOOM";

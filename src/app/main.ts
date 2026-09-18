@@ -62,6 +62,7 @@ import {
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
+import { GestureTracker } from "@/input/touchGestures";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
@@ -629,22 +630,31 @@ const trailPass = new TrailPass(renderer3d, trailSize().w, trailSize().h);
 let azimuth = 0;
 let elevation = 0.5;
 let radius = 17;
-let dragging = false;
-let lastX = 0;
-let lastY = 0;
+// The camera orbits a target; two-finger pan moves the target in the
+// camera's own plane. The screensaver resets it to the subject.
+const cameraTarget = new THREE.Vector3();
+const pendingPan = { x: 0, y: 0 };
+// The gesture layer: one finger orbits, two pinch and pan, a touch-and-hold
+// becomes the pointer force, and the mouse keeps every behaviour it had.
+const gestures = new GestureTracker();
+
 renderer3d.domElement.addEventListener("pointerdown", (e) => {
-  dragging = true;
-  lastX = e.clientX;
-  lastY = e.clientY;
+  gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.pointerType, performance.now());
 });
-window.addEventListener("pointerup", () => (dragging = false));
 window.addEventListener("pointermove", (e) => {
-  if (!dragging) return;
-  azimuth -= (e.clientX - lastX) * 0.005;
-  elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
-  lastX = e.clientX;
-  lastY = e.clientY;
+  gestures.pointerMove(e.pointerId, e.clientX, e.clientY, performance.now());
+  if (e.pointerType !== "mouse") return;
+  // The mouse's hover is the touch: recorded for the screensaver's ghost,
+  // and mapped into the scene for the pointer force.
+  const rect = renderer3d.domElement.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
+  pointerNdc = { x, y };
+  pointerInfluence.touch();
+  pointerTrack.record(performance.now() / 1000, x, y);
 });
+window.addEventListener("pointerup", (e) => gestures.pointerUp(e.pointerId));
+window.addEventListener("pointercancel", (e) => gestures.pointerUp(e.pointerId));
 renderer3d.domElement.addEventListener("wheel", (e) => {
   radius = Math.max(3, Math.min(40, radius * (1 + Math.sign(e.deltaY) * 0.1)));
 });
@@ -948,8 +958,33 @@ function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: nu
 }
 
 function updateTouch(dt: number): void {
+  // Consume the gesture layer first: orbit, pinch zoom, two-finger pan,
+  // and the touch-hold that becomes the pointer force.
+  const g = gestures.take(performance.now());
+  if (g.orbitDx !== 0 || g.orbitDy !== 0) {
+    azimuth -= g.orbitDx * 0.005;
+    elevation = Math.max(-1.4, Math.min(1.4, elevation + g.orbitDy * 0.005));
+  }
+  if (g.zoom !== 1) {
+    radius = Math.max(3, Math.min(40, radius / g.zoom));
+  }
+  if (g.panDx !== 0 || g.panDy !== 0) {
+    pendingPan.x += g.panDx;
+    pendingPan.y += g.panDy;
+  }
   pointerInfluence.tick(dt);
   let ndc = pointerNdc;
+  if (g.hold && !saver.active) {
+    // A finger held still is the touch: the swarm leans toward it, and the
+    // hold joins the recorded hand the screensaver's ghost replays.
+    const rect = renderer3d.domElement.getBoundingClientRect();
+    ndc = {
+      x: ((g.hold.x - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+      y: -(((g.hold.y - rect.top) / Math.max(1, rect.height)) * 2 - 1),
+    };
+    pointerInfluence.touch();
+    pointerTrack.record(performance.now() / 1000, ndc.x, ndc.y);
+  }
   if (saver.active) {
     // Real input would end the screensaver, so play back the recorded hand.
     if (!pointer.ghost) {
@@ -1265,7 +1300,11 @@ let activeMatrix = matrix;
     soundscape,
     evolve,
     pointer,
+    backend: () => activeBackend,
     callbacks: {
+      onBackendToggle() {
+        switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
+      },
       onDensityChange(count) {
         const capped = effectiveDensity(count, backendForCount(count));
         currentCount = capped;
@@ -1453,7 +1492,7 @@ if (introPlan === "guide") {
 } else if (introPlan === "nudge") {
   window.setTimeout(() => {
     if (saver.active) return;
-    flashHint("PRESS ? FOR CONTROLS", 6);
+    flashHint(coarsePointer ? "TAP ? FOR CONTROLS" : "PRESS ? FOR CONTROLS", 6);
   }, 2400);
 }
 
@@ -1465,6 +1504,9 @@ let splashGone = false;
 const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
+  cameraTarget.set(0, 0, 0);
+  pendingPan.x = 0;
+  pendingPan.y = 0;
   guide.close();
   memory.active = memory.auto = true;
   persistNow();
@@ -1580,11 +1622,24 @@ function frameInner(now: number): void {
   // like a held breath rather than a turntable.
   const breathe = Math.sin(now * 0.00012) * 0.05;
   camera.position.set(
-    radius * Math.cos(elevation + breathe) * Math.sin(azimuth),
-    radius * Math.sin(elevation + breathe),
-    radius * Math.cos(elevation + breathe) * Math.cos(azimuth)
+    cameraTarget.x + radius * Math.cos(elevation + breathe) * Math.sin(azimuth),
+    cameraTarget.y + radius * Math.sin(elevation + breathe),
+    cameraTarget.z + radius * Math.cos(elevation + breathe) * Math.cos(azimuth)
   );
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(cameraTarget);
+  // Two-finger pan moves the target in the camera's own plane, applied here
+  // so the basis is the frame's fresh orientation.
+  if (pendingPan.x !== 0 || pendingPan.y !== 0) {
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    const worldPerPx =
+      (2 * radius * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, window.innerHeight);
+    cameraTarget
+      .addScaledVector(right, -pendingPan.x * worldPerPx)
+      .addScaledVector(up, pendingPan.y * worldPerPx);
+    pendingPan.x = 0;
+    pendingPan.y = 0;
+  }
 
   particleRenderer?.update();
   particleRenderer?.markStateDirty();

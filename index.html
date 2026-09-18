@@ -14,6 +14,13 @@
         height: 100%;
         background: #000;
         overflow: hidden;
+        overscroll-behavior: none;
+      }
+      /* The canvas owns every first-finger gesture: the browser's
+         pull-to-refresh and scroll-back never fight the orbit. */
+      #stage,
+      #stage canvas {
+        touch-action: none;
       }
       #stage {
         width: 100%;

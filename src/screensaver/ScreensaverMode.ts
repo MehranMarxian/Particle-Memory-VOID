@@ -15,7 +15,8 @@ export const GRACE_MS = 2500;
 export const MOVE_THRESHOLD_PX = 14;
 
 export interface InputEventLike {
-  type: "mousemove" | "pointerdown" | "keydown" | "wheel";
+  /** "pointermove" covers mouse, touch and pen drags alike. */
+  type: "mousemove" | "pointermove" | "pointerdown" | "keydown" | "wheel";
   /** movement delta since the last event of the same type */
   dx?: number;
   dy?: number;
@@ -30,7 +31,7 @@ export function exitRequested(
   moveThresholdPx = MOVE_THRESHOLD_PX
 ): boolean {
   if (nowMs - enteredAtMs < graceMs) return false;
-  if (ev.type === "mousemove") {
+  if (ev.type === "mousemove" || ev.type === "pointermove") {
     const dx = ev.dx ?? 0;
     const dy = ev.dy ?? 0;
     return Math.hypot(dx, dy) >= moveThresholdPx;
@@ -64,7 +65,9 @@ export class ScreensaverMode {
       target.addEventListener(type, fn);
       this.handlers.push([target, type, fn]);
     };
-    on(d, "mousemove", (e) => this.onInput("mousemove", (e as MouseEvent).clientX, (e as MouseEvent).clientY));
+    // Pointer events cover the mouse AND touch: a finger drag ends the
+    // screensaver exactly the way a mouse drag does.
+    on(d, "pointermove", (e) => this.onInput("pointermove", (e as PointerEvent).clientX, (e as PointerEvent).clientY));
     on(d, "pointerdown", () => this.onInput("pointerdown"));
     on(d, "keydown", () => this.onInput("keydown"));
     on(d, "wheel", () => this.onInput("wheel"));

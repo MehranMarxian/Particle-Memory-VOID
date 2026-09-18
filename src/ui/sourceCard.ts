@@ -25,6 +25,9 @@ export function createSourceCard(callbacks: {
   root.setAttribute("aria-label", "Memory source");
   root.setAttribute("aria-live", "polite");
   let thumbnail: ImageBitmap | null = null;
+  // Once a memory is loaded the card collapses to a chip; tapping it
+  // unfolds the details and the CHANGE SOURCE door.
+  let chipExpanded = false;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
     const n = document.createElement(tag);
@@ -53,6 +56,9 @@ export function createSourceCard(callbacks: {
 
   function render(state: SourceUiState): void {
     root.textContent = "";
+    // The chip is a ready-state shape only; any new load unfolds again.
+    if (state.phase !== "ready") chipExpanded = false;
+    root.classList.toggle("chip", state.phase === "ready" && !chipExpanded);
     const inner = el("div", "sc-inner");
     const kicker = (text: string) => {
       const k = el("div", "sc-kicker");
@@ -123,8 +129,20 @@ export function createSourceCard(callbacks: {
       sub.textContent = `${kindLabel(state.kind)} · ${state.count.toLocaleString()} PARTICLES`;
       info.append(name, sub);
       meta.append(canvas, info);
-      inner.appendChild(meta);
-      inner.appendChild(makeCta("CHANGE SOURCE"));
+      if (chipExpanded) {
+        inner.appendChild(meta);
+        inner.appendChild(makeCta("CHANGE SOURCE"));
+      } else {
+        // The chip: the memory's face and name. Tapping it unfolds.
+        meta.classList.add("sc-chip-toggle");
+        meta.addEventListener("click", () => {
+          chipExpanded = true;
+          render(state);
+        });
+        const hint = el("div", "sc-drop");
+        hint.textContent = "TAP FOR DETAILS";
+        inner.append(meta, hint);
+      }
       drawThumb(canvas);
     }
     root.appendChild(inner);
