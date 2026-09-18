@@ -290,6 +290,17 @@ two lessons recorded for slice 6: readback cost is queue cost, so budget on
 *max frame* not *mean step*; and a stats window commensurate with a periodic cost
 will always sample it.
 
+### budgets with teeth (slice 6): what is enforced, what is open
+
+| budget | status | mechanism |
+|---|---|---|
+| eager JS ≤ 220 kB gzip | **met, enforced** — 183.0 kB (three 129.8 + app 53.2) | vite plugin fails the build over budget; walks the entry's static-import closure (a naive dynamic-entry filter miscounts three, which the STL loader's `import("three")` flags as dynamic) |
+| CPU 4k step | **met, tiered** — ~7.7–10.8 ms in vitest | `perf.test.ts`: 30 ms ceiling always on (catches ~3× regressions everywhere); the 12 ms real-time budget enforced only with `VOID_ENFORCE_BUDGETS=1` on a pinned runner |
+| GPU ≤ 1 readback/frame, ≤ 1 MB | **met, visible** — 1/frame (2 on the 30-frame state-sync cadence), 378–784 kB at 12k–50k | `engine.lastReadbacks` counter in the LAB stats (`rb 2 (378 kB)`); the counter cannot fail a test without a WebGL2 runner, so it is a tripwire for eyes and smoke passes |
+| GPU fps floors (45 @ 12k, 30 @ 32k, laptop iGPU) | **open** | needs a human with the device; the dev GPU holds 60 fps everywhere |
+| phone floors (30 @ 4k, 24 @ 8k) | **open** | needs a human with the device; decides whether `TOUCH_CPU_DENSITY` stays 4000 |
+| memory ≤ 250 MB heap @ 50k | **unmeasured, low risk** | per-particle CPU footprint ≈ 176 B (~8.8 MB at 50k); the resolution-bound trail pair is the real resident |
+
 ### not measured, and why: GPU engine fps
 
 `GpuParticleEngine` needs a live WebGL2 context; this environment has no headless GPU,

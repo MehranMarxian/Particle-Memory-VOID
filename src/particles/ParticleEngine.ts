@@ -56,6 +56,9 @@ export class ParticleEngine {
   /** Accumulated simulation time (drives time-varying fields). */
   simTime = 0;
 
+  /** The CPU engine performs no GPU readbacks; the stats read the same shape. */
+  readonly lastReadbacks = { count: 0, bytes: 0 };
+
   // Profiling (seconds of last step).
   lastStepTime = 0;
 

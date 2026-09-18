@@ -75,6 +75,13 @@ export class GpuParticleEngine {
   private stateSyncTick = 0;
   /** Compute texture dimensions, for the renderer's per-vertex references. */
   readonly textureSize: { width: number; height: number };
+  /**
+   * The readback budget, made visible: synchronous GPU-to-CPU readbacks the
+   * last step performed and the bytes they moved. The hybrid design's
+   * contract is <= 1 readback per frame (the position mirror); the throttled
+   * state sync briefly raises it to 2 on its own cadence.
+   */
+  readonly lastReadbacks = { count: 0, bytes: 0 };
 
   private constructor(
     renderer: THREE.WebGLRenderer,
@@ -392,6 +399,8 @@ export class GpuParticleEngine {
 
   step(dt: number, params: EngineParams, matrix: InteractionMatrix): void {
     const t0 = performance.now();
+    this.lastReadbacks.count = 0;
+    this.lastReadbacks.bytes = 0;
 
     // 1. Read back the position mirror — the ONE synchronous readback per
     //    frame the hybrid design cannot avoid: the grid, the CPU-side field
@@ -399,14 +408,7 @@ export class GpuParticleEngine {
     //    drains the GPU queue (compute + render of the previous frame), so
     //    it is the cheap place for any other readback to ride.
     const rt = this.compute.getCurrentRenderTarget(this.positionVar as never);
-    this.renderer.readRenderTargetPixels(
-      rt as THREE.WebGLRenderTarget,
-      0,
-      0,
-      this.texW,
-      this.texH,
-      this.readback
-    );
+    this.readBack(rt as THREE.WebGLRenderTarget, this.readback);
     for (let i = 0; i < this.count; i++) {
       this.positions[i * 3] = this.readback[i * 4];
       this.positions[i * 3 + 1] = this.readback[i * 4 + 1];
@@ -600,12 +602,8 @@ export class GpuParticleEngine {
 
   /** Pull the organism state back into the CPU mirror (throttled callers). */
   private syncStateMirror(): void {
-    this.renderer.readRenderTargetPixels(
+    this.readBack(
       this.compute.getCurrentRenderTarget(this.stateVar as never) as THREE.WebGLRenderTarget,
-      0,
-      0,
-      this.texW,
-      this.texH,
       this.stateReadback
     );
     for (let i = 0; i < this.count; i++) {
@@ -614,6 +612,13 @@ export class GpuParticleEngine {
       this.renderState[i * 4 + 2] = this.stateReadback[i * 4 + 2];
       this.renderState[i * 4 + 3] = this.stateReadback[i * 4 + 3];
     }
+  }
+
+  /** One synchronous readback, counted for the budget (see lastReadbacks). */
+  private readBack(rt: THREE.WebGLRenderTarget, buffer: Float32Array): void {
+    this.renderer.readRenderTargetPixels(rt, 0, 0, this.texW, this.texH, buffer);
+    this.lastReadbacks.count += 1;
+    this.lastReadbacks.bytes += this.texW * this.texH * 16;
   }
 
   dispose(): void {
