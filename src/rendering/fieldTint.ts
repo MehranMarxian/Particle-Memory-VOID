@@ -68,3 +68,15 @@ export function writeFieldTintColors(
 
 /** Refresh interval, in frames, for a ramp that follows a live field. */
 export const FIELD_TINT_REFRESH_FRAMES = 20;
+
+/**
+ * The touch-primary interval: the bake competes with a smaller frame budget
+ * there, and a one-second lag in the tint is invisible against a field that
+ * itself moves on seconds.
+ */
+export const FIELD_TINT_REFRESH_FRAMES_TOUCH = 60;
+
+/** The refresh interval for the device's pointer class. */
+export function fieldTintRefreshFrames(coarsePointer: boolean): number {
+  return coarsePointer ? FIELD_TINT_REFRESH_FRAMES_TOUCH : FIELD_TINT_REFRESH_FRAMES;
+}

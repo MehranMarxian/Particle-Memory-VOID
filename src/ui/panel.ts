@@ -273,7 +273,9 @@ export function createPanel(opts: {
   addSlider(
     sourceBody,
     "Particles",
-    { min: 1000, max: 100000, step: 1000 },
+    // The menu ends where the GPU budget ends; the CPU backend clamps
+    // further (see simPolicy) and says so when it does.
+    { min: 1000, max: 50000, step: 1000 },
     () => currentCount,
     (v) => {
       currentCount = v;

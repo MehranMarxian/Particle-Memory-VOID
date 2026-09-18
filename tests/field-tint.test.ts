@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   FIELD_TINT_FLOOR,
   FIELD_TINT_REFRESH_FRAMES,
+  FIELD_TINT_REFRESH_FRAMES_TOUCH,
   fieldTintAt,
+  fieldTintRefreshFrames,
   fieldTintScale,
   writeFieldTintColors,
 } from "@/rendering/fieldTint";
@@ -92,6 +94,12 @@ describe("field tint buffers", () => {
     // One pass over the positions is not free: this is the whole reason the
     // ramp is not recomputed every frame.
     expect(FIELD_TINT_REFRESH_FRAMES).toBeGreaterThanOrEqual(10);
+  });
+
+  it("stretches the interval on a touch-primary device, and only there", () => {
+    expect(fieldTintRefreshFrames(false)).toBe(FIELD_TINT_REFRESH_FRAMES);
+    expect(fieldTintRefreshFrames(true)).toBe(FIELD_TINT_REFRESH_FRAMES_TOUCH);
+    expect(FIELD_TINT_REFRESH_FRAMES_TOUCH).toBeGreaterThan(FIELD_TINT_REFRESH_FRAMES);
   });
 
   it("has every palette it could be sampled with", () => {

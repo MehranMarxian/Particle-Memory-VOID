@@ -17,7 +17,7 @@ import {
   type VisualSettings,
 } from "@/rendering/VisualSettings";
 import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
-import { FIELD_TINT_REFRESH_FRAMES, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
 import {
@@ -50,6 +50,14 @@ import {
 import { createAlternateMatrix, DEFAULT_MATRIX_ROWS, setMatrixRows } from "@/presets/matrices";
 import { HintGate } from "@/ui/hintGate";
 import { carryLiveState } from "@/particles/carryState";
+import { FIXED_DT, scheduleSteps } from "@/app/stepper";
+import {
+  DENSITY_LEVELS,
+  DEFAULT_DENSITY_INDEX,
+  TOUCH_DENSITY_INDEX,
+  effectiveDensity,
+  wantsCpuBackend,
+} from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
@@ -103,10 +111,12 @@ interface SimEngine {
   meanTargetDistance(): number;
 }
 
-const DENSITY_LEVELS = [4000, 8000, 12000, 20000, 32000, 50000];
+/** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
+const coarsePointer =
+  typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 // --- Global state --------------------------------------------------------
-let densityIndex = 2;
+let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
 let currentCount = DENSITY_LEVELS[densityIndex];
 let engine!: SimEngine;
 let engineMode: "auto" | "gpu" | "cpu" = "auto";
@@ -281,13 +291,14 @@ function applySpeciesCount(n: number): void {
 }
 
 /**
- * Re-bake per-particle colour and shape for the current look settings.
+ * Bake the per-particle colours for the current look settings.
  *
- * Called when the engine is rebuilt and whenever the look changes — not per
- * frame: colours and shapes are baked values, exactly like the source's own
- * colours, so nothing here costs anything at render time.
+ * Split from the shape bake so the field-tint refresh (a low-rate tick) can
+ * re-bake colours alone: the shapes did not change since the last look
+ * change, and a full-buffer rewrite per tick is ms the weak machines do not
+ * have.
  */
-function applyLook(): void {
+function applyLookColors(): void {
   if (!particleRenderer) return;
   const mode = visual.colorMode;
   if (mode === "species") {
@@ -311,12 +322,29 @@ function applyLook(): void {
     engine.colors.set(sourceColors);
   }
   lastLookMode = mode;
+  particleRenderer.markColorsDirty();
+}
+
+/** Bake the per-particle sprite shapes (uniform, or one per species). */
+function applyLookShapes(): void {
+  if (!particleRenderer) return;
   if (visual.shapeBySpecies) {
     writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
   }
   else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
-  particleRenderer.markColorsDirty();
   particleRenderer.markShapesDirty();
+}
+
+/**
+ * Re-bake per-particle colour and shape for the current look settings.
+ *
+ * Called when the engine is rebuilt and whenever the look changes — not per
+ * frame: colours and shapes are baked values, exactly like the source's own
+ * colours, so nothing here costs anything at render time.
+ */
+function applyLook(): void {
+  applyLookColors();
+  applyLookShapes();
 }
 
 // --- Default source: tilted torus (the synthetic "memory") ---------------
@@ -408,7 +436,10 @@ function buildFromSource(sample: FlatSource): void {
 
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
-  if (engineMode !== "cpu") {
+  // Auto follows the density policy: on a touch-primary device at low
+  // density the CPU engine wins, because the GPU path pays three
+  // synchronous readbacks a frame whatever the workload.
+  if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
     try {
       next = createGpuEngine(sample, count, seed, rng);
       backend = "gpu";
@@ -550,11 +581,24 @@ const visual: VisualSettings = defaultVisualSettings();
   const dof = search.get("dof");
   if (dof !== null) visual.dof = dof === "0" ? 0 : Math.min(1, Math.max(0, Number(dof) || 0.25));
 }
-const trailPass = new TrailPass(
-  renderer3d,
-  Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
-  Math.floor(window.innerHeight * renderer3d.getPixelRatio())
-);
+// Full-DPR trail afterimages are a desktop luxury: on a touch-primary device
+// the render-target pair is the biggest memory resident in the tab, and at
+// 1.5x the difference is invisible on a small screen.
+const TRAIL_DPR_CAP_TOUCH = 1.5;
+
+function trailPixelRatio(): number {
+  const dpr = renderer3d.getPixelRatio();
+  return coarsePointer ? Math.min(dpr, TRAIL_DPR_CAP_TOUCH) : dpr;
+}
+
+function trailSize(): { w: number; h: number } {
+  return {
+    w: Math.floor(window.innerWidth * trailPixelRatio()),
+    h: Math.floor(window.innerHeight * trailPixelRatio()),
+  };
+}
+
+const trailPass = new TrailPass(renderer3d, trailSize().w, trailSize().h);
 
 let azimuth = 0;
 let elevation = 0.5;
@@ -594,7 +638,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     matrix.resize(n);
     for (let a = 0; a < n; a++)
       for (let b = 0; b < n; b++) matrix.set(a, b, cfg.matrix[a * n + b]);
-    currentCount = Math.min(200000, Math.max(500, cfg.currentCount));
+    currentCount = Math.min(50000, Math.max(1000, cfg.currentCount));
     densityIndex = DENSITY_LEVELS.indexOf(
       DENSITY_LEVELS.reduce((a2, b2) => (Math.abs(b2 - currentCount) < Math.abs(a2 - currentCount) ? b2 : a2))
     );
@@ -614,7 +658,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
 {
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
-  if (Number.isFinite(countParam) && countParam >= 500 && countParam <= 200000) {
+  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= 50000) {
     currentCount = Math.round(countParam);
     densityIndex = DENSITY_LEVELS.indexOf(
       DENSITY_LEVELS.reduce((a, b) => (Math.abs(b - currentCount) < Math.abs(a - currentCount) ? b : a))
@@ -818,15 +862,27 @@ window.addEventListener("drop", (e) => {
 });
 
 // Density keys rebuild from the current source handle (or the torus).
+
+/** The backend that will run a build at this density, per the current mode. */
+function backendForCount(count: number): "gpu" | "cpu" {
+  return wantsCpuBackend(engineMode, count, coarsePointer) ? "cpu" : "gpu";
+}
+
 function setDensity(index: number): void {
   densityIndex = Math.max(0, Math.min(DENSITY_LEVELS.length - 1, index));
-  currentCount = DENSITY_LEVELS[densityIndex];
+  const requested = DENSITY_LEVELS[densityIndex];
+  currentCount = effectiveDensity(requested, backendForCount(requested));
   if (pendingHandle) {
     void adoptHandle(pendingHandle);
   } else {
     buildFromSource(makeTorusSource(currentCount));
   }
-  flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
+  flashHint(
+    currentCount < requested
+      ? `DENSITY CAPPED: ${currentCount.toLocaleString()} - THE CPU BACKEND'S REAL-TIME LIMIT (PRESS G FOR GPU)`
+      : `DENSITY: ${currentCount.toLocaleString()} PARTICLES`,
+    4
+  );
 }
 
 // --- The touch: pointer force, and the hand VOID remembers ---------------------
@@ -1185,10 +1241,17 @@ let activeMatrix = matrix;
     pointer,
     callbacks: {
       onDensityChange(count) {
-        currentCount = count;
+        const capped = effectiveDensity(count, backendForCount(count));
+        currentCount = capped;
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeTorusSource(currentCount));
-        flashHint(`DENSITY: ${count.toLocaleString()} PARTICLES`, 3);
+        panelApi?.setCount(currentCount);
+        flashHint(
+          capped < count
+            ? `DENSITY CAPPED: ${capped.toLocaleString()} - THE CPU BACKEND'S REAL-TIME LIMIT (PRESS G FOR GPU)`
+            : `DENSITY: ${capped.toLocaleString()} PARTICLES`,
+          4
+        );
       },
       onAddSource() {
         fileInput.click();
@@ -1283,8 +1346,8 @@ let activeMatrix = matrix;
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
-        currentCount = DENSITY_LEVELS[2];
-        densityIndex = 2;
+        densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
+        currentCount = DENSITY_LEVELS[densityIndex];
         engine.configureGrid(params);
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeTorusSource(currentCount));
@@ -1429,7 +1492,6 @@ document.addEventListener("visibilitychange", () => {
 
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
-const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
 function frame(now: number): void {
@@ -1448,7 +1510,11 @@ function frameInner(now: number): void {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   accumulator += dt;
-  while (accumulator >= FIXED_DT) {
+  // Fixed steps, capped catch-up: when the machine cannot keep up, the
+  // scheduler sheds the backlog and the piece runs in slow motion instead
+  // of doing six 50 ms steps a frame until the tab freezes.
+  const { steps, residual } = scheduleSteps(accumulator);
+  for (let s = 0; s < steps; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
@@ -1457,8 +1523,8 @@ function frameInner(now: number): void {
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     stepEcology(FIXED_DT);
-    accumulator -= FIXED_DT;
   }
+  accumulator = residual;
 
   updateTouch(dt);
   // Life cycle: derive the per-particle life the renderer uses, from the same
@@ -1499,12 +1565,13 @@ function frameInner(now: number): void {
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
   const effective = { ...visual };
-  // A ramp that follows a live field has to be refreshed, but the pass is not
-  // free: once every FIELD_TINT_REFRESH_FRAMES frames, not every frame.
+  // A ramp that follows a live field has to be refreshed, but the bake is
+  // not free: colours only, at a low rate - lower still on touch, where the
+  // tick competes with a much smaller frame budget.
   if (visual.colorMode === "gradient" && isFieldAxis(visual.gradientAxis)) {
-    if (++fieldTintTick >= FIELD_TINT_REFRESH_FRAMES) {
+    if (++fieldTintTick >= fieldTintRefreshFrames(coarsePointer)) {
       fieldTintTick = 0;
-      applyLook();
+      applyLookColors();
     }
   } else {
     fieldTintTick = 0;
@@ -1577,8 +1644,6 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer3d.setSize(window.innerWidth, window.innerHeight);
-  trailPass.setSize(
-    Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
-    Math.floor(window.innerHeight * renderer3d.getPixelRatio())
-  );
+  const trail = trailSize();
+  trailPass.setSize(trail.w, trail.h);
 });
