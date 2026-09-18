@@ -816,26 +816,32 @@ export function createPanel(opts: {
   document.body.appendChild(showPanelBtn);
 
   // Phone: the head is the sheet's handle — drag it down to stow the panel.
+  // The drag is tracked at the window level, NOT with pointer capture:
+  // capturing the head's pointer retargets the gesture to the head, and the
+  // browser then fires the tap's click on the head instead of the ? and
+  // HIDE buttons, which stopped working on real devices.
   let headDragY: number | null = null;
+  let headDragId: number | null = null;
   head.addEventListener("pointerdown", (e) => {
     headDragY = e.clientY;
-    try {
-      head.setPointerCapture(e.pointerId);
-    } catch {
-      /* the drag simply may not leave the head */
-    }
+    headDragId = e.pointerId;
   });
-  head.addEventListener("pointermove", (e) => {
-    if (headDragY !== null && e.clientY - headDragY > 60) {
+  window.addEventListener("pointermove", (e) => {
+    if (headDragY === null || headDragId !== e.pointerId) return;
+    if (e.clientY - headDragY > 60) {
       headDragY = null;
+      headDragId = null;
       setPanelVisible(false);
     }
   });
-  const endHeadDrag = () => {
-    headDragY = null;
+  const endHeadDrag = (e: PointerEvent) => {
+    if (headDragId === null || headDragId === e.pointerId) {
+      headDragY = null;
+      headDragId = null;
+    }
   };
-  head.addEventListener("pointerup", endHeadDrag);
-  head.addEventListener("pointercancel", endHeadDrag);
+  window.addEventListener("pointerup", endHeadDrag);
+  window.addEventListener("pointercancel", endHeadDrag);
 
   return {
     element: panel,

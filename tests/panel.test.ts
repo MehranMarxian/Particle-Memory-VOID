@@ -55,6 +55,7 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
 }
 
 function makePanel() {
+  document.body.innerHTML = ""; // isolate: createPanel appends to the body
   const callbacks = makeCallbacks();
   const api = createPanel({
     params: defaultEngineParams(),
@@ -149,5 +150,33 @@ describe("the panel's three tiers", () => {
     // the ghost toggle moved here from the field
     const ghostRow = [...tier3.querySelectorAll(".row label")].find((l) => l.textContent === "Ghost");
     expect(ghostRow).toBeTruthy();
+  });
+
+  it("the head drag stows the panel without ever capturing the pointer", () => {
+    // Pointer capture on the head retargeted taps away from ? and HIDE, and
+    // both died on real devices. The drag tracks at the window instead.
+    let captured = false;
+    const head = p.panel.querySelector(".panel-head") as HTMLElement;
+    head.setPointerCapture = () => {
+      captured = true;
+    };
+    const down = new MouseEvent("pointerdown", { bubbles: true, clientY: 100 });
+    Object.defineProperty(down, "pointerId", { value: 7 });
+    head.dispatchEvent(down);
+    expect(captured).toBe(false); // a fresh press must not capture
+    const move = new MouseEvent("pointermove", { bubbles: true, clientY: 180 });
+    Object.defineProperty(move, "pointerId", { value: 7 });
+    window.dispatchEvent(move);
+    expect(p.panel.style.display).toBe("none"); // dragged down: stowed
+  });
+
+  it("hide and show round-trip the panel", () => {
+    const hide = [...p.panel.querySelectorAll<HTMLElement>(".panel-toggle")]
+      .find((b) => b.textContent === "HIDE")!;
+    hide.click();
+    expect(p.panel.style.display).toBe("none");
+    const show = document.getElementById("panel-toggle-btn") as HTMLButtonElement;
+    show.click();
+    expect(p.panel.style.display).toBe("block");
   });
 });
