@@ -51,11 +51,16 @@ export interface EcologyAudioResult {
  * Map the analysed bands onto the ecology. Everything is neutral at silence, so
  * an unsounded piece behaves exactly as if this were not here.
  */
-export function ecologyDriveFromAudio(bands: AudioBands, state: OnsetState, sensitivity = 1): EcologyAudioResult {
+export function ecologyDriveFromAudio(
+  bands: AudioBands,
+  state: OnsetState,
+  sensitivity = 1,
+  dt = 1 / 60
+): EcologyAudioResult {
   const gain = Math.min(3, Math.max(0, sensitivity));
   const level = Math.max(0, bands.level ?? 0) * gain;
   const bass = Math.max(0, bands.bass ?? 0) * gain;
-  const next = updateOnset(state, bands.level ?? 0, 1 / 60);
+  const next = updateOnset(state, bands.level ?? 0, dt);
   return {
     drive: {
       aggression: 1 + Math.min(1.2, level * 0.9),

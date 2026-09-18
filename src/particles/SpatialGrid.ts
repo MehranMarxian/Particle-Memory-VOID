@@ -111,7 +111,6 @@ export class SpatialGrid {
    * visitor to stop early.
    */
   forEachNeighbor(
-    _positions: Float32Array,
     x: number,
     y: number,
     z: number,

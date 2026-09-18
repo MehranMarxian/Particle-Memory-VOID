@@ -4,13 +4,17 @@ import {
   applyPreset,
   applySnapshot,
   captureSnapshot,
+  presetSpeciesCount,
   structuredCloneSafe,
 } from "@/presets/presets";
+import { createAlternateMatrix, DEFAULT_MATRIX_ROWS } from "@/presets/matrices";
 import { randomizeParams, DEFAULT_RANDOMIZE_RANGES } from "@/presets/randomize";
 import { loadConfig, saveConfig, clearConfig, toStoredConfig, type Storage } from "@/presets/storage";
 import { defaultEngineParams, defaultLifeParams } from "@/types";
 import { defaultVisualSettings } from "@/rendering/VisualSettings";
+import { defaultEcologyParams } from "@/ecology/ecologySystem";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
+import { ParticleEngine } from "@/particles/ParticleEngine";
 import { mulberry32 } from "@/utils/math";
 
 function makeMemoryStorage(): Storage & { dump(): string } {
@@ -60,6 +64,133 @@ describe("presets", () => {
     applyPreset(PRESET_DEFINITIONS[4], a, defaultVisualSettings(), new InteractionMatrix(4));
     applyPreset(PRESET_DEFINITIONS[3], b, defaultVisualSettings(), new InteractionMatrix(4));
     expect(Math.abs(a.memory.strength - b.memory.strength)).toBeGreaterThan(5);
+  });
+});
+
+describe("presets are full states", () => {
+  const byName = (name: string) => PRESET_DEFINITIONS.find((d) => d.name === name)!;
+
+  it("a preset that switches the ecology on switches it off again when you leave", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    const matrix = new InteractionMatrix(4);
+    const ecology = defaultEcologyParams();
+    applyPreset(byName("predator"), params, visual, matrix, ecology);
+    expect(ecology.enabled).toBe(true);
+    applyPreset(byName("portrait"), params, visual, matrix, ecology);
+    expect(ecology.enabled).toBe(false);
+  });
+
+  it("sections a preset does not mention return to their defaults", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    const matrix = new InteractionMatrix(4);
+    // Organic ships species shapes; Scan does not - it must not inherit them.
+    applyPreset(byName("organic"), params, visual, matrix);
+    expect(visual.shapeBySpecies).toBe(true);
+    applyPreset(byName("scan"), params, visual, matrix);
+    expect(visual.shapeBySpecies).toBe(false);
+    // Void loads the scent heavily; Chaos ships none - Chaos gets the default.
+    applyPreset(byName("void"), params, visual, matrix);
+    expect(params.scent.deposit).not.toBeCloseTo(defaultEngineParams().scent.deposit);
+    applyPreset(byName("chaos"), params, visual, matrix);
+    expect(params.scent.deposit).toBeCloseTo(defaultEngineParams().scent.deposit);
+    expect(params.scent.enabled).toBe(true);
+  });
+
+  it("the panel's nested object references survive the reset", () => {
+    const params = defaultEngineParams();
+    const memoryRef = params.memory;
+    const lifeRef = params.life;
+    const scentRef = params.scent;
+    applyPreset(byName("chaos"), params, defaultVisualSettings(), new InteractionMatrix(4));
+    expect(params.memory).toBe(memoryRef);
+    expect(params.life).toBe(lifeRef);
+    expect(params.scent).toBe(scentRef);
+  });
+
+  it("the pointer is not preset material", () => {
+    const params = defaultEngineParams();
+    params.pointer.strength = 1.5;
+    params.pointer.mode = -1;
+    applyPreset(byName("portrait"), params, defaultVisualSettings(), new InteractionMatrix(4));
+    expect(params.pointer.strength).toBe(1.5);
+    expect(params.pointer.mode).toBe(-1);
+  });
+
+  it("a preset without a matrix restores the authored default matrix", () => {
+    const params = defaultEngineParams();
+    const matrix = new InteractionMatrix(4);
+    matrix.randomize(() => 0.5);
+    applyPreset(byName("architecture"), params, defaultVisualSettings(), matrix);
+    for (let a = 0; a < 4; a++) {
+      for (let b = 0; b < 4; b++) {
+        expect(matrix.get(a, b)).toBeCloseTo(DEFAULT_MATRIX_ROWS[a * 4 + b]);
+      }
+    }
+  });
+});
+
+describe("presets own their species count", () => {
+  const byName = (name: string) => PRESET_DEFINITIONS.find((d) => d.name === name)!;
+
+  it("predator declares the species its matrix was authored for", () => {
+    const def = byName("predator");
+    expect(def.matrix).toHaveLength(9);
+    expect(presetSpeciesCount(def)).toBe(3);
+  });
+
+  it("presets without a matrix imply the default four", () => {
+    expect(presetSpeciesCount(byName("portrait"))).toBe(4);
+    expect(presetSpeciesCount(byName("chaos"))).toBe(4);
+  });
+
+  it("never NaNs the swarm when synced the way the app syncs it", () => {
+    const def = byName("predator");
+    const engine = new ParticleEngine(1500, 4, 11);
+    engine.spawnGaussian(1500, 6);
+    const params = defaultEngineParams();
+    const matrix = new InteractionMatrix(4);
+    applyPreset(def, params, defaultVisualSettings(), matrix);
+    engine.configureGrid(params);
+    engine.setSpeciesCount(matrix, presetSpeciesCount(def));
+    for (let i = 0; i < 120; i++) engine.step(1 / 60, params, matrix);
+    for (let i = 0; i < engine.count; i++) {
+      expect(Number.isFinite(engine.positions[i * 3]), `particle ${i} x`).toBe(true);
+      expect(Number.isFinite(engine.positions[i * 3 + 1]), `particle ${i} y`).toBe(true);
+      expect(Number.isFinite(engine.positions[i * 3 + 2]), `particle ${i} z`).toBe(true);
+    }
+  });
+});
+
+describe("the alternate species matrix", () => {
+  it("is the authored 4x4 at four species", () => {
+    const m = createAlternateMatrix(4);
+    expect(m.speciesCount).toBe(4);
+    expect(m.get(0, 1)).toBeCloseTo(0.7);
+    expect(m.get(1, 2)).toBeCloseTo(0.6);
+    expect(m.get(3, 2)).toBeCloseTo(-0.6);
+  });
+
+  it("exists at every species count, finite and deterministic", () => {
+    for (const n of [1, 2, 3, 5, 6, 8]) {
+      const a = createAlternateMatrix(n);
+      const b = createAlternateMatrix(n);
+      expect(a.speciesCount).toBe(n);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          expect(Number.isFinite(a.get(i, j)), `m[${i}][${j}] at n=${n}`).toBe(true);
+          expect(a.get(i, j)).toBe(b.get(i, j));
+        }
+      }
+    }
+  });
+
+  it("is square at every species count, so no read goes out of range", () => {
+    for (const n of [2, 3, 5, 7]) {
+      const m = createAlternateMatrix(n);
+      expect(m.toFlat()).toHaveLength(n * n);
+    }
   });
 });
 

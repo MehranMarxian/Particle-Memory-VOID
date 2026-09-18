@@ -1,33 +1,3 @@
-import type { Vector3 } from "three";
-
-/** Normalized representation of any source (image, mesh, point cloud). */
-export interface ParticleTarget {
-  position: Vector3;
-  color?: Color;
-  normal?: Vector3;
-  weight?: number;
-}
-
-// Minimal color interface so particle logic stays testable without importing three.
-export interface Color {
-  r: number;
-  g: number;
-  b: number;
-}
-
-export interface Particle {
-  position: Vector3;
-  velocity: Vector3;
-  targetPosition: Vector3;
-
-  species: number;
-
-  color: Color;
-
-  mass: number;
-  age: number;
-}
-
 /**
  * Neighbor force kernels.
  *

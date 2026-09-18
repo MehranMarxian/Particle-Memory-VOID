@@ -417,12 +417,10 @@ export class GpuParticleEngine {
       this.texH,
       this.readback
     );
-    let dbg = 0;
     for (let i = 0; i < this.count; i++) {
       this.positions[i * 3] = this.readback[i * 4];
       this.positions[i * 3 + 1] = this.readback[i * 4 + 1];
       this.positions[i * 3 + 2] = this.readback[i * 4 + 2];
-      dbg += Math.abs(this.readback[i * 4]) + Math.abs(this.readback[i * 4 + 1]) + Math.abs(this.readback[i * 4 + 2]);
     }
     // 2. CPU grid rebuild → textures.
     this.grid.build(this.positions, this.count);

@@ -1,12 +1,15 @@
 import type { EngineParams, ScentParams } from "@/types";
 import { defaultEngineParams } from "@/types";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
-import { clampVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
-import { clampEcologyParams, type EcologyParams } from "@/ecology/ecologySystem";
+import { clampVisualSettings, defaultVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
+import { clampEcologyParams, defaultEcologyParams, type EcologyParams } from "@/ecology/ecologySystem";
+import { DEFAULT_MATRIX_ROWS, setMatrixRows } from "./matrices";
 
 /**
- * Data-driven presets. A preset is a JSON blob of parameter *overrides* —
- * the UI never hard-codes behavior. Anything omitted keeps its current value.
+ * Data-driven presets. A preset is a JSON blob of parameter overrides,
+ * applied as a FULL STATE: sections the preset does not mention are reset to
+ * their defaults first, so presets compose by replacement, not accumulation
+ * (Predator's ecology must not survive a switch to Portrait).
  */
 export interface PresetDefinition {
   name: string;
@@ -18,8 +21,15 @@ export interface PresetDefinition {
   visual?: Partial<VisualSettings>;
   /** Ecology overrides. Only meaningful on the CPU backend. */
   ecology?: Partial<EcologyParams>;
-  /** "random" regenerates the matrix on apply; otherwise a flat 4x4-style row. */
+  /** "random" regenerates the matrix on apply; otherwise a flat row-major matrix. */
   matrix?: readonly number[] | "random";
+  /**
+   * The species count the preset's matrix was authored for. Derived from the
+   * matrix size when omitted; presets without a matrix reset to the default
+   * 4. The app syncs the engine's species assignment to this after applying,
+   * or species past the matrix read out of range and the swarm NaNs.
+   */
+  speciesCount?: number;
   scent?: Partial<ScentParams>;
   wander?: number;
   phaseCoupling?: number;
@@ -238,6 +248,7 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     // strong pull toward its prey and the prey's row pushes back just as hard,
     // which is the asymmetry that makes a chase.
     matrix: [0.2, 2, -2, -2, 0.2, 2, 2, -2, 0.2],
+    speciesCount: 3,
     ecology: {
       enabled: true,
       captureRadius: 1.1,
@@ -286,7 +297,7 @@ export function applySnapshot(snap: StateSnapshot, params: EngineParams, visual:
   for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) matrix.set(a, b, flat[a * n + b]);
 }
 
-/** Apply a preset definition in place. Returns true if the matrix should be re-randomized. */
+/** Apply a preset definition in place as a full state. Returns true if the matrix should be re-randomized. */
 export function applyPreset(
   def: PresetDefinition,
   params: EngineParams,
@@ -294,6 +305,16 @@ export function applyPreset(
   matrix: InteractionMatrix,
   ecology?: EcologyParams
 ): boolean {
+  // Reset to the known default before applying overrides, in place: nested
+  // objects are mutated, never replaced, because the panel holds references
+  // to the live sections (replacing them would orphan every slider).
+  // The pointer is deliberately not preset material — it is live input state.
+  assignDefaultsInPlace(params, defaultEngineParams(), ["pointer"]);
+  assignDefaultsInPlace(visual, defaultVisualSettings());
+  if (ecology) assignDefaultsInPlace(ecology, defaultEcologyParams());
+  // A preset either ships a matrix, asks for a reroll, or yields the
+  // authored default (so one preset's matrix never leaks into the next).
+  setMatrixRows(matrix, Array.isArray(def.matrix) ? def.matrix : DEFAULT_MATRIX_ROWS);
   if (def.memory) Object.assign(params.memory, def.memory);
   if (def.life) Object.assign(params.life, def.life);
   if (def.field) Object.assign(params, def.field);
@@ -302,16 +323,40 @@ export function applyPreset(
   if (def.phaseCoupling !== undefined) params.phaseCoupling = def.phaseCoupling;
   if (def.visual) Object.assign(visual, clampVisualSettings({ ...visual, ...def.visual }));
   if (def.ecology && ecology) Object.assign(ecology, clampEcologyParams({ ...ecology, ...def.ecology }));
-  let reroll = false;
-  if (def.matrix === "random") {
-    reroll = true;
-  } else if (def.matrix) {
-    const flat = def.matrix;
-    const n = Math.round(Math.sqrt(flat.length));
-    matrix.resize(n);
-    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) matrix.set(a, b, flat[a * n + b]);
+  return def.matrix === "random";
+}
+
+/**
+ * Reset `target` to match `fresh`, in place: nested objects are recursed so
+ * the identity of every section survives.
+ */
+function assignDefaultsInPlace<T extends object>(
+  target: T,
+  fresh: T,
+  skip: readonly string[] = []
+): void {
+  for (const [key, value] of Object.entries(fresh)) {
+    if (skip.includes(key)) continue;
+    const current = (target as Record<string, unknown>)[key];
+    if (value !== null && typeof value === "object" && current !== null && typeof current === "object") {
+      assignDefaultsInPlace(current as object, value as object);
+    } else {
+      (target as Record<string, unknown>)[key] = value;
+    }
   }
-  return reroll;
+}
+
+/**
+ * The species count a preset implies: its own declaration, else the size of
+ * the matrix it ships, else the default. The app syncs the engine's species
+ * assignment to this after applyPreset — a preset that resizes the matrix
+ * without syncing the species assignment reads past the matrix and NaNs the
+ * swarm.
+ */
+export function presetSpeciesCount(def: PresetDefinition): number {
+  if (def.speciesCount !== undefined) return def.speciesCount;
+  if (Array.isArray(def.matrix)) return Math.round(Math.sqrt(def.matrix.length));
+  return 4;
 }
 
 function assignSubset<T extends object>(target: T, source: T, keys: (keyof T)[]): void {

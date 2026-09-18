@@ -44,8 +44,12 @@ import {
   applyPreset,
   applySnapshot,
   captureSnapshot,
+  presetSpeciesCount,
   type StateSnapshot,
 } from "@/presets/presets";
+import { createAlternateMatrix, DEFAULT_MATRIX_ROWS, setMatrixRows } from "@/presets/matrices";
+import { HintGate } from "@/ui/hintGate";
+import { carryLiveState } from "@/particles/carryState";
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
@@ -147,10 +151,7 @@ let currentSourceDetail = "synthetic memory";
 let pendingHandle: SourceHandle | null = null;
 
 const matrix = new InteractionMatrix(4);
-matrix.setRow(0, [-0.5, 0.6, -0.3, 0.2]);
-matrix.setRow(1, [0.6, -0.7, 0.4, -0.2]);
-matrix.setRow(2, [-0.3, 0.4, -0.6, 0.7]);
-matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
+setMatrixRows(matrix, DEFAULT_MATRIX_ROWS);
 
 const params = defaultEngineParams();
 params.life.attraction = 1.0;
@@ -249,14 +250,33 @@ function stepEcology(dt: number): void {
       },
     },
     neighbors: (i, radius, visit) => (engine as ParticleEngine).forEachNeighbor(i, radius, visit),
-    // Spent particles (life near 0) carry the age risk; newborns do not.
-    ageOf: (i) => 1 - (particleRenderer?.lifeBuffer[i] ?? 1),
+    // Age as the life cycle defines it: 0 at birth, 1 spent. This used to
+    // read the renderer's life buffer, which tied an ecology concept to a
+    // rendering buffer: all 1s whenever the life cycle is off (so nothing
+    // ever died of age) and above 1 for newborns (so ageOf went negative).
+    ageOf: (i) =>
+      params.lifecycle.enabled
+        ? Math.min(
+            1,
+            sampleLife(i, engine.simTime, params.lifecycle, FIXED_DT).age /
+              Math.max(1, params.lifecycle.lifespan)
+          )
+        : 0,
     rng: Math.random,
     drive: ecologyDrive,
   });
   engine.count = view.count;
   particleRenderer?.setCount(view.count);
   particleRenderer?.markLifeDirty();
+  applyLook();
+}
+
+/** One code path for changing the species count: engine, look, phenotype. */
+function applySpeciesCount(n: number): void {
+  abandonEvolution();
+  speciesCount = n;
+  engine.setSpeciesCount(matrix, n);
+  phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
   applyLook();
 }
 
@@ -440,18 +460,19 @@ function guessKindLabel(): string {
 
 function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   engineMode = mode;
-  // Rebuild from the current targets so the memory survives the switch.
+  // Rebuild from the current targets so the memory survives the switch, and
+  // from the source's own colours: engine.colors holds the last *baked*
+  // look, so sampling from it would turn COLOR SOURCE into whatever mode
+  // was active. sourceColors is the pristine copy buildFromSource kept.
+  const pristine = sourceColors ?? engine.colors;
   const sample: FlatSource = {
     count: engine.count,
     positions: engine.targets.slice(),
-    colors: engine.colors.slice(),
+    colors: pristine.slice(0, engine.count * 3),
     normals: new Float32Array(engine.count * 3),
     weights: new Float32Array(engine.count),
   };
-  // Current positions (mid-life) are kept: copy live state, not a rebirth.
   const old = engine;
-  const oldPositions = engine.positions.slice();
-  const oldMemory = engine.memoryPerParticle.slice();
   const seed = (Math.random() * 1e9) | 0;
   const rng = mulberry32(seed ^ 0x9e3779b9);
   let next: SimEngine;
@@ -468,8 +489,10 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   } else {
     next = createCpuEngine(sample, engine.count, seed, rng);
   }
-  next.positions.set(oldPositions);
-  next.memoryPerParticle.set(oldMemory);
+  // Live state is carried, not reborn: positions, velocities, per-particle
+  // memory, organism clocks and the simulation clock, so the swarm does not
+  // screech to a halt on every G.
+  carryLiveState(old, next);
   next.configureGrid(params);
   if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
   if ("dispose" in old) (old as unknown as { dispose: () => void }).dispose();
@@ -486,7 +509,9 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.renderState,
     engine.velocities
   );
-  sourceColors = new Float32Array(engine.colors);
+  // sourceColors stays untouched: it still describes this source, and
+  // re-deriving it from engine.colors would capture whatever look
+  // applyLook baked last.
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
@@ -630,13 +655,16 @@ function rememberSource(file: File): void {
 let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
-let hintTimer = 0;
-let hintSticky = false;
+
+// A sticky hint (a runtime error) must not be shouted over by routine
+// messages, but it must also expire: latching it until reload muted the
+// hint line for the rest of the session.
+const hintGate = new HintGate();
 
 function flashHint(text: string, seconds = 4, sticky = false): void {
-  // Sticky hints (errors) are never overwritten by routine messages.
-  if (hintSticky && !sticky) return;
-  hintSticky = sticky;
+  const now = performance.now();
+  if (!hintGate.allows(now, sticky)) return;
+  if (sticky) hintGate.hold(seconds, now);
   panelApi?.setHint(text, seconds, sticky);
 }
 
@@ -891,7 +919,6 @@ const evolver = new Evolver(
       matrix.resize(n);
       for (let a = 0; a < n; a++) matrix.setRow(a, genome.slice(a * n, a * n + n));
       activeMatrix = matrix;
-      matrixIndex = 0;
     },
     applyPhenotype(phenotype) {
       phenotypeLook = clampPhenotype(phenotype, speciesCount);
@@ -1052,8 +1079,17 @@ const shortcutCtx: ShortcutContext = {
   },
   cycleMatrix: () => {
     abandonEvolution();
-    matrixIndex = (matrixIndex + 1) % matrices.length;
-    activeMatrix = matrices[matrixIndex];
+    // H swaps between the main matrix and the alternate; the alternate is
+    // (re)built at the live species count so it can never be smaller than
+    // the swarm reading it.
+    if (activeMatrix === matrix) {
+      if (!altMatrix || altMatrix.speciesCount !== speciesCount) {
+        altMatrix = createAlternateMatrix(speciesCount);
+      }
+      activeMatrix = altMatrix;
+    } else {
+      activeMatrix = matrix;
+    }
   },
   randomizeMatrix: () => {
     abandonEvolution();
@@ -1089,16 +1125,7 @@ window.addEventListener("keydown", (e) => {
   handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
 });
 
-const matrices = [matrix];
-{
-  const alt = new InteractionMatrix(4);
-  alt.setRow(0, [-0.5, 0.7, -0.2, 0.4]);
-  alt.setRow(1, [0.7, -0.3, 0.6, 0.0]);
-  alt.setRow(2, [-0.2, 0.6, 0.5, -0.6]);
-  alt.setRow(3, [0.4, 0.0, -0.6, 0.3]);
-  matrices.push(alt);
-}
-let matrixIndex = 0;
+let altMatrix: InteractionMatrix | null = null;
 let activeMatrix = matrix;
 
 // --- Source at boot: an explicit ?src=, the installed screensaver, or the memory
@@ -1178,6 +1205,13 @@ let activeMatrix = matrix;
         if (applyPreset(def, params, visual, matrix, ecologyParams)) {
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
+        // A preset that resizes the matrix owns the species count; without
+        // this sync, species past the matrix read out of range and the NaN
+        // spreads through the neighbour pass until the whole swarm dies.
+        const n = presetSpeciesCount(def);
+        if (n !== speciesCount) applySpeciesCount(n);
+        // A preset owns the matrix: an alternate (H) yields.
+        activeMatrix = matrix;
         engine.configureGrid(params);
         applyLook();
         if (ecologyParams.enabled) {
@@ -1240,13 +1274,12 @@ let activeMatrix = matrix;
         params.turbulence = 0.02;
         params.drift = 0;
         params.gravity = 0;
-        matrix.resize(4);
-        matrix.setRow(0, [-0.5, 0.6, -0.3, 0.2]);
-        matrix.setRow(1, [0.6, -0.7, 0.4, -0.2]);
-        matrix.setRow(2, [-0.3, 0.4, -0.6, 0.7]);
-        matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
+        setMatrixRows(matrix, DEFAULT_MATRIX_ROWS);
         activeMatrix = matrix;
-        matrixIndex = 0;
+        // The default state is four species: without this sync, species past
+        // the 4x4 matrix read out of range — the same defect the presets
+        // suffered, reachable through RESET.
+        if (speciesCount !== 4) applySpeciesCount(4);
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
@@ -1274,12 +1307,11 @@ let activeMatrix = matrix;
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
       },
+      onScreensaver() {
+        void toggleScreensaver();
+      },
       onSpeciesChange(n) {
-        abandonEvolution();
-        speciesCount = n;
-        engine.setSpeciesCount(matrix, n);
-        phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
-        applyLook();
+        applySpeciesCount(n);
         flashHint(`SPECIES: ${n}`, 2);
       },
       onUserInteraction() {
@@ -1315,15 +1347,6 @@ let activeMatrix = matrix;
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
-  {
-    // SCREENSAVER action — same grid as the other actions.
-    const actions = panelApi.element.querySelectorAll("#panel .btn-grid")[1];
-    const b = document.createElement("button");
-    b.className = "act";
-    b.textContent = "SCREENSAVER";
-    b.addEventListener("click", () => void toggleScreensaver());
-    actions.appendChild(b);
-  }
 }
 
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
@@ -1493,7 +1516,7 @@ function frameInner(now: number): void {
     soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
     if (ecologyParams.audioReactive) {
-      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity);
+      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity, dt);
       ecologyDrive = mapped.drive;
       ecologyOnset = mapped.state;
     }
@@ -1538,13 +1561,6 @@ function frameInner(now: number): void {
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
     );
-  }
-  if (hintTimer > 0) {
-    hintTimer -= dt;
-    if (hintTimer <= 0) {
-      hintSticky = false;
-      panelApi?.clearHint();
-    }
   }
 }
 requestAnimationFrame(frame);

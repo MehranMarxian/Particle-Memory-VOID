@@ -32,6 +32,7 @@ export interface PanelCallbacks {
   onReconstruct(): void;
   onRelease(): void;
   onFullscreen(): void;
+  onScreensaver(): void;
   onSpeciesChange(n: number): void;
   onUserInteraction(): void;
   onToggleCycle(): void;
@@ -640,6 +641,7 @@ export function createPanel(opts: {
   mkAct("UNDO", () => callbacks.onUndo());
   mkAct("RESET", () => callbacks.onReset());
   mkAct("FULLSCREEN", () => callbacks.onFullscreen());
+  mkAct("SCREENSAVER", () => callbacks.onScreensaver());
   actBody.appendChild(actGrid);
 
   // Footer: stats, transient status, credit.
