@@ -95,7 +95,8 @@ itself once; after that it waits for `?`.
 | `A` | Toggle the automatic memory cycle |
 | `H` | Cycle species interaction matrices |
 | `R` | Randomize the interaction matrix |
-| `C` | Color mode (monochrome / source) |
+| `C` | Color mode (cycles monochrome, source, species, random, gradient) |
+| `K` | Sprite shape (circle, box, triangle, ring, star) |
 | `T` | Trails |
 | `D` | Depth of field |
 | `O` | Open a source (file picker) |
@@ -106,6 +107,7 @@ itself once; after that it waits for `?`.
 | `S` | Screensaver mode |
 | `L` | Listen to sound (music drives the look) |
 | `E` | Evolve (search for better interaction matrices) |
+| `Y` | Ecology (predation, birth and death) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -114,6 +116,34 @@ MEMORY, LIFE, FIELD, VISUAL, PRESETS and ACTIONS, with short tooltips on the
 semantic controls. Six authored presets ship with the piece (Portrait,
 Organic, Scan, Architecture, Void, Chaos); the whole instrument state persists
 to localStorage and restores on the next visit.
+
+## Look
+
+The piece is monochrome by default, and every option below is off until you
+choose it: the artwork is unchanged unless you ask for more.
+
+| Color | What it does |
+| --- | --- |
+| MONOCHROME | One cool grey, brightness only. The default. |
+| SOURCE | The source's own colours: an image's pixels, a cool white for models and clouds. |
+| SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
+| RANDOM | One seeded hue per particle, stable for the whole run. |
+| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera) or RADIAL (its distance from the subject's centre). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
+
+Shapes are drawn analytically in the fragment shader: circle, box, triangle,
+ring, star. No textures, no extra geometry, no simulation change. With **By
+species** on, each species gets its own sprite, which pairs with SPECIES colour
+to make the organism readable at a glance.
+
+The look is also reachable from the URL, which is how the screensaver and tester
+links configure it:
+
+```
+?color=species            ?color=random
+?color=gradient&axis=age&palette=ICE
+?color=gradient&axis=radial&palette=SPECTRAL
+?shape=star&color=monochrome
+```
 
 ## Memory States
 
@@ -233,6 +263,39 @@ the search is a way of finding an organism, not a mode you sit in. Any manual
 change - a preset, a randomize, the `H` key, a different species count - ends
 the search and leaves your change alone.
 
+Appearance is evolvable too. With **Look** on in the EVOLVE panel, each
+candidate also carries a hue and a shape per species, inherited from the same
+winner and mutated at the same rate. Nothing about a colour makes a swarm
+remember better, so these genes cannot be selected for directly: they hitch a
+ride on the behaviour that can, and a champion arrives looking unlike its
+ancestors.
+
+## Ecology
+
+Off by default, and CPU-backend only. With **Ecology** on, the chase the
+interaction matrix already describes becomes literal: a species the matrix makes
+predatory can catch what it chases. A capture ends the prey's life and feeds the
+hunter, and hunger is real - a predator that does not eat starves, spent
+particles carry an age risk, and a well-fed particle leaves offspring in the slot
+a death freed. The living are a prefix of the buffers and the dead are the tail,
+so death and birth need no extra buffers and nothing for the renderer to know.
+
+It runs on the CPU engine deliberately. WebGL2 cannot do the allocation and
+scatter that population dynamics need; the CPU already owns that kind of
+bookkeeping for the grid. On the GPU backend the panel says so rather than
+pretending - press `G` to switch, and the stats line shows the living
+population with births and deaths counted.
+
+| Mortality | Cause |
+| --- | --- |
+| Predation | Caught by a species the matrix makes a hunter. |
+| Starvation | A hunter that has gone too long without a meal. |
+| Age risk | A per-second chance that grows as a particle is spent. |
+
+With **Sound** on in the same section, the room drives the ecology as well as the
+look: a loud room makes the swarm hungrier, low end makes it breed on the beat,
+and a transient startles the prey away from whatever is hunting them.
+
 ## Performance
 
 Simulation is split on purpose:
@@ -302,8 +365,9 @@ footer.
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 166 tests cover the engine, grid, matrix, memory system, organism
+the GPU. 202 tests cover the engine, grid, matrix, memory system, organism
 layer, life cycle, the scent and heat fields, environment-modulated affinities,
 sources, persistence, samples, sound mapping and the soundscape, the pointer
 force and its ghost playback, the evolvable matrix search, presets, rendering
-settings, screensaver logic and the keymap.
+settings, colour sources, gradient ramps, sprite shapes, screensaver logic
+and the keymap.

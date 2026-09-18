@@ -5,7 +5,26 @@ import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer } from "@/rendering/ParticleRenderer";
 import { TrailPass } from "@/rendering/TrailPass";
-import { defaultVisualSettings, type VisualSettings } from "@/rendering/VisualSettings";
+import {
+  COLOR_MODES,
+  defaultVisualSettings,
+  GRADIENT_AXES,
+  PARTICLE_SHAPES,
+  type ColorMode,
+  type GradientAxis,
+  type ParticleShape,
+  type VisualSettings,
+} from "@/rendering/VisualSettings";
+import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
+import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
+import {
+  EcologySystem,
+  defaultEcologyParams,
+  type EcologyParams,
+  type EcologyView,
+} from "@/ecology/ecologySystem";
+import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -137,6 +156,129 @@ params.turbulence = 0.02;
 
 const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 815 });
 
+// --- Look state ------------------------------------------------------------
+// The source's own baked colours are kept aside so switching back from
+// SPECIES/RANDOM to MONOCHROME/SOURCE restores them exactly.
+let sourceColors: Float32Array | null = null;
+let lookSeed = 1;
+let lastLookMode = "";
+/** The source's own radius, measured once per source (RADIAL ramp only). */
+let subjectRadius = 1;
+/** Appearance genes of the current champion, once the search has found one. */
+let phenotypeLook: Phenotype | null = null;
+
+// --- Ecology state ---------------------------------------------------------
+// Predation, population and mortality. CPU backend only, on purpose: death and
+// birth need allocation and scatter, which is the kind of bookkeeping the CPU
+// already owns for the grid. The GPU path keeps its behaviour and says so.
+const ecologyParams: EcologyParams = defaultEcologyParams();
+let ecologyDrive = { aggression: 1, satiationBias: 0, panic: 0 };
+let ecologyOnset = initialOnset();
+let ecologySystem: EcologySystem | null = null;
+let ecologyView: EcologyView | null = null;
+const ecologyEvents = { births: 0, deaths: 0 };
+
+/** Swap `stride` elements of two slots in a flat per-particle array. */
+function swapSlots(array: Float32Array, a: number, b: number, stride: number): void {
+  for (let k = 0; k < stride; k++) {
+    const ia = a * stride + k;
+    const ib = b * stride + k;
+    const tmp = array[ia];
+    array[ia] = array[ib];
+    array[ib] = tmp;
+  }
+}
+
+/** Point the ecology at the current engine's buffers. Called on every build. */
+function installEcology(): void {
+  // The union type does not promise mass or a grid query: those belong to the
+  // CPU engine, which is the only backend the ecology runs on.
+  const cpu = engine as ParticleEngine;
+  ecologySystem = new EcologySystem(cpu.capacity);
+  ecologySystem.reset(cpu.count);
+  ecologyView = {
+    count: cpu.count,
+    capacity: cpu.capacity,
+    speciesCount,
+    species: cpu.species,
+    positions: cpu.positions,
+    velocities: cpu.velocities,
+    mass: cpu.mass,
+  };
+  ecologyEvents.births = 0;
+  ecologyEvents.deaths = 0;
+}
+
+/** One ecology step. Does nothing unless it is switched on. */
+function stepEcology(dt: number): void {
+  if (!ecologyParams.enabled || !ecologySystem || !ecologyView) return;
+  if (activeBackend !== "cpu") return;
+  const view = ecologyView;
+  view.count = engine.count;
+  view.speciesCount = speciesCount;
+  ecologySystem.step({
+    dt,
+    matrix: activeMatrix,
+    params: ecologyParams,
+    view,
+    hooks: {
+      swap(a, b) {
+        // The system swaps species/position/velocity/mass itself. This covers
+        // the per-particle state that lives outside the engine.
+        swapSlots(engine.renderState, a, b, 4);
+        swapSlots(engine.memoryPerParticle, a, b, 1);
+        swapSlots(engine.targets, a, b, 3);
+        if (particleRenderer) {
+          swapSlots(particleRenderer.lifeBuffer, a, b, 1);
+          swapSlots(particleRenderer.shapeBuffer, a, b, 1);
+        }
+      },
+      onBirth() {
+        ecologyEvents.births++;
+      },
+      onDeath() {
+        ecologyEvents.deaths++;
+      },
+    },
+    neighbors: (i, radius, visit) => (engine as ParticleEngine).forEachNeighbor(i, radius, visit),
+    // Spent particles (life near 0) carry the age risk; newborns do not.
+    ageOf: (i) => 1 - (particleRenderer?.lifeBuffer[i] ?? 1),
+    rng: Math.random,
+    drive: ecologyDrive,
+  });
+  engine.count = view.count;
+  particleRenderer?.setCount(view.count);
+  particleRenderer?.markLifeDirty();
+  applyLook();
+}
+
+/**
+ * Re-bake per-particle colour and shape for the current look settings.
+ *
+ * Called when the engine is rebuilt and whenever the look changes — not per
+ * frame: colours and shapes are baked values, exactly like the source's own
+ * colours, so nothing here costs anything at render time.
+ */
+function applyLook(): void {
+  if (!particleRenderer) return;
+  const mode = visual.colorMode;
+  if (mode === "species") {
+    writeSpeciesColors(engine.colors, engine.count, speciesCount, undefined, phenotypeLook?.hue);
+  } else if (mode === "random") {
+    if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
+    writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (sourceColors) {
+    engine.colors.set(sourceColors);
+  }
+  lastLookMode = mode;
+  if (visual.shapeBySpecies) {
+    writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
+  }
+  else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
+  particleRenderer.markColorsDirty();
+  particleRenderer.markShapesDirty();
+}
+
 // --- Default source: tilted torus (the synthetic "memory") ---------------
 function makeTorusSource(count: number): FlatSource {
   const positions = new Float32Array(count * 3);
@@ -213,6 +355,17 @@ function buildFromSource(sample: FlatSource): void {
   const seed = (Math.random() * 1e9) | 0;
   const rng = mulberry32(seed ^ 0x9e3779b9);
 
+  // The subject's own radius, for the RADIAL ramp. Measured once here rather
+  // than per frame: it is a property of the source, not of the swarm.
+  let radiusSq = 0;
+  for (let i = 0; i < count; i++) {
+    const x = sample.positions[i * 3];
+    const y = sample.positions[i * 3 + 1];
+    const z = sample.positions[i * 3 + 2];
+    radiusSq = Math.max(radiusSq, x * x + y * y + z * z);
+  }
+  subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
+
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
   if (engineMode !== "cpu") {
@@ -245,7 +398,9 @@ function buildFromSource(sample: FlatSource): void {
     engine.renderState,
     engine.velocities
   );
-  particleRenderer.markColorsDirty();
+  sourceColors = new Float32Array(engine.colors);
+  installEcology();
+  applyLook();
   scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
   scheduleSave();
@@ -311,7 +466,9 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.renderState,
     engine.velocities
   );
-  particleRenderer.markColorsDirty();
+  sourceColors = new Float32Array(engine.colors);
+  installEcology();
+  applyLook();
   scene.add(particleRenderer.points);
   flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
 }
@@ -335,7 +492,14 @@ const visual: VisualSettings = defaultVisualSettings();
   // URL overrides — also the eventual screensaver config path.
   const search = new URLSearchParams(location.search);
   const color = search.get("color");
-  if (color === "source" || color === "mono") visual.colorMode = color === "source" ? "source" : "monochrome";
+  if (color === "mono") visual.colorMode = "monochrome";
+  else if (color && (COLOR_MODES as readonly string[]).includes(color)) visual.colorMode = color as ColorMode;
+  const shape = search.get("shape");
+  if (shape && (PARTICLE_SHAPES as readonly string[]).includes(shape)) visual.shape = shape as ParticleShape;
+  const axis = search.get("axis");
+  if (axis && (GRADIENT_AXES as readonly string[]).includes(axis)) visual.gradientAxis = axis as GradientAxis;
+  const palette = search.get("palette");
+  if (palette) visual.gradientPalette = palette;
   const trails = search.get("trails");
   if (trails !== null) visual.trails = trails !== "0";
   const dof = search.get("dof");
@@ -682,7 +846,7 @@ function updateTouch(dt: number): void {
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
-const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2 };
+const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false };
 
 function sampledMeanSpeed(): number {
   const velocities = engine.velocities;
@@ -708,6 +872,10 @@ const evolver = new Evolver(
       for (let a = 0; a < n; a++) matrix.setRow(a, genome.slice(a * n, a * n + n));
       activeMatrix = matrix;
       matrixIndex = 0;
+    },
+    applyPhenotype(phenotype) {
+      phenotypeLook = clampPhenotype(phenotype, speciesCount);
+      applyLook();
     },
     distance: () => engine.meanTargetDistance(),
     speed: () => sampledMeanSpeed(),
@@ -824,8 +992,24 @@ guide.setState(memory.state);
 const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
   toggleColor: () => {
-    visual.colorMode = visual.colorMode === "monochrome" ? "source" : "monochrome";
+    visual.colorMode = nextColorMode(visual.colorMode);
+    applyLook();
     flashHint(`COLOR: ${visual.colorMode.toUpperCase()}`, 3);
+  },
+  toggleEcology: () => {
+    ecologyParams.enabled = !ecologyParams.enabled;
+    if (ecologyParams.enabled && activeBackend !== "cpu") {
+      flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+    } else {
+      flashHint(`ECOLOGY: ${ecologyParams.enabled ? "ON" : "OFF"}`, 3);
+    }
+    panelApi?.refresh();
+  },
+  toggleShape: () => {
+    visual.shapeBySpecies = false;
+    visual.shape = nextShape(visual.shape);
+    applyLook();
+    flashHint(`SHAPE: ${visual.shape.toUpperCase()}`, 3);
   },
   toggleTrails: () => {
     visual.trails = !visual.trails;
@@ -934,6 +1118,9 @@ let activeMatrix = matrix;
   panelApi = createPanel({
     params,
     visual,
+    onLookChange: applyLook,
+    ecology: ecologyParams,
+    ecologyEvents,
     memory,
     matrix,
     speciesCount,
@@ -965,6 +1152,7 @@ let activeMatrix = matrix;
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
         engine.configureGrid(params);
+        applyLook();
         panelApi?.refresh();
         panelApi?.setActivePreset(name);
         panelApi?.setCount(currentCount);
@@ -990,6 +1178,7 @@ let activeMatrix = matrix;
           return;
         }
         applySnapshot(snap, params, visual, matrix);
+        applyLook();
         engine.configureGrid(params);
         activePreset = null;
         memory.active = memory.auto = false;
@@ -1058,6 +1247,8 @@ let activeMatrix = matrix;
         abandonEvolution();
         speciesCount = n;
         engine.setSpeciesCount(matrix, n);
+        phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
+        applyLook();
         flashHint(`SPECIES: ${n}`, 2);
       },
       onUserInteraction() {
@@ -1082,6 +1273,11 @@ let activeMatrix = matrix;
       },
       onEvolveToggle() {
         applyEvolveToggle();
+      },
+      onEcologyToggle() {
+        if (ecologyParams.enabled && activeBackend !== "cpu") {
+          flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+        }
       },
     },
   });
@@ -1206,6 +1402,7 @@ function frameInner(now: number): void {
     if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
+    stepEcology(FIXED_DT);
     accumulator -= FIXED_DT;
   }
 
@@ -1254,11 +1451,16 @@ function frameInner(now: number): void {
     const bands = audio.read();
     soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
+    if (ecologyParams.audioReactive) {
+      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity);
+      ecologyDrive = mapped.drive;
+      ecologyOnset = mapped.state;
+    }
     effective.particleSize = visual.particleSize * soundDrive.size;
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
   }
-  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius);
+  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius, subjectRadius);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;

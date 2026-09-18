@@ -1,6 +1,15 @@
 import type { EngineParams } from "@/types";
 import type { AudioSource } from "@/audio/audioReactive";
-import type { VisualSettings } from "@/rendering/VisualSettings";
+import {
+  COLOR_MODES,
+  GRADIENT_AXES,
+  PARTICLE_SHAPES,
+  type ColorMode,
+  type GradientAxis,
+  type ParticleShape,
+  type VisualSettings,
+} from "@/rendering/VisualSettings";
+import { GRADIENT_PALETTE_NAMES } from "@/rendering/palette";
 import type { MemorySystem } from "@/memory/MemorySystem";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { PRESET_DEFINITIONS } from "@/presets/presets";
@@ -27,6 +36,7 @@ export interface PanelCallbacks {
   onUserInteraction(): void;
   onToggleCycle(): void;
   onToggleGuide(): void;
+  onEcologyToggle(): void;
   onSoundToggle(): void;
   onEvolveToggle(): void;
   onSoundSourceChange(): void;
@@ -56,11 +66,23 @@ export function createPanel(opts: {
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   soundscape: { enabled: boolean; volume: number };
-  evolve: { enabled: boolean; trialSeconds: number; mutation: number };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
+  ecology: {
+    enabled: boolean;
+    captureRadius: number;
+    killChance: number;
+    starveSeconds: number;
+    ageRisk: number;
+    reproductionSatiation: number;
+    audioReactive: boolean;
+  };
+  ecologyEvents: { births: number; deaths: number };
+  /** Called when a change needs the particle buffers re-baked (colour/shape). */
+  onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -182,6 +204,52 @@ export function createPanel(opts: {
     row.append(lbl, btn);
     body.appendChild(row);
     syncFns.push(paint);
+  }
+
+  /**
+   * A one-of-N row: a label plus a grid of buttons, one selected at a time.
+   * `visible` hides the whole row when the choice does not apply yet (the
+   * gradient axis only means something once COLOR is GRADIENT).
+   */
+  function addChoiceRow(
+    body: HTMLElement,
+    label: string,
+    options: readonly string[],
+    current: () => string,
+    choose: (value: string) => void,
+    tip?: string,
+    visible?: () => boolean
+  ): void {
+    const row = document.createElement("div");
+    row.className = "row";
+    if (tip) row.title = tip;
+    const lbl = document.createElement("label");
+    lbl.textContent = label;
+    const grid = document.createElement("div");
+    grid.className = "btn-grid";
+    const buttons = new Map<string, HTMLButtonElement>();
+    for (const option of options) {
+      const b = document.createElement("button");
+      b.className = "act";
+      b.textContent = option.toUpperCase();
+      b.addEventListener("click", () => {
+        if (current() === option) return;
+        choose(option);
+        paint();
+        callbacks.onUserInteraction();
+      });
+      buttons.set(option, b);
+      grid.appendChild(b);
+    }
+    function paint(): void {
+      const active = current();
+      for (const [option, b] of buttons) b.classList.toggle("on", option === active);
+      if (visible) row.style.display = visible() ? "" : "none";
+    }
+    paint();
+    syncFns.push(paint);
+    row.append(lbl, grid);
+    body.appendChild(row);
   }
 
   function addGridButton(body: HTMLElement, label: string, fn: () => void, primary = false): HTMLButtonElement {
@@ -319,6 +387,48 @@ export function createPanel(opts: {
   addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
   addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
 
+  // --- ECOLOGY -------------------------------------------------------------------------
+  const ecoBody = section("ECOLOGY");
+  addToggle(
+    ecoBody,
+    "Ecology",
+    () => ecology.enabled,
+    (v) => {
+      ecology.enabled = v;
+      callbacks.onEcologyToggle();
+    },
+    "ON",
+    "OFF",
+    "Predation, birth and death. Species that hunt eat, starve, and reproduce."
+  );
+  addObjSlider(ecoBody, "Reach", ecology, "captureRadius", 0.2, 3, 0.05, num, "How close a hunt has to get before it can succeed.");
+  addObjSlider(ecoBody, "Kill", ecology, "killChance", 0, 3, 0.05, num, "How likely a hunt in range is to succeed.");
+  addObjSlider(ecoBody, "Starve", ecology, "starveSeconds", 2, 60, 1, (v) => `${v.toFixed(0)}s`, "How long a hunter can go without a meal.");
+  addObjSlider(ecoBody, "Age risk", ecology, "ageRisk", 0, 0.4, 0.005, (v) => v.toFixed(3), "Per-second mortality for spent particles.");
+  addObjSlider(ecoBody, "Reproduce", ecology, "reproductionSatiation", 0.3, 3, 0.05, num, "How well fed a particle must be to leave offspring.");
+  addToggle(
+    ecoBody,
+    "Sound",
+    () => ecology.audioReactive,
+    (v) => {
+      ecology.audioReactive = v;
+    },
+    "ON",
+    "OFF",
+    "Let the room drive the ecology: loud is hungry, low end breeds, a transient startles."
+  );
+  {
+    const readout = document.createElement("div");
+    readout.className = "meta";
+    const note = document.createElement("div");
+    note.className = "meta";
+    note.textContent = "CPU BACKEND ONLY - PRESS G TO SWITCH";
+    ecoBody.append(readout, note);
+    syncFns.push(() => {
+      readout.textContent = `+ ${ecologyEvents.births} BORN   - ${ecologyEvents.deaths} DIED`;
+    });
+  }
+
   // --- VISUAL --------------------------------------------------------------------------
   const visBody = section("VISUAL");
   addObjSlider(visBody, "Size", visual, "particleSize", 0.4, 4, 0.05, num);
@@ -328,7 +438,66 @@ export function createPanel(opts: {
   addObjSlider(visBody, "Fog", visual, "fogDensity", 0, 0.12, 0.002, (v) => v.toFixed(3));
   addObjSlider(visBody, "Trail", visual, "trailDecay", 0.2, 0.95, 0.01, num, "How long the afterimage lingers.");
   addToggle(visBody, "Trails", () => visual.trails, (v) => (visual.trails = v), "ON", "OFF", "Afterimage of where the organism has been.");
-  addToggle(visBody, "Color", () => visual.colorMode === "source", (v) => (visual.colorMode = v ? "source" : "monochrome"), "SOURCE", "MONO", "Monochrome or the source's own colors.");
+  // Colour source: genuinely different looks, not filters over one base.
+  addChoiceRow(
+    visBody,
+    "Color",
+    COLOR_MODES,
+    () => visual.colorMode,
+    (v) => {
+      visual.colorMode = v as ColorMode;
+      onLookChange?.();
+    },
+    "Monochrome, the source's own colors, one hue per species, a seeded hue per particle, or an authored ramp."
+  );
+  addChoiceRow(
+    visBody,
+    "Axis",
+    GRADIENT_AXES,
+    () => visual.gradientAxis,
+    (v) => {
+      visual.gradientAxis = v as GradientAxis;
+      onLookChange?.();
+    },
+    "What the ramp is mapped across: a particle's own life cycle, or its distance from the camera.",
+    () => visual.colorMode === "gradient"
+  );
+  addChoiceRow(
+    visBody,
+    "Ramp",
+    GRADIENT_PALETTE_NAMES,
+    () => visual.gradientPalette,
+    (v) => {
+      visual.gradientPalette = v;
+      onLookChange?.();
+    },
+    "Authored gradient palettes.",
+    () => visual.colorMode === "gradient"
+  );
+  addChoiceRow(
+    visBody,
+    "Shape",
+    PARTICLE_SHAPES,
+    () => visual.shape,
+    (v) => {
+      visual.shape = v as ParticleShape;
+      visual.shapeBySpecies = false;
+      onLookChange?.();
+    },
+    "Sprite shape, drawn analytically — no textures, no extra geometry."
+  );
+  addToggle(
+    visBody,
+    "By species",
+    () => visual.shapeBySpecies,
+    (v) => {
+      visual.shapeBySpecies = v;
+      onLookChange?.();
+    },
+    "ON",
+    "OFF",
+    "Give each species its own shape, so the ecosystem reads at a glance."
+  );
 
   // --- SOUND ---------------------------------------------------------------------------
   const soundBody = section("SOUND");
@@ -405,6 +574,17 @@ export function createPanel(opts: {
   );
   addObjSlider(evolveBody, "Trial", evolve, "trialSeconds", 2, 20, 0.5, (v) => `${v.toFixed(1)}s`, "How long each candidate gets to prove itself.");
   addObjSlider(evolveBody, "Mutation", evolve, "mutation", 0.02, 1, 0.01, num, "How far each child drifts from its parents.");
+  addToggle(
+    evolveBody,
+    "Look",
+    () => evolve.phenotype,
+    (v) => {
+      evolve.phenotype = v;
+    },
+    "ON",
+    "OFF",
+    "Let the search evolve each species' hue and shape alongside its behaviour. Appearance cannot be scored, so it rides the winner."
+  );
   {
     const readout = document.createElement("div");
     readout.className = "meta";

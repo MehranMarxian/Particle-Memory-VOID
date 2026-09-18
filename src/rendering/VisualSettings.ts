@@ -5,7 +5,33 @@
  * The default aesthetic: black space, restrained monochrome, soft
  * particles, subtle glow and trails, restrained depth treatment.
  */
-export type ColorMode = "monochrome" | "source";
+
+/**
+ * Where a particle's colour comes from.
+ *
+ * MONOCHROME and SOURCE are baked into the per-particle color buffer when the
+ * source is built. SPECIES and RANDOM are baked the same way, when the mode or
+ * seed changes. GRADIENT is evaluated in the shader from per-particle data
+ * (life cycle age, or view depth).
+ */
+export type ColorMode = "monochrome" | "source" | "species" | "random" | "gradient";
+
+/** Panel and cycle order. */
+export const COLOR_MODES: readonly ColorMode[] = ["monochrome", "source", "species", "random", "gradient"];
+
+/**
+ * What a GRADIENT is mapped across: a particle's own life cycle (AGE), its
+ * distance from the camera (DEPTH), or its distance from the subject's centre
+ * (RADIAL, which makes the ramp read as a volume rather than a plane).
+ */
+export type GradientAxis = "age" | "depth" | "radial";
+
+export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial"];
+
+/** Sprite shape, resolved analytically in the fragment shader. */
+export type ParticleShape = "circle" | "box" | "triangle" | "ring" | "star";
+
+export const PARTICLE_SHAPES: readonly ParticleShape[] = ["circle", "box", "triangle", "ring", "star"];
 
 export interface VisualSettings {
   /** Base sprite size in shader units. */
@@ -18,8 +44,16 @@ export interface VisualSettings {
   trails: boolean;
   /** Per-frame trail retention (0.3 = short, 0.95 = long smear). */
   trailDecay: number;
-  /** MONOCHROME (default) or SOURCE COLOR. */
+  /** Where color comes from (see ColorMode). */
   colorMode: ColorMode;
+  /** Gradient palettes are named looks, e.g. "DUSK", "EMBER", "ICE". */
+  gradientPalette: string;
+  /** What the gradient is mapped across. */
+  gradientAxis: GradientAxis;
+  /** Sprite shape, or the per-species shape when shapeBySpecies is on. */
+  shape: ParticleShape;
+  /** Give each species its own shape, so the ecosystem is legible. */
+  shapeBySpecies: boolean;
   /** Depth-of-field strength (0 = off). Attenuates off-focus particles. */
   dof: number;
   /** Exponential fog density — the black space between camera and subject. */
@@ -33,20 +67,33 @@ export const defaultVisualSettings = (): VisualSettings => ({
   trails: false,
   trailDecay: 0.4,
   colorMode: "monochrome",
+  gradientPalette: "DUSK",
+  gradientAxis: "age",
+  shape: "circle",
+  shapeBySpecies: false,
   dof: 0.15,
   fogDensity: 0.02,
 });
 
-/** Clamp to safe ranges so presets/randomization can't produce garbage. */
+/**
+ * Clamp to safe ranges so presets/randomization can't produce garbage.
+ *
+ * Unknown or missing values fall back to the default rather than throwing:
+ * this runs on persisted instrument state, which may predate a new field.
+ */
 export function clampVisualSettings(s: VisualSettings): VisualSettings {
-  const cl = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const cl = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
   return {
     particleSize: cl(s.particleSize, 0.4, 8),
     glow: cl(s.glow, 0, 2.5),
     opacity: cl(s.opacity, 0.05, 1),
-    trails: s.trails,
+    trails: !!s.trails,
     trailDecay: cl(s.trailDecay, 0.2, 0.97),
-    colorMode: s.colorMode === "source" ? "source" : "monochrome",
+    colorMode: COLOR_MODES.includes(s.colorMode) ? s.colorMode : "monochrome",
+    gradientPalette: typeof s.gradientPalette === "string" && s.gradientPalette ? s.gradientPalette : "DUSK",
+    gradientAxis: GRADIENT_AXES.includes(s.gradientAxis) ? s.gradientAxis : "age",
+    shape: PARTICLE_SHAPES.includes(s.shape) ? s.shape : "circle",
+    shapeBySpecies: !!s.shapeBySpecies,
     dof: cl(s.dof, 0, 1),
     fogDensity: cl(s.fogDensity, 0, 0.2),
   };

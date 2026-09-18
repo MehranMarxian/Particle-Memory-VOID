@@ -19,5 +19,18 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    rollupOptions: {
+      output: {
+        // three is needed at boot and cannot be lazy-loaded, so it stays in the
+        // eager graph either way. Giving it a chunk of its own keeps the app
+        // chunk small and lets a returning visitor re-use three from cache.
+        // The example loaders are excluded on purpose: they are imported on
+        // demand when a model is dropped, and must stay their own chunks.
+        manualChunks: (id: string) => {
+          if (!id.includes("node_modules/three")) return undefined;
+          return id.includes("examples/jsm") ? undefined : "three";
+        },
+      },
+    },
   },
 });
