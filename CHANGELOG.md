@@ -2,9 +2,166 @@
 
 Same shape as the piece itself: memory first, then life.
 
-## [Unreleased]
+## [0.9.0] - 2026-09-19
 
-### Added - the ecology layer
+The release that folds the instrument and opens the piece to touch. Six
+slices, ordered by risk: the wiring bugs first, one clock, the readback
+diet, the panel, the presets, the budgets.
+
+### Fixed - the wiring the audit caught
+
+- The Predator preset NaN'd the swarm: it shipped a 3x3 matrix while the
+  engine ran four species, and the NaN spread through the neighbour pass
+  until nearly every particle was gone. Presets now own the species count
+  their matrix was authored for, and the app syncs the engine after
+  applying. RESET carried the same defect; both are covered by tests, and
+  every preset in the book runs the regression.
+- Presets leaked unspecified settings into each other (Predator's ecology
+  survived a switch to Portrait). They apply as full states now: every
+  section a preset does not mention is reset to its default, in place, so
+  the panel's live references survive.
+- A runtime error latched the hint line until reload and permanently muted
+  it. Hints expire; the gate is pure and tested.
+- The SCREENSAVER action was appended to a hidden grid and could not be
+  reached at all on a touchscreen. It is a panel button now.
+- Switching backends corrupted the source's colours (re-derived from the
+  baked look) and dropped the swarm's momentum. The switch carries the
+  pristine colours and the living state - positions, velocities, memory,
+  organism clocks - across.
+- The alternate matrix (H) was hardcoded 4x4; at any other species count it
+  read out of range. It is re-derived at the live species count.
+- The panel head captured its own pointer for the drag-to-stow handle, which
+  retargeted taps away from ? and HIDE and killed both on real devices. The
+  capture is gone; the drag tracks at the window level.
+
+### Added - the panel folds, and touch arrives
+
+- The panel is three tiers by consequence. THE PIECE is always visible:
+  source chip, density, RECONSTRUCT / RELEASE, screensaver, fullscreen, and
+  the doors. THE INSTRUMENT is an accordion behind its door, closed by
+  default, one section open at a time, with SCENT & HEAT merged into one
+  section. THE LAB holds what was unreachable from the panel at all: the
+  backend switch, the ghost replay, the quiet modulators, the stats.
+- Touch: one finger orbits, two fingers pinch to zoom and drag to pan (the
+  camera orbits a movable target now, reset by the screensaver), and a
+  touch-and-hold becomes the pointer force - touch has no hover, so the
+  swarm's touch is explicit. The canvas owns its gestures; the browser's
+  pull-to-refresh never fights the orbit.
+- On phones the panel docks as a bottom sheet (drag the head down to stow),
+  the source card docks to the top and collapses to a chip, hit targets
+  reach the 44px class and slider thumbs 24px. The screensaver exits on
+  touch drags.
+- The guide becomes the keyboard on touch: every key chip is tappable and
+  dispatches through the same handleKey path as the physical keyboard.
+  Twenty-four shortcuts stay reachable on an iPhone or iPad, and the chips
+  cannot drift from the keymap because they are rendered from it.
+- Row meanings survive the missing hover: press and hold a label and the tip
+  appears in the status line. The guide gains a page that maps the
+  instrument's sections.
+
+### Added - the presets grow up
+
+- The preset schema carries heat, the environment affinities, the life
+  cycle, the species count and the screensaver camera - the engine surface
+  the last two releases added that data could never reach. Full-state apply
+  covers every section: a preset without a camera gets today's motion.
+- The screensaver camera left the frame loop and became data, with a golden
+  test pinning the default choreography to the exact motion the constants
+  hardcoded. Two new paths: figure8, a sinusoidal azimuth weave that loops
+  the camera in petals without crossing the subject, and recorded, which
+  leans the orbit toward the hand the ghost replays.
+- Five new looks, chosen for the subject rather than the demo reel:
+  **GALAXY** (a memory so old it has mass - inverse kernel, drift, density
+  as colour), **FIREWORKS** (short lives, long trails, the memory
+  celebrating itself and gathering), **HEARTH** (the swarm seeks its own
+  warmth; the heat-axis ramp is the field-tint showcase), **TRACES** (where
+  it has been, not where it is - scent as the picture), and **EXHALE**
+  (negative gravity: the spent drift upward into the fog and are reborn).
+  Twelve presets ship in total; the five are first drafts for the author's
+  eye.
+- Config storage moves to v2 with the camera; v1 files load and hydrate the
+  default motion.
+
+### Added - budgets with teeth
+
+- The build fails if the eager JS exceeds 220 kB gzip (today 183.0 kB). The
+  plugin walks the entry's static-import closure - the obvious dynamic-entry
+  filter miscounts three, which the STL loader's import("three") flags as
+  dynamic.
+- The perf test carries two tiers: a 30 ms ceiling at the 4k CPU ceiling
+  density, always on, that catches catastrophic regressions everywhere; and
+  the 12 ms real-time contract, enforced only with VOID_ENFORCE_BUDGETS=1 on
+  a runner whose numbers you trust.
+- The GPU engine's synchronous readbacks are counted and shown in the LAB
+  stats (rb count, kB). Measured: 1 readback per frame, 2 on the throttled
+  state-sync cadence, 378-784 kB - the <= 1 readback and <= 1 MB budgets
+  hold.
+
+### Changed - one clock, and a cheaper GPU path
+
+- The frame loop caps catch-up at two fixed steps and dilates time under
+  load: the piece runs in slow motion instead of doing six 50 ms steps a
+  frame until the tab freezes. The fixed step itself is untouched.
+- Density is per-backend honest: the CPU ceiling is 4k (12k already costs
+  ~50 ms a step on a fast desktop), the GPU menu ends at 50k, touch devices
+  boot at 4k, and a clamp says so instead of pretending.
+- The GPU engine reads back one texture per frame - the position mirror the
+  grid and the fields need. Organism state rides a throttled mirror, and
+  velocities are estimated from consecutive position mirrors. The renderer
+  samples the simulation's own compute textures through per-vertex
+  references, so no vertex data is uploaded per frame at all. Measured in
+  the running app: 60 fps from 4k to 50k, and the eager bundle at 183 kB
+  gzip.
+- The renderer and the engines gained no new dependencies; the CPU engine is
+  untouched and remains the correctness reference and the ecology's home.
+
+### Fixed - the seams the suites could not see
+
+- A backend switch re-derived the source's colours from the baked look
+  buffer and left the new renderer's points out of the scene: a black canvas
+  with the stats still ticking, and a RangeError once the ecology's
+  per-frame look re-bake joined. Source colours are count-scoped now.
+- The field-tint tick rewrote the shape buffer for shapes that had not
+  changed; the colour and shape bakes are split, and the tint refresh
+  stretches on touch devices.
+- The panel scrolled sideways by its own border on phones (content-box
+  width plus a border, with overflow-x silently computed to auto). The
+  panel is border-box, clamps overflow-x, and sizes from its insets.
+- The ecology's age clock read the renderer's life buffer - all 1s when the
+  life cycle was off, so nothing ever died of age, and above 1 for newborns,
+  so age went negative. It reads the life cycle directly now.
+
+#### The field-tint branch - field ramps, the ecology, and the search that evolves it
+
+#### Added - field ramps
+
+- The two stigmergic fields become visible. With COLOR on GRADIENT, Axis gains
+  SCENT (where the swarm has been) and HEAT (where it is working hardest right
+  now), and the ramp is baked from the local field value through whichever
+  palette is chosen.
+- Baked on the CPU on purpose: the fields live on the CPU and both engines keep
+  the same copy, so one pass gives identical colours on both backends - no new
+  texture binding, no transform to keep in step, and no shader path that cannot
+  be verified here. The pass is refreshed every 20 frames rather than every
+  frame, and normalised against the field's own peak so contrast survives a long
+  run instead of saturating.
+
+#### Added - the ecology, evolved
+
+- Ecology genes: a third gene pool. Each candidate also carries how far its hunt
+  reaches, how deadly it is, how long a hunter lasts between meals, and how well
+  fed a particle must be to breed.
+- These are the first genes the search can score on their own terms. A hue
+  cannot be measured; an ecology can, because one that eats and breeds sustains
+  its population and one that does not collapses. So the fitness gains a
+  population term - bounded by its weight, so a thriving swarm can never
+  out-score real progress toward the memory.
+- A Predator preset: three species in a rock-paper-scissors chase, the ecology
+  on, species colour and shape. The clearest way to see the layer work.
+- Presets can carry ecology overrides at all, so a look and its ecology travel
+  together.
+
+#### Added - the ecology layer
 
 - Predation: a species the interaction matrix makes predatory can now catch what
   it chases. Detection rides the neighbour query the force pass already runs on
@@ -28,7 +185,7 @@ Same shape as the piece itself: memory first, then life.
   pretending. The plan for this layer says the same thing: prototype on the CPU
   engine first.
 
-### Added
+#### Added
 
 - Species made visible: COLOR gains SPECIES (a hue per species, spaced around
   the wheel and matched in perceived brightness, so blue does not read darker
@@ -56,7 +213,7 @@ Same shape as the piece itself: memory first, then life.
   a swarm remember better - so the genes ride the behaviour it does select, and
   a champion arrives looking unlike its ancestors.
 
-### Changed
+#### Changed
 
 - Colour is no longer a two-state toggle: C cycles monochrome, source, species,
   random and gradient.

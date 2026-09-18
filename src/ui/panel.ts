@@ -16,10 +16,25 @@ import { PRESET_DEFINITIONS } from "@/presets/presets";
 import "./panel.css";
 
 /**
- * The control panel (spec §15): SOURCE / MEMORY / LIFE / FIELD / VISUAL /
- * PRESETS / ACTIONS. Built from declarative slider specs so adding a
- * parameter later is one line, and nothing about behavior is hard-coded
- * in the UI.
+ * The control panel (v0.9.0 IA): three tiers, by consequence.
+ *
+ * Tier 1 — THE PIECE. Always visible: the source chip, the density, the two
+ * great gestures (RECONSTRUCT / RELEASE), the screensaver and fullscreen,
+ * and the doors to what lies beneath.
+ *
+ * Tier 2 — THE INSTRUMENT. An accordion, closed by default, one section open
+ * at a time: MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND,
+ * EVOLVE, and the PRESETS / ACTIONS grids. The piece's whole identity is
+ * withhold-and-reveal; the instrument hides behind discovery, not confusion.
+ *
+ * Tier 3 — THE LAB. Behind one explicit door: the backend switch, the ghost
+ * replay, the quiet modulators (sync, the environment affinities), and the
+ * stats. The controls about how the piece runs rather than what it is.
+ *
+ * Built from declarative slider specs so adding a parameter later is one
+ * line. Nothing about behaviour is hard-coded in the UI, and every
+ * underlying mechanic is exactly where it was — this is a regrouping, not a
+ * re-parameterisation.
  */
 
 export interface PanelCallbacks {
@@ -32,6 +47,8 @@ export interface PanelCallbacks {
   onReconstruct(): void;
   onRelease(): void;
   onFullscreen(): void;
+  onScreensaver(): void;
+  onBackendToggle(): void;
   onSpeciesChange(n: number): void;
   onUserInteraction(): void;
   onToggleCycle(): void;
@@ -66,9 +83,11 @@ export function createPanel(opts: {
   currentCount: number;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   soundscape: { enabled: boolean; volume: number };
-  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean };
+  evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean; ecology: boolean };
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
+  /** Live backend label for the LAB's SIM button. */
+  backend: () => "gpu" | "cpu";
   ecology: {
     enabled: boolean;
     captureRadius: number;
@@ -82,7 +101,7 @@ export function createPanel(opts: {
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -92,15 +111,66 @@ export function createPanel(opts: {
   const syncFns: Array<() => void> = [];
   let evolveReadout: HTMLElement | null = null;
 
-  function section(title: string): HTMLElement {
+  // The status line exists before the sections do: rows show their meaning
+  // here on a press-and-hold, because a title attribute is invisible to
+  // touch.
+  const status = document.createElement("div");
+  status.id = "panel-status";
+  let tipTimer = 0;
+  function showTip(text: string): void {
+    status.textContent = text;
+    status.classList.add("tip");
+    window.clearTimeout(tipTimer);
+    tipTimer = window.setTimeout(() => {
+      status.textContent = "";
+      status.classList.remove("tip");
+    }, 2600);
+  }
+
+  /** Press-and-hold the row's label and its meaning appears in the status. */
+  function attachTip(row: HTMLElement, tip: string): void {
+    let hold = 0;
+    const label = row.querySelector("label");
+    if (!label) return;
+    label.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse") return; // hover already has the title
+      hold = window.setTimeout(() => showTip(tip), 350);
+    });
+    const cancel = () => window.clearTimeout(hold);
+    label.addEventListener("pointerup", cancel);
+    label.addEventListener("pointercancel", cancel);
+    label.addEventListener("pointerleave", cancel);
+  }
+
+  const mkBtn = (parent: HTMLElement, label: string, fn: () => void, primary = false): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.className = primary ? "act primary" : "act";
+    b.textContent = label;
+    b.addEventListener("click", fn);
+    parent.appendChild(b);
+    return b;
+  };
+
+  function section(title: string, parent: HTMLElement, accordion: boolean): HTMLElement {
     const sec = document.createElement("section");
     const h = document.createElement("h3");
     h.textContent = title;
-    h.addEventListener("click", () => sec.classList.toggle("closed"));
     const body = document.createElement("div");
     body.className = "section-body";
     sec.append(h, body);
-    panel.appendChild(sec);
+    if (accordion) {
+      // Closed by default; opening one section closes the others. The wall
+      // of controls becomes a table of contents.
+      sec.classList.add("closed");
+      h.addEventListener("click", () => {
+        const opening = sec.classList.contains("closed");
+        for (const s of tier2.querySelectorAll("section")) s.classList.add("closed");
+        if (opening) sec.classList.remove("closed");
+      });
+    } else {
+      h.addEventListener("click", () => sec.classList.toggle("closed"));
+    }
+    parent.appendChild(sec);
     return body;
   }
 
@@ -139,6 +209,7 @@ export function createPanel(opts: {
     }
     row.append(labelEl, input, val);
     body.appendChild(row);
+    if (tip) attachTip(row, tip);
     syncFns.push(() => {
       const v = get();
       input.value = String(v);
@@ -203,6 +274,7 @@ export function createPanel(opts: {
     paint();
     row.append(lbl, btn);
     body.appendChild(row);
+    if (tip) attachTip(row, tip);
     syncFns.push(paint);
   }
 
@@ -250,29 +322,26 @@ export function createPanel(opts: {
     syncFns.push(paint);
     row.append(lbl, grid);
     body.appendChild(row);
+    if (tip) attachTip(row, tip);
   }
 
-  function addGridButton(body: HTMLElement, label: string, fn: () => void, primary = false): HTMLButtonElement {
-    const b = document.createElement("button");
-    b.className = primary ? "act primary" : "act";
-    b.textContent = label;
-    b.addEventListener("click", fn);
-    body.appendChild(b);
-    return b;
-  }
+  // --- TIER 1: THE PIECE -----------------------------------------------------
+  const tier1 = document.createElement("div");
+  tier1.className = "panel-tier1";
+  panel.appendChild(tier1);
 
-  // --- SOURCE ---------------------------------------------------------------
-  const sourceBody = section("SOURCE");
-  const sourceMeta = document.createElement("div");
-  sourceMeta.className = "meta";
-  sourceBody.appendChild(sourceMeta);
-  const addBtn = addGridButton(sourceBody, "ADD SOURCE", () => callbacks.onAddSource(), true);
-  addBtn.style.width = "100%";
-  addBtn.style.marginTop = "6px";
+  // The source chip: what VOID remembers, and the door to change it.
+  const sourceChip = document.createElement("button");
+  sourceChip.id = "panel-source-chip";
+  sourceChip.addEventListener("click", () => callbacks.onAddSource());
+  tier1.appendChild(sourceChip);
+
   addSlider(
-    sourceBody,
+    tier1,
     "Particles",
-    { min: 1000, max: 100000, step: 1000 },
+    // The menu ends where the GPU budget ends; the CPU backend clamps
+    // further (see simPolicy) and says so when it does.
+    { min: 1000, max: 50000, step: 1000 },
     () => currentCount,
     (v) => {
       currentCount = v;
@@ -283,8 +352,27 @@ export function createPanel(opts: {
     "How many particles remember the source."
   );
 
-  // --- MEMORY ------------------------------------------------------------------
-  const memBody = section("MEMORY");
+  {
+    const grid = document.createElement("div");
+    grid.className = "btn-grid";
+    mkBtn(grid, "RECONSTRUCT", () => callbacks.onReconstruct(), true);
+    mkBtn(grid, "RELEASE", () => callbacks.onRelease(), true);
+    mkBtn(grid, "SCREENSAVER", () => callbacks.onScreensaver());
+    mkBtn(grid, "FULLSCREEN", () => callbacks.onFullscreen());
+    tier1.appendChild(grid);
+  }
+
+  const doors = document.createElement("div");
+  doors.className = "btn-grid panel-doors";
+  tier1.appendChild(doors);
+
+  // --- TIER 2: THE INSTRUMENT ------------------------------------------------
+  const tier2 = document.createElement("div");
+  tier2.className = "panel-tier2";
+  tier2.style.display = "none";
+  panel.appendChild(tier2);
+
+  const memBody = section("MEMORY", tier2, true);
   addToggle(
     memBody,
     "Cycle",
@@ -302,8 +390,7 @@ export function createPanel(opts: {
   addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
   addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
 
-  // --- LIFE ------------------------------------------------------------------------
-  const lifeBody = section("LIFE");
+  const lifeBody = section("LIFE", tier2, true);
   addObjSlider(lifeBody, "Attraction", params.life, "attraction", 0, 2, 0.01, num, "How strongly compatible particles gather.");
   addObjSlider(lifeBody, "Repulsion", params.life, "repulsion", 0, 2, 0.01, num, "How strongly particles push apart.");
   addObjSlider(lifeBody, "Radius", params.life, "interactionRadius", 0.2, 2, 0.01, num, "How far particles sense each other.");
@@ -317,9 +404,9 @@ export function createPanel(opts: {
   {
     const row = document.createElement("div");
     row.className = "row";
+    row.title = "How many species share the memory.";
     const label = document.createElement("label");
     label.textContent = "Species";
-    row.title = "How many species share the memory.";
     const input = document.createElement("input");
     input.type = "range";
     input.min = "2";
@@ -336,6 +423,7 @@ export function createPanel(opts: {
     });
     row.append(label, input, val);
     lifeBody.appendChild(row);
+    attachTip(row, "How many species share the memory.");
     syncFns.push(() => {
       input.value = String(speciesCount);
       val.textContent = String(speciesCount);
@@ -344,9 +432,9 @@ export function createPanel(opts: {
   {
     const row = document.createElement("div");
     row.className = "row";
+    row.title = "The shape of the force between particles.";
     const label = document.createElement("label");
     label.textContent = "Kernel";
-    row.title = "The shape of the force between particles.";
     const select = document.createElement("select");
     for (const k of ["pulse", "inverse", "linear"]) {
       const opt = document.createElement("option");
@@ -361,34 +449,31 @@ export function createPanel(opts: {
     });
     row.append(label, select);
     lifeBody.appendChild(row);
+    attachTip(row, "The shape of the force between particles.");
     syncFns.push(() => {
       select.value = params.life.kernel;
     });
   }
 
-  // --- FIELD --------------------------------------------------------------------------
-  const fieldBody = section("FIELD");
+  const fieldBody = section("FIELD", tier2, true);
   addObjSlider(fieldBody, "Turbulence", params, "turbulence", 0, 1, 0.01, num, "Curl noise stirring the field.");
   addObjSlider(fieldBody, "Wander", params, "wander", 0, 0.3, 0.005, num, "Smooth organic drift.");
-  addObjSlider(fieldBody, "Sync", params, "phaseCoupling", 0, 4, 0.05, num, "Couples particle rhythms into a shared heartbeat.");
   addObjSlider(fieldBody, "Drift", params, "drift", -1, 1, 0.01, num, "A constant current through the space.");
   addObjSlider(fieldBody, "Gravity", params, "gravity", -2, 2, 0.01, num, "A steady downward pull.");
-  addToggle(fieldBody, "Scent", () => params.scent.enabled, (v) => (params.scent.enabled = v), "ON", "OFF", "Leaves a fading trace of where the organism has been.");
-  addObjSlider(fieldBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
-  addObjSlider(fieldBody, "Deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
-  addObjSlider(fieldBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
-  addToggle(fieldBody, "Heat", () => params.heat.enabled, (v) => (params.heat.enabled = v), "ON", "OFF", "A second memory: warmth left where the swarm moves.");
-  addObjSlider(fieldBody, "Heat deposit", params.heat, "deposit", 0, 2, 0.02, num, "How much warmth each particle leaves behind.");
-  addObjSlider(fieldBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
-  addObjSlider(fieldBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
-  addObjSlider(fieldBody, "Scent affinity", params.environment, "scent", -2, 2, 0.05, num, "How much its own trail makes the swarm stickier (negative: looser).");
-  addObjSlider(fieldBody, "Heat affinity", params.environment, "heat", -2, 2, 0.05, num, "How much its own warmth makes the swarm stickier (negative: looser).");
   addObjSlider(fieldBody, "Cursor", pointer, "strength", 0, 3, 0.05, num, "How strongly the swarm leans toward your pointer.");
   addToggle(fieldBody, "Cursor", () => pointer.mode > 0, (v) => (pointer.mode = v ? 1 : -1), "PULL", "PUSH", "Attract to the pointer, or push away from it.");
-  addToggle(fieldBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
 
-  // --- ECOLOGY -------------------------------------------------------------------------
-  const ecoBody = section("ECOLOGY");
+  const scentBody = section("SCENT & HEAT", tier2, true);
+  addToggle(scentBody, "Scent", () => params.scent.enabled, (v) => (params.scent.enabled = v), "ON", "OFF", "Leaves a fading trace of where the organism has been.");
+  addObjSlider(scentBody, "Scent steer", params.scent, "steer", 0, 5, 0.05, num, "How strongly particles follow the scent.");
+  addObjSlider(scentBody, "Scent deposit", params.scent, "deposit", 0, 2, 0.01, num, "How much scent each particle leaves.");
+  addObjSlider(scentBody, "Scent fade", params.scent, "decay", 0.02, 0.95, 0.01, num, "How long past traces survive.");
+  addToggle(scentBody, "Heat", () => params.heat.enabled, (v) => (params.heat.enabled = v), "ON", "OFF", "A second memory: warmth left where the swarm moves.");
+  addObjSlider(scentBody, "Heat deposit", params.heat, "deposit", 0, 2, 0.02, num, "How much warmth each particle leaves behind.");
+  addObjSlider(scentBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
+  addObjSlider(scentBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
+
+  const ecoBody = section("ECOLOGY", tier2, true);
   addToggle(
     ecoBody,
     "Ecology",
@@ -422,15 +507,14 @@ export function createPanel(opts: {
     readout.className = "meta";
     const note = document.createElement("div");
     note.className = "meta";
-    note.textContent = "CPU BACKEND ONLY - PRESS G TO SWITCH";
+    note.textContent = "CPU BACKEND ONLY - SWITCH IN THE LAB";
     ecoBody.append(readout, note);
     syncFns.push(() => {
       readout.textContent = `+ ${ecologyEvents.births} BORN   - ${ecologyEvents.deaths} DIED`;
     });
   }
 
-  // --- VISUAL --------------------------------------------------------------------------
-  const visBody = section("VISUAL");
+  const visBody = section("VISUAL", tier2, true);
   addObjSlider(visBody, "Size", visual, "particleSize", 0.4, 4, 0.05, num);
   addObjSlider(visBody, "Glow", visual, "glow", 0, 2, 0.05, num);
   addObjSlider(visBody, "Opacity", visual, "opacity", 0.05, 1, 0.01, num);
@@ -499,8 +583,7 @@ export function createPanel(opts: {
     "Give each species its own shape, so the ecosystem reads at a glance."
   );
 
-  // --- SOUND ---------------------------------------------------------------------------
-  const soundBody = section("SOUND");
+  const soundBody = section("SOUND", tier2, true);
   addToggle(
     soundBody,
     "Listen",
@@ -558,8 +641,7 @@ export function createPanel(opts: {
     soundBody.appendChild(note);
   }
 
-  // --- EVOLVE --------------------------------------------------------------------------
-  const evolveBody = section("EVOLVE");
+  const evolveBody = section("EVOLVE", tier2, true);
   addToggle(
     evolveBody,
     "Evolve",
@@ -585,6 +667,17 @@ export function createPanel(opts: {
     "OFF",
     "Let the search evolve each species' hue and shape alongside its behaviour. Appearance cannot be scored, so it rides the winner."
   );
+  addToggle(
+    evolveBody,
+    "Ecology",
+    () => evolve.ecology,
+    (v) => {
+      evolve.ecology = v;
+    },
+    "ON",
+    "OFF",
+    "Let the search evolve the ecology too: how far a hunt reaches, how deadly it is, who starves. Scored through the population."
+  );
   {
     const readout = document.createElement("div");
     readout.className = "meta";
@@ -593,8 +686,7 @@ export function createPanel(opts: {
     evolveReadout = readout;
   }
 
-  // --- PRESETS --------------------------------------------------------------------------
-  const presetBody = section("PRESETS");
+  const presetBody = section("PRESETS", tier2, true);
   const presetGrid = document.createElement("div");
   presetGrid.className = "btn-grid";
   const presetBtns = new Map<string, HTMLButtonElement>();
@@ -612,41 +704,88 @@ export function createPanel(opts: {
     for (const btn of presetBtns.values()) btn.classList.remove("on");
   });
 
-  // --- ACTIONS ---------------------------------------------------------------------------
-  const actBody = section("ACTIONS");
+  const actBody = section("ACTIONS", tier2, true);
   const actGrid = document.createElement("div");
   actGrid.className = "btn-grid";
-  const mkAct = (label: string, fn: () => void, primary = false) => {
-    const b = document.createElement("button");
-    b.className = primary ? "act primary" : "act";
-    b.textContent = label;
-    b.addEventListener("click", fn);
-    actGrid.appendChild(b);
-  };
-  mkAct("RECONSTRUCT", () => callbacks.onReconstruct(), true);
-  mkAct("RELEASE", () => callbacks.onRelease(), true);
-  mkAct("RANDOMIZE", () => callbacks.onRandomize());
-  mkAct("UNDO", () => callbacks.onUndo());
-  mkAct("RESET", () => callbacks.onReset());
-  mkAct("FULLSCREEN", () => callbacks.onFullscreen());
+  mkBtn(actGrid, "RANDOMIZE", () => callbacks.onRandomize());
+  mkBtn(actGrid, "UNDO", () => callbacks.onUndo());
+  mkBtn(actGrid, "RESET", () => callbacks.onReset());
   actBody.appendChild(actGrid);
 
-  // Footer: stats, transient status, credit.
-  const footer = document.createElement("div");
-  footer.id = "panel-footer";
+  // --- TIER 3: THE LAB ---------------------------------------------------------
+  const tier3 = document.createElement("div");
+  tier3.className = "panel-tier3";
+  tier3.style.display = "none";
+  {
+    const label = document.createElement("div");
+    label.className = "lab-title";
+    label.textContent = "THE LAB";
+    tier3.appendChild(label);
+  }
+  panel.appendChild(tier3);
+
+  {
+    const simBtn = document.createElement("button");
+    simBtn.className = "act sim";
+    simBtn.title = "Switch the simulation backend. The GPU path is the showpiece; the CPU path is where the ecology lives.";
+    simBtn.addEventListener("click", () => callbacks.onBackendToggle());
+    tier3.appendChild(simBtn);
+    const paintSim = () => {
+      simBtn.textContent = `SIM: ${backend().toUpperCase()}`;
+    };
+    paintSim();
+    syncFns.push(paintSim);
+  }
+  addToggle(
+    tier3,
+    "Ghost",
+    () => pointer.ghost,
+    (v) => (pointer.ghost = v),
+    "ON",
+    "OFF",
+    "Replay the hand VOID recorded while the screensaver runs."
+  );
+  addObjSlider(tier3, "Sync", params, "phaseCoupling", 0, 4, 0.05, num, "Couples particle rhythms into a shared heartbeat.");
+  addObjSlider(tier3, "Scent affinity", params.environment, "scent", -2, 2, 0.05, num, "How much its own trail makes the swarm stickier (negative: looser).");
+  addObjSlider(tier3, "Heat affinity", params.environment, "heat", -2, 2, 0.05, num, "How much its own warmth makes the swarm stickier (negative: looser).");
+  {
+    const note = document.createElement("div");
+    note.className = "meta";
+    note.textContent = "THE QUIET MODULATORS, AND HOW THE PIECE RUNS.";
+    tier3.appendChild(note);
+  }
   const stats = document.createElement("div");
   stats.id = "panel-stats";
   stats.textContent = "—";
-  const status = document.createElement("div");
-  status.id = "panel-status";
+  tier3.appendChild(stats);
+
+  // --- Footer ----------------------------------------------------------------
+  const footer = document.createElement("div");
+  footer.id = "panel-footer";
   const credit = document.createElement("div");
   credit.className = "credit";
   // Credit, with the version the app was built from (package.json).
   credit.innerHTML =
     '<a href="https://mehran-ahmadi.com/" target="_blank" rel="noopener">DEVELOPED BY MEHRAN AHMADI \u00a9 2026</a>';
   credit.append(` \u00b7 v${__APP_VERSION__}`);
-  footer.append(stats, status, credit);
+  footer.append(status, credit);
   panel.appendChild(footer);
+
+  // Doors: the tier-1 buttons that open the instrument and the lab.
+  let openTier: 2 | 3 | null = null;
+  function setTier(tier: 2 | 3 | null): void {
+    openTier = tier;
+    tier2.style.display = tier === 2 ? "block" : "none";
+    tier3.style.display = tier === 3 ? "block" : "none";
+    for (const [door, t] of [
+      [instrumentDoor, 2],
+      [labDoor, 3],
+    ] as const) {
+      door.classList.toggle("on", tier === t);
+    }
+  }
+  const instrumentDoor = mkBtn(doors, "INSTRUMENT", () => setTier(openTier === 2 ? null : 2));
+  const labDoor = mkBtn(doors, "LAB", () => setTier(openTier === 3 ? null : 3));
 
   // Visibility toggle.
   const head = document.createElement("div");
@@ -676,12 +815,40 @@ export function createPanel(opts: {
   showPanelBtn.addEventListener("click", () => setPanelVisible(true));
   document.body.appendChild(showPanelBtn);
 
+  // Phone: the head is the sheet's handle — drag it down to stow the panel.
+  // The drag is tracked at the window level, NOT with pointer capture:
+  // capturing the head's pointer retargets the gesture to the head, and the
+  // browser then fires the tap's click on the head instead of the ? and
+  // HIDE buttons, which stopped working on real devices.
+  let headDragY: number | null = null;
+  let headDragId: number | null = null;
+  head.addEventListener("pointerdown", (e) => {
+    headDragY = e.clientY;
+    headDragId = e.pointerId;
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (headDragY === null || headDragId !== e.pointerId) return;
+    if (e.clientY - headDragY > 60) {
+      headDragY = null;
+      headDragId = null;
+      setPanelVisible(false);
+    }
+  });
+  const endHeadDrag = (e: PointerEvent) => {
+    if (headDragId === null || headDragId === e.pointerId) {
+      headDragY = null;
+      headDragId = null;
+    }
+  };
+  window.addEventListener("pointerup", endHeadDrag);
+  window.addEventListener("pointercancel", endHeadDrag);
+
   return {
     element: panel,
     setSourceInfo(name, kind, detail, count) {
-      sourceMeta.innerHTML = `<b>${name}</b>\n${kind.toUpperCase()} · ${detail}\n${count.toLocaleString()} particles`;
-      // Once VOID holds a real memory, ADD SOURCE becomes CHANGE SOURCE.
-      addBtn.textContent = name === "synthetic torus" ? "ADD SOURCE" : "CHANGE SOURCE";
+      // The chip is the door: what VOID remembers, and the tap that changes it.
+      sourceChip.textContent = `${name} · ${count.toLocaleString()}`;
+      sourceChip.title = `${kind.toUpperCase()} · ${detail} · tap to change`;
     },
     setCount(count) {
       currentCount = count;
@@ -699,6 +866,7 @@ export function createPanel(opts: {
     setHint(text, seconds, sticky) {
       status.textContent = text;
       status.classList.toggle("error", sticky);
+      status.classList.remove("tip");
       window.clearTimeout((status as unknown as { t?: number }).t);
       if (!sticky) {
         (status as unknown as { t?: number }).t = window.setTimeout(() => {

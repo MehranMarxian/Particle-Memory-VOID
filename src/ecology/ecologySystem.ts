@@ -172,6 +172,8 @@ export class EcologySystem {
   deaths = 0;
   meanAge = 0;
   private living = 0;
+  /** Scratch for the per-step hunter flags; grown only when species grow. */
+  private hunters: Uint8Array = new Uint8Array(0);
 
   constructor(readonly capacity: number) {
     this.satiation = new Float32Array(capacity);
@@ -202,7 +204,8 @@ export class EcologySystem {
     const radius = params.captureRadius * drive.aggression;
     const cap = Math.max(1, Math.min(view.capacity, Math.floor(view.capacity * params.capacityFraction)));
 
-    const hunters = new Uint8Array(view.speciesCount);
+    if (this.hunters.length < view.speciesCount) this.hunters = new Uint8Array(view.speciesCount);
+    const hunters = this.hunters;
     for (let s = 0; s < view.speciesCount; s++) {
       hunters[s] = canHunt(matrix, s, view.speciesCount, params) ? 1 : 0;
     }

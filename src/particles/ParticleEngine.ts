@@ -56,6 +56,9 @@ export class ParticleEngine {
   /** Accumulated simulation time (drives time-varying fields). */
   simTime = 0;
 
+  /** The CPU engine performs no GPU readbacks; the stats read the same shape. */
+  readonly lastReadbacks = { count: 0, bytes: 0 };
+
   // Profiling (seconds of last step).
   lastStepTime = 0;
 
@@ -490,19 +493,6 @@ export class ParticleEngine {
     this.lastStepTime = (performance.now() - t0) / 1000;
   }
 
-  /** Total kinetic energy, useful for tests/debug. */
-  kineticEnergy(): number {
-    let e = 0;
-    for (let i = 0; i < this.count; i++) {
-      const vx = this.velocities[i * 3];
-      const vy = this.velocities[i * 3 + 1];
-      const vz = this.velocities[i * 3 + 2];
-      e += 0.5 * this.mass[i] * (vx * vx + vy * vy + vz * vz);
-    }
-    return e;
-  }
-
-  /** Mean distance from each particle to its target. */
   /**
    * Visit every living particle within `radius` of particle `i`.
    *
@@ -521,7 +511,7 @@ export class ParticleEngine {
     const y = positions[i * 3 + 1];
     const z = positions[i * 3 + 2];
     const r2 = radius * radius;
-    this.grid.forEachNeighbor(positions, x, y, z, (j) => {
+    this.grid.forEachNeighbor(x, y, z, (j) => {
       if (j === i || j >= this.count) return;
       const dx = positions[j * 3] - x;
       const dy = positions[j * 3 + 1] - y;

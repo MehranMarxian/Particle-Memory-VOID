@@ -1,6 +1,6 @@
 import { parsePly, normalizePly, plyToSource } from "./plyParser";
 import { sampleImage, type ImageDataLike } from "./imageSampler";
-import { sampleMesh } from "./meshSampler";
+import { collectMeshes, sampleMesh } from "./meshSampler";
 import { TARGET_WORLD_SIZE, type FlatSource, type SourceHandle, type SourceKind } from "./types";
 
 /** Which extensions belong to which source kind. Adding a format later = one entry here. */
@@ -120,7 +120,7 @@ export async function loadSource(
     root = new Mesh(geom, new MeshStandardMaterial());
   }
 
-  const meshes = (await import("./meshSampler")).collectMeshes(root);
+  const meshes = collectMeshes(root);
   let triangles = 0;
   for (const m of meshes) triangles += m.positions.length / 9;
   const hasVertexColors = meshes.some((m) => m.colors);

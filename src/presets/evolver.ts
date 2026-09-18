@@ -20,9 +20,14 @@ export interface TrialSample {
   endDistance: number;
   /** Mean particle speed sampled during the trial. */
   meanSpeed: number;
+  /** Fraction of the buffer still alive, when the ecology is being searched. */
+  population?: number;
+  /** Weight of the population term. Zero keeps the original fitness. */
+  populationWeight?: number;
 }
 
 import { clampPhenotype, nextPhenotypes, randomPhenotype, type Phenotype } from "./phenotype";
+import { clampEcologyGenes, nextEcologyPool, randomEcologyGenes, type EcologyGenes } from "./ecologyGenes";
 
 export interface EvolverOptions {
   /** Candidates per generation. */
@@ -38,6 +43,14 @@ export interface EvolverOptions {
    * Optional so a caller that predates the gene pool keeps working.
    */
   phenotype?: boolean;
+  /**
+   * Evolve the ecology genes (reach, kill, starve, reproduction) too. These are
+   * the first genes the search can score on their own terms, through the
+   * population term in the fitness.
+   */
+  ecology?: boolean;
+  /** Weight of the population term when ecology genes are being evolved. */
+  populationWeight?: number;
 }
 
 export const DEFAULT_EVOLVER_OPTIONS: EvolverOptions = {
@@ -46,6 +59,8 @@ export const DEFAULT_EVOLVER_OPTIONS: EvolverOptions = {
   mutation: 0.25,
   elite: 2,
   phenotype: false,
+  ecology: false,
+  populationWeight: 0.9,
 };
 
 /** Standard normal sample (Box-Muller) built on the supplied rng. */
@@ -119,7 +134,12 @@ export function nextPopulation(
  */
 export function trialFitness(sample: TrialSample): number {
   const progress = sample.startDistance - sample.endDistance;
-  return progress + sample.meanSpeed * 0.35;
+  const population = Math.min(1, Math.max(0, sample.population ?? 0));
+  const weight = Math.max(0, sample.populationWeight ?? 0);
+  // The population term is the only part of fitness that an ecology gene can
+  // move: an ecology that eats and breeds sustains itself, one that does not
+  // collapses. Scaled so a full swarm is worth a few units of progress.
+  return progress + sample.meanSpeed * 0.35 + population * weight * 4;
 }
 
 /** What the evolver needs from the app (everything else stays pure). */
@@ -127,6 +147,10 @@ export interface EvolverHost {
   applyGenome(genome: number[]): void;
   /** Called with the candidate's appearance genes while phenotype evolution is on. */
   applyPhenotype?(phenotype: Phenotype): void;
+  /** Called with the candidate's ecology genes while ecology evolution is on. */
+  applyEcology?(genes: EcologyGenes): void;
+  /** Fraction of the buffer alive, for the fitness population term. */
+  population?(): number;
   /** Mean distance from the particles to the memory, right now. */
   distance(): number;
   /** Mean particle speed, right now. */
@@ -154,6 +178,8 @@ export class Evolver {
   private championFitness: number | null = null;
   private phenotypes: Phenotype[] | null = null;
   private championPhenotype: Phenotype | null = null;
+  private ecologyPool: EcologyGenes[] | null = null;
+  private championEcology: EcologyGenes | null = null;
 
   constructor(
     private host: EvolverHost,
@@ -187,6 +213,11 @@ export class Evolver {
     return this.champion ? [...this.champion] : null;
   }
 
+  /** The champion's ecology genes, when ecology evolution is on. */
+  get bestEcology(): EcologyGenes | null {
+    return this.championEcology ? { ...this.championEcology } : null;
+  }
+
   /** The champion's appearance genes, when phenotype evolution is on. */
   get bestPhenotype(): Phenotype | null {
     return this.championPhenotype ? { hue: [...this.championPhenotype.hue], shape: [...this.championPhenotype.shape] } : null;
@@ -204,6 +235,12 @@ export class Evolver {
     if (this.phenotypes && this.championPhenotype) {
       this.phenotypes[0] = clampPhenotype(this.championPhenotype, this.species);
     }
+    this.ecologyPool = this.options.ecology
+      ? Array.from({ length: this.options.population }, () => randomEcologyGenes(this.rng))
+      : null;
+    if (this.ecologyPool && this.championEcology) {
+      this.ecologyPool[0] = clampEcologyGenes(this.championEcology);
+    }
     this.fitnesses = [];
     this.generationNumber = 0;
     this.beginTrial(0);
@@ -217,6 +254,7 @@ export class Evolver {
   stop(reapply = true): void {
     if (reapply && this.champion) this.host.applyGenome(this.champion);
     if (reapply && this.championPhenotype) this.host.applyPhenotype?.(this.championPhenotype);
+    if (reapply && this.championEcology) this.host.applyEcology?.(this.championEcology);
     this.population = [];
     this.fitnesses = [];
     this.index = 0;
@@ -235,6 +273,8 @@ export class Evolver {
       startDistance: this.startDistance,
       endDistance: this.host.distance(),
       meanSpeed: this.speedSamples > 0 ? this.speedSum / this.speedSamples : 0,
+      population: this.ecologyPool ? this.host.population?.() ?? 0 : 0,
+      populationWeight: this.ecologyPool ? this.options.populationWeight ?? 0.9 : 0,
     });
     if (this.index + 1 >= this.population.length) this.breed();
     else this.beginTrial(this.index + 1);
@@ -244,6 +284,7 @@ export class Evolver {
     this.index = index;
     this.host.applyGenome(this.population[index]);
     if (this.phenotypes) this.host.applyPhenotype?.(this.phenotypes[index]);
+    if (this.ecologyPool) this.host.applyEcology?.(this.ecologyPool[index]);
     this.startDistance = this.host.distance();
     this.speedSum = 0;
     this.speedSamples = 0;
@@ -257,12 +298,14 @@ export class Evolver {
       this.championFitness = score;
       this.champion = [...this.population[winner]];
       if (this.phenotypes) this.championPhenotype = clampPhenotype(this.phenotypes[winner], this.species);
+      if (this.ecologyPool) this.championEcology = clampEcologyGenes(this.ecologyPool[winner]);
     }
     this.generationNumber++;
     this.population = nextPopulation(this.population, this.fitnesses, this.rng, this.options);
     if (this.champion) this.population[0] = [...this.champion];
     // Appearance rides the same winner, so a champion looks unlike its ancestors.
     if (this.phenotypes) this.phenotypes = nextPhenotypes(this.phenotypes, winner, this.rng, this.options);
+    if (this.ecologyPool) this.ecologyPool = nextEcologyPool(this.ecologyPool, winner, this.rng, this.options);
     this.fitnesses = [];
     this.beginTrial(0);
   }

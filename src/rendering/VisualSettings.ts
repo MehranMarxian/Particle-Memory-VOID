@@ -21,12 +21,25 @@ export const COLOR_MODES: readonly ColorMode[] = ["monochrome", "source", "speci
 
 /**
  * What a GRADIENT is mapped across: a particle's own life cycle (AGE), its
- * distance from the camera (DEPTH), or its distance from the subject's centre
- * (RADIAL, which makes the ramp read as a volume rather than a plane).
+ * distance from the camera (DEPTH), its distance from the subject's centre
+ * (RADIAL, which makes the ramp read as a volume rather than a plane), or one
+ * of the two stigmergic fields (SCENT, where the swarm has been; HEAT, where it
+ * is working hardest right now).
  */
-export type GradientAxis = "age" | "depth" | "radial";
+export type GradientAxis = "age" | "depth" | "radial" | "scent" | "heat";
 
-export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial"];
+export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial", "scent", "heat"];
+
+/**
+ * Field axes are *baked* from the CPU-side fields rather than evaluated in the
+ * shader, because the fields live on the CPU and both engines keep the same
+ * copy. The renderer therefore leaves its gradient path off for these.
+ */
+export const FIELD_AXES: readonly GradientAxis[] = ["scent", "heat"];
+
+export function isFieldAxis(axis: GradientAxis): boolean {
+  return axis === "scent" || axis === "heat";
+}
 
 /** Sprite shape, resolved analytically in the fragment shader. */
 export type ParticleShape = "circle" | "box" | "triangle" | "ring" | "star";

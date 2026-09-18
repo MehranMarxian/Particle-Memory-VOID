@@ -3,19 +3,28 @@ import { ParticleEngine } from "@/particles/ParticleEngine";
 import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
-import { ParticleRenderer } from "@/rendering/ParticleRenderer";
+import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
 import { TrailPass } from "@/rendering/TrailPass";
 import {
   COLOR_MODES,
   defaultVisualSettings,
   GRADIENT_AXES,
+  isFieldAxis,
   PARTICLE_SHAPES,
   type ColorMode,
   type GradientAxis,
   type ParticleShape,
   type VisualSettings,
 } from "@/rendering/VisualSettings";
-import { nextColorMode, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
+import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import {
+  DEFAULT_CAMERA_CHOREOGRAPHY,
+  breatheOffset,
+  cameraPose,
+  clampCameraChoreography,
+  type CameraChoreography,
+} from "@/rendering/cameraChoreography";
 import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
 import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
 import {
@@ -25,6 +34,7 @@ import {
   type EcologyView,
 } from "@/ecology/ecologySystem";
 import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
+import { applyEcologyGenes } from "@/presets/ecologyGenes";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
@@ -41,11 +51,25 @@ import {
   applyPreset,
   applySnapshot,
   captureSnapshot,
+  presetSpeciesCount,
   type StateSnapshot,
 } from "@/presets/presets";
+import { createAlternateMatrix, DEFAULT_MATRIX_ROWS, setMatrixRows } from "@/presets/matrices";
+import { HintGate } from "@/ui/hintGate";
+import { carryLiveState } from "@/particles/carryState";
+import { FIXED_DT, scheduleSteps } from "@/app/stepper";
+import {
+  DENSITY_CEILING,
+  DENSITY_LEVELS,
+  DEFAULT_DENSITY_INDEX,
+  TOUCH_DENSITY_INDEX,
+  effectiveDensity,
+  wantsCpuBackend,
+} from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
+import { GestureTracker } from "@/input/touchGestures";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
@@ -75,6 +99,9 @@ import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcu
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
+  /** The two stigmergic fields, which the field ramp axis samples on the CPU. */
+  readonly scent: { sample(x: number, y: number, z: number): number; peak(): number };
+  readonly heat: { sample(x: number, y: number, z: number): number; peak(): number };
   count: number;
   positions: Float32Array;
   velocities: Float32Array;
@@ -85,6 +112,8 @@ interface SimEngine {
   renderState: Float32Array;
   lastStepTime: number;
   simTime: number;
+  /** Sync GPU readbacks the last step performed (the budget tripwire). */
+  readonly lastReadbacks: { count: number; bytes: number };
   configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
@@ -93,10 +122,12 @@ interface SimEngine {
   meanTargetDistance(): number;
 }
 
-const DENSITY_LEVELS = [4000, 8000, 12000, 20000, 32000, 50000];
+/** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
+const coarsePointer =
+  typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 // --- Global state --------------------------------------------------------
-let densityIndex = 2;
+let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
 let currentCount = DENSITY_LEVELS[densityIndex];
 let engine!: SimEngine;
 let engineMode: "auto" | "gpu" | "cpu" = "auto";
@@ -127,12 +158,13 @@ function persistNow(): void {
       lastSourceName,
       lastSourceUrl,
       activePreset,
+      camera: activeCamera,
     })
   );
 }
 
 function pushHistory(): void {
-  history.push(captureSnapshot(params, visual, matrix));
+  history.push(captureSnapshot(params, visual, matrix, activeCamera));
   if (history.length > 30) history.shift();
 }
 let particleRenderer: ParticleRenderer | null = null;
@@ -141,10 +173,7 @@ let currentSourceDetail = "synthetic memory";
 let pendingHandle: SourceHandle | null = null;
 
 const matrix = new InteractionMatrix(4);
-matrix.setRow(0, [-0.5, 0.6, -0.3, 0.2]);
-matrix.setRow(1, [0.6, -0.7, 0.4, -0.2]);
-matrix.setRow(2, [-0.3, 0.4, -0.6, 0.7]);
-matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
+setMatrixRows(matrix, DEFAULT_MATRIX_ROWS);
 
 const params = defaultEngineParams();
 params.life.attraction = 1.0;
@@ -164,6 +193,8 @@ let lookSeed = 1;
 let lastLookMode = "";
 /** The source's own radius, measured once per source (RADIAL ramp only). */
 let subjectRadius = 1;
+/** Frames since a field ramp was last re-baked (see the tick in the render). */
+let fieldTintTick = 0;
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
 
@@ -241,8 +272,18 @@ function stepEcology(dt: number): void {
       },
     },
     neighbors: (i, radius, visit) => (engine as ParticleEngine).forEachNeighbor(i, radius, visit),
-    // Spent particles (life near 0) carry the age risk; newborns do not.
-    ageOf: (i) => 1 - (particleRenderer?.lifeBuffer[i] ?? 1),
+    // Age as the life cycle defines it: 0 at birth, 1 spent. This used to
+    // read the renderer's life buffer, which tied an ecology concept to a
+    // rendering buffer: all 1s whenever the life cycle is off (so nothing
+    // ever died of age) and above 1 for newborns (so ageOf went negative).
+    ageOf: (i) =>
+      params.lifecycle.enabled
+        ? Math.min(
+            1,
+            sampleLife(i, engine.simTime, params.lifecycle, FIXED_DT).age /
+              Math.max(1, params.lifecycle.lifespan)
+          )
+        : 0,
     rng: Math.random,
     drive: ecologyDrive,
   });
@@ -250,6 +291,65 @@ function stepEcology(dt: number): void {
   particleRenderer?.setCount(view.count);
   particleRenderer?.markLifeDirty();
   applyLook();
+}
+
+/** One code path for changing the species count: engine, look, phenotype. */
+function applySpeciesCount(n: number): void {
+  abandonEvolution();
+  speciesCount = n;
+  engine.setSpeciesCount(matrix, n);
+  phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
+  applyLook();
+}
+
+/**
+ * Bake the per-particle colours for the current look settings.
+ *
+ * Split from the shape bake so the field-tint refresh (a low-rate tick) can
+ * re-bake colours alone: the shapes did not change since the last look
+ * change, and a full-buffer rewrite per tick is ms the weak machines do not
+ * have.
+ */
+function applyLookColors(): void {
+  if (!particleRenderer) return;
+  const mode = visual.colorMode;
+  if (mode === "species") {
+    writeSpeciesColors(engine.colors, engine.count, speciesCount, undefined, phenotypeLook?.hue);
+  } else if (mode === "random") {
+    if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
+    writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (mode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+    // Field tints are baked from the CPU-side fields, so both backends look the
+    // same and no new texture has to reach the shader.
+    const field = visual.gradientAxis === "heat" ? engine.heat : engine.scent;
+    writeFieldTintColors(
+      engine.colors,
+      engine.positions,
+      engine.count,
+      field,
+      paletteStops(visual.gradientPalette),
+      fieldTintScale(field.peak())
+    );
+  } else if (sourceColors) {
+    // Count-scoped, deliberately: the GPU engine's colour buffer is
+    // texture-padded (texW*texH >= count) while the CPU engine's is exactly
+    // count, so a full-buffer set threw RangeError on the first look bake
+    // after every backend switch - and left the new renderer's points out
+    // of the scene, a black canvas.
+    engine.colors.set(sourceColors.subarray(0, Math.min(sourceColors.length, engine.count * 3)));
+  }
+  lastLookMode = mode;
+  particleRenderer.markColorsDirty();
+}
+
+/** Bake the per-particle sprite shapes (uniform, or one per species). */
+function applyLookShapes(): void {
+  if (!particleRenderer) return;
+  if (visual.shapeBySpecies) {
+    writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
+  }
+  else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
+  particleRenderer.markShapesDirty();
 }
 
 /**
@@ -260,23 +360,8 @@ function stepEcology(dt: number): void {
  * colours, so nothing here costs anything at render time.
  */
 function applyLook(): void {
-  if (!particleRenderer) return;
-  const mode = visual.colorMode;
-  if (mode === "species") {
-    writeSpeciesColors(engine.colors, engine.count, speciesCount, undefined, phenotypeLook?.hue);
-  } else if (mode === "random") {
-    if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
-    writeRandomColors(engine.colors, engine.count, lookSeed);
-  } else if (sourceColors) {
-    engine.colors.set(sourceColors);
-  }
-  lastLookMode = mode;
-  if (visual.shapeBySpecies) {
-    writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
-  }
-  else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
-  particleRenderer.markColorsDirty();
-  particleRenderer.markShapesDirty();
+  applyLookColors();
+  applyLookShapes();
 }
 
 // --- Default source: tilted torus (the synthetic "memory") ---------------
@@ -368,7 +453,10 @@ function buildFromSource(sample: FlatSource): void {
 
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
-  if (engineMode !== "cpu") {
+  // Auto follows the density policy: on a touch-primary device at low
+  // density the CPU engine wins, because the GPU path pays three
+  // synchronous readbacks a frame whatever the workload.
+  if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
     try {
       next = createGpuEngine(sample, count, seed, rng);
       backend = "gpu";
@@ -398,7 +486,14 @@ function buildFromSource(sample: FlatSource): void {
     engine.renderState,
     engine.velocities
   );
-  sourceColors = new Float32Array(engine.colors);
+  if (backend === "gpu" && "getPositionTexture" in next) {
+    // The readback-free render path: vertices sample the compute textures.
+    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
+  }
+  // Count-scoped like every consumer: a backend switch builds the new engine
+  // at the live count with a different capacity, and the pristine copy must
+  // follow the count, not the buffer it was captured from.
+  sourceColors = engine.colors.slice(0, engine.count * 3);
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
@@ -420,18 +515,19 @@ function guessKindLabel(): string {
 
 function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   engineMode = mode;
-  // Rebuild from the current targets so the memory survives the switch.
+  // Rebuild from the current targets so the memory survives the switch, and
+  // from the source's own colours: engine.colors holds the last *baked*
+  // look, so sampling from it would turn COLOR SOURCE into whatever mode
+  // was active. sourceColors is the pristine copy buildFromSource kept.
+  const pristine = sourceColors ?? engine.colors;
   const sample: FlatSource = {
     count: engine.count,
     positions: engine.targets.slice(),
-    colors: engine.colors.slice(),
+    colors: pristine.slice(0, engine.count * 3),
     normals: new Float32Array(engine.count * 3),
     weights: new Float32Array(engine.count),
   };
-  // Current positions (mid-life) are kept: copy live state, not a rebirth.
   const old = engine;
-  const oldPositions = engine.positions.slice();
-  const oldMemory = engine.memoryPerParticle.slice();
   const seed = (Math.random() * 1e9) | 0;
   const rng = mulberry32(seed ^ 0x9e3779b9);
   let next: SimEngine;
@@ -448,8 +544,10 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   } else {
     next = createCpuEngine(sample, engine.count, seed, rng);
   }
-  next.positions.set(oldPositions);
-  next.memoryPerParticle.set(oldMemory);
+  // Live state is carried, not reborn: positions, velocities, per-particle
+  // memory, organism clocks and the simulation clock, so the swarm does not
+  // screech to a halt on every G.
+  carryLiveState(old, next);
   next.configureGrid(params);
   if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
   if ("dispose" in old) (old as unknown as { dispose: () => void }).dispose();
@@ -466,11 +564,26 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
     engine.renderState,
     engine.velocities
   );
-  sourceColors = new Float32Array(engine.colors);
+  if (backend === "gpu" && "getPositionTexture" in next) {
+    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
+  }
+  // sourceColors stays untouched: it still describes this source, and
+  // re-deriving it from engine.colors would capture whatever look
+  // applyLook baked last.
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
-  flashHint(`SIM BACKEND: ${backend.toUpperCase()}`, 4);
+  // The backend toggle is an explicit override, so the count is kept rather
+  // than clamped to the ceiling - clamping would resample the memory and
+  // crop it. The cost is said out loud instead, and the scheduler keeps the
+  // piece alive in slow motion until the density comes down.
+  const ceiling = DENSITY_CEILING[backend];
+  flashHint(
+    engine.count > ceiling
+      ? `SIM BACKEND: ${backend.toUpperCase()} AT ${engine.count.toLocaleString()} - PAST ITS ${ceiling.toLocaleString()} REAL-TIME CEILING, SO IT RUNS SLOW`
+      : `SIM BACKEND: ${backend.toUpperCase()}`,
+    5
+  );
 }
 
 // --- Scene -----------------------------------------------------------------
@@ -505,31 +618,59 @@ const visual: VisualSettings = defaultVisualSettings();
   const dof = search.get("dof");
   if (dof !== null) visual.dof = dof === "0" ? 0 : Math.min(1, Math.max(0, Number(dof) || 0.25));
 }
-const trailPass = new TrailPass(
-  renderer3d,
-  Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
-  Math.floor(window.innerHeight * renderer3d.getPixelRatio())
-);
+// Full-DPR trail afterimages are a desktop luxury: on a touch-primary device
+// the render-target pair is the biggest memory resident in the tab, and at
+// 1.5x the difference is invisible on a small screen.
+const TRAIL_DPR_CAP_TOUCH = 1.5;
+
+function trailPixelRatio(): number {
+  const dpr = renderer3d.getPixelRatio();
+  return coarsePointer ? Math.min(dpr, TRAIL_DPR_CAP_TOUCH) : dpr;
+}
+
+function trailSize(): { w: number; h: number } {
+  return {
+    w: Math.floor(window.innerWidth * trailPixelRatio()),
+    h: Math.floor(window.innerHeight * trailPixelRatio()),
+  };
+}
+
+const trailPass = new TrailPass(renderer3d, trailSize().w, trailSize().h);
 
 let azimuth = 0;
 let elevation = 0.5;
 let radius = 17;
-let dragging = false;
-let lastX = 0;
-let lastY = 0;
+// The screensaver camera, as data: the active preset's choreography merged
+// over today's default motion (see cameraChoreography). The editor keeps
+// its own slow orbit and the user's radius.
+const activeCamera: CameraChoreography = { ...DEFAULT_CAMERA_CHOREOGRAPHY };
+// Where the ghost hand is while the screensaver plays, for the recorded path.
+let ghostNdc: { x: number; y: number } | null = null;
+// The camera orbits a target; two-finger pan moves the target in the
+// camera's own plane. The screensaver resets it to the subject.
+const cameraTarget = new THREE.Vector3();
+const pendingPan = { x: 0, y: 0 };
+// The gesture layer: one finger orbits, two pinch and pan, a touch-and-hold
+// becomes the pointer force, and the mouse keeps every behaviour it had.
+const gestures = new GestureTracker();
+
 renderer3d.domElement.addEventListener("pointerdown", (e) => {
-  dragging = true;
-  lastX = e.clientX;
-  lastY = e.clientY;
+  gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.pointerType, performance.now());
 });
-window.addEventListener("pointerup", () => (dragging = false));
 window.addEventListener("pointermove", (e) => {
-  if (!dragging) return;
-  azimuth -= (e.clientX - lastX) * 0.005;
-  elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
-  lastX = e.clientX;
-  lastY = e.clientY;
+  gestures.pointerMove(e.pointerId, e.clientX, e.clientY, performance.now());
+  if (e.pointerType !== "mouse") return;
+  // The mouse's hover is the touch: recorded for the screensaver's ghost,
+  // and mapped into the scene for the pointer force.
+  const rect = renderer3d.domElement.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
+  pointerNdc = { x, y };
+  pointerInfluence.touch();
+  pointerTrack.record(performance.now() / 1000, x, y);
 });
+window.addEventListener("pointerup", (e) => gestures.pointerUp(e.pointerId));
+window.addEventListener("pointercancel", (e) => gestures.pointerUp(e.pointerId));
 renderer3d.domElement.addEventListener("wheel", (e) => {
   radius = Math.max(3, Math.min(40, radius * (1 + Math.sign(e.deltaY) * 0.1)));
 });
@@ -549,7 +690,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     matrix.resize(n);
     for (let a = 0; a < n; a++)
       for (let b = 0; b < n; b++) matrix.set(a, b, cfg.matrix[a * n + b]);
-    currentCount = Math.min(200000, Math.max(500, cfg.currentCount));
+    currentCount = Math.min(50000, Math.max(1000, cfg.currentCount));
     densityIndex = DENSITY_LEVELS.indexOf(
       DENSITY_LEVELS.reduce((a2, b2) => (Math.abs(b2 - currentCount) < Math.abs(a2 - currentCount) ? b2 : a2))
     );
@@ -564,12 +705,14 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     params.scent = { ...fresh.scent, ...(cfg.params.scent ?? {}) };
     if (cfg.params.wander !== undefined) params.wander = cfg.params.wander;
     if (cfg.params.phaseCoupling !== undefined) params.phaseCoupling = cfg.params.phaseCoupling;
+    // v1 configs predate the camera and hydrate to the default motion.
+    Object.assign(activeCamera, clampCameraChoreography({ ...DEFAULT_CAMERA_CHOREOGRAPHY, ...(cfg.camera ?? {}) }));
   }
 }
 {
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
-  if (Number.isFinite(countParam) && countParam >= 500 && countParam <= 200000) {
+  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= 50000) {
     currentCount = Math.round(countParam);
     densityIndex = DENSITY_LEVELS.indexOf(
       DENSITY_LEVELS.reduce((a, b) => (Math.abs(b - currentCount) < Math.abs(a - currentCount) ? b : a))
@@ -610,13 +753,16 @@ function rememberSource(file: File): void {
 let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
-let hintTimer = 0;
-let hintSticky = false;
+
+// A sticky hint (a runtime error) must not be shouted over by routine
+// messages, but it must also expire: latching it until reload muted the
+// hint line for the rest of the session.
+const hintGate = new HintGate();
 
 function flashHint(text: string, seconds = 4, sticky = false): void {
-  // Sticky hints (errors) are never overwritten by routine messages.
-  if (hintSticky && !sticky) return;
-  hintSticky = sticky;
+  const now = performance.now();
+  if (!hintGate.allows(now, sticky)) return;
+  if (sticky) hintGate.hold(seconds, now);
   panelApi?.setHint(text, seconds, sticky);
 }
 
@@ -770,15 +916,27 @@ window.addEventListener("drop", (e) => {
 });
 
 // Density keys rebuild from the current source handle (or the torus).
+
+/** The backend that will run a build at this density, per the current mode. */
+function backendForCount(count: number): "gpu" | "cpu" {
+  return wantsCpuBackend(engineMode, count, coarsePointer) ? "cpu" : "gpu";
+}
+
 function setDensity(index: number): void {
   densityIndex = Math.max(0, Math.min(DENSITY_LEVELS.length - 1, index));
-  currentCount = DENSITY_LEVELS[densityIndex];
+  const requested = DENSITY_LEVELS[densityIndex];
+  currentCount = effectiveDensity(requested, backendForCount(requested));
   if (pendingHandle) {
     void adoptHandle(pendingHandle);
   } else {
     buildFromSource(makeTorusSource(currentCount));
   }
-  flashHint(`DENSITY: ${currentCount.toLocaleString()} PARTICLES`, 3);
+  flashHint(
+    currentCount < requested
+      ? `DENSITY CAPPED: ${currentCount.toLocaleString()} - THE CPU BACKEND'S REAL-TIME LIMIT (PRESS G FOR GPU)`
+      : `DENSITY: ${currentCount.toLocaleString()} PARTICLES`,
+    4
+  );
 }
 
 // --- The touch: pointer force, and the hand VOID remembers ---------------------
@@ -818,8 +976,33 @@ function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: nu
 }
 
 function updateTouch(dt: number): void {
+  // Consume the gesture layer first: orbit, pinch zoom, two-finger pan,
+  // and the touch-hold that becomes the pointer force.
+  const g = gestures.take(performance.now());
+  if (g.orbitDx !== 0 || g.orbitDy !== 0) {
+    azimuth -= g.orbitDx * 0.005;
+    elevation = Math.max(-1.4, Math.min(1.4, elevation + g.orbitDy * 0.005));
+  }
+  if (g.zoom !== 1) {
+    radius = Math.max(3, Math.min(40, radius / g.zoom));
+  }
+  if (g.panDx !== 0 || g.panDy !== 0) {
+    pendingPan.x += g.panDx;
+    pendingPan.y += g.panDy;
+  }
   pointerInfluence.tick(dt);
   let ndc = pointerNdc;
+  if (g.hold && !saver.active) {
+    // A finger held still is the touch: the swarm leans toward it, and the
+    // hold joins the recorded hand the screensaver's ghost replays.
+    const rect = renderer3d.domElement.getBoundingClientRect();
+    ndc = {
+      x: ((g.hold.x - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+      y: -(((g.hold.y - rect.top) / Math.max(1, rect.height)) * 2 - 1),
+    };
+    pointerInfluence.touch();
+    pointerTrack.record(performance.now() / 1000, ndc.x, ndc.y);
+  }
   if (saver.active) {
     // Real input would end the screensaver, so play back the recorded hand.
     if (!pointer.ghost) {
@@ -829,6 +1012,7 @@ function updateTouch(dt: number): void {
     ghostClock += dt;
     ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
     pointerInfluence.touch();
+    ghostNdc = ndc; // the recorded path leans the camera toward the hand
   }
   const strength = pointer.strength * pointerInfluence.current;
   if (!ndc || strength <= 0.0001) {
@@ -846,7 +1030,7 @@ function updateTouch(dt: number): void {
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
 // reconstructing the memory and staying alive. Stopping keeps the champion.
-const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false };
+const evolve = { enabled: false, population: 8, trialSeconds: 6, mutation: 0.25, elite: 2, phenotype: false, ecology: false };
 
 function sampledMeanSpeed(): number {
   const velocities = engine.velocities;
@@ -871,12 +1055,18 @@ const evolver = new Evolver(
       matrix.resize(n);
       for (let a = 0; a < n; a++) matrix.setRow(a, genome.slice(a * n, a * n + n));
       activeMatrix = matrix;
-      matrixIndex = 0;
     },
     applyPhenotype(phenotype) {
       phenotypeLook = clampPhenotype(phenotype, speciesCount);
       applyLook();
     },
+    applyEcology(genes) {
+      // Ecology genes are scored through the population term, so the search
+      // reaches parameters the matrix alone could never move.
+      Object.assign(ecologyParams, applyEcologyGenes(ecologyParams, genes));
+      panelApi?.refresh();
+    },
+    population: () => engine.count / Math.max(1, (engine as ParticleEngine).capacity),
     distance: () => engine.meanTargetDistance(),
     speed: () => sampledMeanSpeed(),
   },
@@ -1025,8 +1215,17 @@ const shortcutCtx: ShortcutContext = {
   },
   cycleMatrix: () => {
     abandonEvolution();
-    matrixIndex = (matrixIndex + 1) % matrices.length;
-    activeMatrix = matrices[matrixIndex];
+    // H swaps between the main matrix and the alternate; the alternate is
+    // (re)built at the live species count so it can never be smaller than
+    // the swarm reading it.
+    if (activeMatrix === matrix) {
+      if (!altMatrix || altMatrix.speciesCount !== speciesCount) {
+        altMatrix = createAlternateMatrix(speciesCount);
+      }
+      activeMatrix = altMatrix;
+    } else {
+      activeMatrix = matrix;
+    }
   },
   randomizeMatrix: () => {
     abandonEvolution();
@@ -1062,16 +1261,11 @@ window.addEventListener("keydown", (e) => {
   handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
 });
 
-const matrices = [matrix];
-{
-  const alt = new InteractionMatrix(4);
-  alt.setRow(0, [-0.5, 0.7, -0.2, 0.4]);
-  alt.setRow(1, [0.7, -0.3, 0.6, 0.0]);
-  alt.setRow(2, [-0.2, 0.6, 0.5, -0.6]);
-  alt.setRow(3, [0.4, 0.0, -0.6, 0.3]);
-  matrices.push(alt);
-}
-let matrixIndex = 0;
+// Touch has no keyboard: the guide's key chips dispatch through the same
+// handleKey path, so the shortcuts stay reachable from any device.
+guide.bindShortcuts(shortcutCtx);
+
+let altMatrix: InteractionMatrix | null = null;
 let activeMatrix = matrix;
 
 // --- Source at boot: an explicit ?src=, the installed screensaver, or the memory
@@ -1129,12 +1323,23 @@ let activeMatrix = matrix;
     soundscape,
     evolve,
     pointer,
+    backend: () => activeBackend,
     callbacks: {
+      onBackendToggle() {
+        switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
+      },
       onDensityChange(count) {
-        currentCount = count;
+        const capped = effectiveDensity(count, backendForCount(count));
+        currentCount = capped;
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeTorusSource(currentCount));
-        flashHint(`DENSITY: ${count.toLocaleString()} PARTICLES`, 3);
+        panelApi?.setCount(currentCount);
+        flashHint(
+          capped < count
+            ? `DENSITY CAPPED: ${capped.toLocaleString()} - THE CPU BACKEND'S REAL-TIME LIMIT (PRESS G FOR GPU)`
+            : `DENSITY: ${capped.toLocaleString()} PARTICLES`,
+          4
+        );
       },
       onAddSource() {
         fileInput.click();
@@ -1148,11 +1353,22 @@ let activeMatrix = matrix;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
-        if (applyPreset(def, params, visual, matrix)) {
+        if (applyPreset(def, params, visual, matrix, ecologyParams, activeCamera)) {
           matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
         }
+        // A preset that resizes the matrix owns the species count; without
+        // this sync, species past the matrix read out of range and the NaN
+        // spreads through the neighbour pass until the whole swarm dies.
+        const n = presetSpeciesCount(def);
+        if (n !== speciesCount) applySpeciesCount(n);
+        // A preset owns the matrix: an alternate (H) yields.
+        activeMatrix = matrix;
         engine.configureGrid(params);
         applyLook();
+        if (ecologyParams.enabled) {
+          installEcology();
+          if (activeBackend !== "cpu") flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+        }
         panelApi?.refresh();
         panelApi?.setActivePreset(name);
         panelApi?.setCount(currentCount);
@@ -1165,6 +1381,7 @@ let activeMatrix = matrix;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
         randomizeParams(params, matrix, (Math.random() * 1e9) | 0);
+        Object.assign(activeCamera, DEFAULT_CAMERA_CHOREOGRAPHY);
         engine.configureGrid(params);
         panelApi?.refresh();
         panelApi?.setActivePreset(null);
@@ -1177,7 +1394,7 @@ let activeMatrix = matrix;
           flashHint("NOTHING TO UNDO", 2);
           return;
         }
-        applySnapshot(snap, params, visual, matrix);
+        applySnapshot(snap, params, visual, matrix, activeCamera);
         applyLook();
         engine.configureGrid(params);
         activePreset = null;
@@ -1209,18 +1426,18 @@ let activeMatrix = matrix;
         params.turbulence = 0.02;
         params.drift = 0;
         params.gravity = 0;
-        matrix.resize(4);
-        matrix.setRow(0, [-0.5, 0.6, -0.3, 0.2]);
-        matrix.setRow(1, [0.6, -0.7, 0.4, -0.2]);
-        matrix.setRow(2, [-0.3, 0.4, -0.6, 0.7]);
-        matrix.setRow(3, [0.2, -0.2, 0.7, -0.5]);
+        setMatrixRows(matrix, DEFAULT_MATRIX_ROWS);
         activeMatrix = matrix;
-        matrixIndex = 0;
+        // The default state is four species: without this sync, species past
+        // the 4x4 matrix read out of range — the same defect the presets
+        // suffered, reachable through RESET.
+        if (speciesCount !== 4) applySpeciesCount(4);
+        Object.assign(activeCamera, DEFAULT_CAMERA_CHOREOGRAPHY);
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
-        currentCount = DENSITY_LEVELS[2];
-        densityIndex = 2;
+        densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
+        currentCount = DENSITY_LEVELS[densityIndex];
         engine.configureGrid(params);
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeTorusSource(currentCount));
@@ -1243,12 +1460,11 @@ let activeMatrix = matrix;
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
       },
+      onScreensaver() {
+        void toggleScreensaver();
+      },
       onSpeciesChange(n) {
-        abandonEvolution();
-        speciesCount = n;
-        engine.setSpeciesCount(matrix, n);
-        phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
-        applyLook();
+        applySpeciesCount(n);
         flashHint(`SPECIES: ${n}`, 2);
       },
       onUserInteraction() {
@@ -1284,15 +1500,6 @@ let activeMatrix = matrix;
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
-  {
-    // SCREENSAVER action — same grid as the other actions.
-    const actions = panelApi.element.querySelectorAll("#panel .btn-grid")[1];
-    const b = document.createElement("button");
-    b.className = "act";
-    b.textContent = "SCREENSAVER";
-    b.addEventListener("click", () => void toggleScreensaver());
-    actions.appendChild(b);
-  }
 }
 
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
@@ -1310,7 +1517,7 @@ if (introPlan === "guide") {
 } else if (introPlan === "nudge") {
   window.setTimeout(() => {
     if (saver.active) return;
-    flashHint("PRESS ? FOR CONTROLS", 6);
+    flashHint(coarsePointer ? "TAP ? FOR CONTROLS" : "PRESS ? FOR CONTROLS", 6);
   }, 2400);
 }
 
@@ -1322,6 +1529,9 @@ let splashGone = false;
 const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
+  cameraTarget.set(0, 0, 0);
+  pendingPan.x = 0;
+  pendingPan.y = 0;
   guide.close();
   memory.active = memory.auto = true;
   persistNow();
@@ -1375,7 +1585,6 @@ document.addEventListener("visibilitychange", () => {
 
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
-const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
 function frame(now: number): void {
@@ -1394,7 +1603,11 @@ function frameInner(now: number): void {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   accumulator += dt;
-  while (accumulator >= FIXED_DT) {
+  // Fixed steps, capped catch-up: when the machine cannot keep up, the
+  // scheduler sheds the backlog and the piece runs in slow motion instead
+  // of doing six 50 ms steps a frame until the tab freezes.
+  const { steps, residual } = scheduleSteps(accumulator);
+  for (let s = 0; s < steps; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
@@ -1403,8 +1616,8 @@ function frameInner(now: number): void {
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     stepEcology(FIXED_DT);
-    accumulator -= FIXED_DT;
   }
+  accumulator = residual;
 
   updateTouch(dt);
   // Life cycle: derive the per-particle life the renderer uses, from the same
@@ -1425,26 +1638,56 @@ function frameInner(now: number): void {
   }
 
   evolver.tick(dt);
-  azimuth += dt * (saver.active ? 0.035 : 0.02);
-  // In screensaver the camera slowly dollies in and out — a long breath.
+  azimuth += dt * (saver.active ? activeCamera.orbitSpeed * activeCamera.orbitDirection : 0.02);
+  let radiusNow = radius;
+  let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
+  let azimuthNow = azimuth;
   if (saver.active) {
-    radius = 15.5 + 4.5 * Math.sin(now * 0.00004 * Math.PI * 2);
+    // In screensaver the camera follows the active preset's choreography:
+    // the dolly breath, and (by path) the figure8 weave or the lean toward
+    // the recorded hand. Defaults reproduce the authored motion exactly.
+    const pose = cameraPose(activeCamera, now / 1000, azimuth, elevation, ghostNdc);
+    azimuthNow = pose.azimuth;
+    elevationNow = pose.elevation;
+    radius = pose.radius;
+    radiusNow = pose.radius;
   }
-  // Slow vertical breathing on top of user elevation — the camera drifts
-  // like a held breath rather than a turntable.
-  const breathe = Math.sin(now * 0.00012) * 0.05;
   camera.position.set(
-    radius * Math.cos(elevation + breathe) * Math.sin(azimuth),
-    radius * Math.sin(elevation + breathe),
-    radius * Math.cos(elevation + breathe) * Math.cos(azimuth)
+    cameraTarget.x + radiusNow * Math.cos(elevationNow) * Math.sin(azimuthNow),
+    cameraTarget.y + radiusNow * Math.sin(elevationNow),
+    cameraTarget.z + radiusNow * Math.cos(elevationNow) * Math.cos(azimuthNow)
   );
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(cameraTarget);
+  // Two-finger pan moves the target in the camera's own plane, applied here
+  // so the basis is the frame's fresh orientation.
+  if (pendingPan.x !== 0 || pendingPan.y !== 0) {
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    const worldPerPx =
+      (2 * radius * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, window.innerHeight);
+    cameraTarget
+      .addScaledVector(right, -pendingPan.x * worldPerPx)
+      .addScaledVector(up, pendingPan.y * worldPerPx);
+    pendingPan.x = 0;
+    pendingPan.y = 0;
+  }
 
   particleRenderer?.update();
   particleRenderer?.markStateDirty();
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
   const effective = { ...visual };
+  // A ramp that follows a live field has to be refreshed, but the bake is
+  // not free: colours only, at a low rate - lower still on touch, where the
+  // tick competes with a much smaller frame budget.
+  if (visual.colorMode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+    if (++fieldTintTick >= fieldTintRefreshFrames(coarsePointer)) {
+      fieldTintTick = 0;
+      applyLookColors();
+    }
+  } else {
+    fieldTintTick = 0;
+  }
   if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {
@@ -1452,7 +1695,7 @@ function frameInner(now: number): void {
     soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
     if (ecologyParams.audioReactive) {
-      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity);
+      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity, dt);
       ecologyDrive = mapped.drive;
       ecologyOnset = mapped.state;
     }
@@ -1493,17 +1736,12 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
-      `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`
+      (coarsePointer
+        ? `guide: the ? button - tap any key in it to run it`
+        : `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`)
     );
-  }
-  if (hintTimer > 0) {
-    hintTimer -= dt;
-    if (hintTimer <= 0) {
-      hintSticky = false;
-      panelApi?.clearHint();
-    }
   }
 }
 requestAnimationFrame(frame);
@@ -1520,8 +1758,6 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer3d.setSize(window.innerWidth, window.innerHeight);
-  trailPass.setSize(
-    Math.floor(window.innerWidth * renderer3d.getPixelRatio()),
-    Math.floor(window.innerHeight * renderer3d.getPixelRatio())
-  );
+  const trail = trailSize();
+  trailPass.setSize(trail.w, trail.h);
 });

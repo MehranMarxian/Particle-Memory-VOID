@@ -19,7 +19,7 @@ describe("SpatialGrid", () => {
     const grid = new SpatialGrid([-10, -10, -10], [10, 10, 10], 1);
     grid.build(pos, 4);
     const found: number[] = [];
-    grid.forEachNeighbor(pos, 0, 0, 0, (i) => { found.push(i); });
+    grid.forEachNeighbor(0, 0, 0, (i) => { found.push(i); });
     expect(found.sort()).toEqual([0, 1, 2]);
   });
 
@@ -37,7 +37,7 @@ describe("SpatialGrid", () => {
       const qy = (rng() - 0.5) * 10;
       const qz = (rng() - 0.5) * 10;
       const found = new Set<number>();
-      grid.forEachNeighbor(pos, qx, qy, qz, (i) => { found.add(i); });
+      grid.forEachNeighbor(qx, qy, qz, (i) => { found.add(i); });
       // Expect every particle within distance 1 to be found (3x3x3 cells
       // around the query cover a radius of at least 1 cell = 1 unit).
       for (let i = 0; i < count; i++) {
@@ -59,7 +59,7 @@ describe("SpatialGrid", () => {
     const grid = new SpatialGrid([-10, -10, -10], [10, 10, 10], 1);
     grid.build(pos, 2);
     const a: number[] = [];
-    grid.forEachNeighbor(pos, 100, 100, 100, (i) => { a.push(i); });
+    grid.forEachNeighbor(100, 100, 100, (i) => { a.push(i); });
     expect(a).toContain(0);
   });
 });

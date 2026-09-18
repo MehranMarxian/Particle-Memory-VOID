@@ -30,6 +30,12 @@ describe("screensaver exit decision", () => {
     expect(exitRequested({ type: "mousemove", dx: 10, dy: MOVE_THRESHOLD_PX }, t, T0)).toBe(true);
   });
 
+  it("a touch drag (pointermove) ends it, a resting finger does not", () => {
+    const t = T0 + GRACE_MS + 5;
+    expect(exitRequested({ type: "pointermove", dx: 30, dy: 0 }, t, T0)).toBe(true);
+    expect(exitRequested({ type: "pointermove", dx: 2, dy: 2 }, t, T0)).toBe(false);
+  });
+
   it("threshold is respected exactly", () => {
     const t = T0 + GRACE_MS + 5;
     const at = exitRequested({ type: "mousemove", dx: MOVE_THRESHOLD_PX, dy: 0 }, t, T0);

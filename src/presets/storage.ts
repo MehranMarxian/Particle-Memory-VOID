@@ -1,17 +1,21 @@
 import type { EngineParams } from "@/types";
 import type { VisualSettings } from "@/rendering/VisualSettings";
+import type { CameraChoreography } from "@/rendering/cameraChoreography";
 import { structuredCloneSafe, type StateSnapshot } from "./presets";
 
 /**
  * Local configuration persistence (spec §21). localStorage only — no
  * server, no account, no telemetry. The stored blob is the whole
  * instrument state so the screensaver can boot from exactly this shape.
+ *
+ * Version 2 adds the camera choreography; version 1 files still load (the
+ * camera hydrates to the default motion).
  */
 
 const KEY = "void-particle-memory.config.v1";
 
 export interface StoredConfig {
-  version: 1;
+  version: 2;
   params: EngineParams;
   visual: VisualSettings;
   matrix: number[];
@@ -21,6 +25,7 @@ export interface StoredConfig {
   lastSourceName: string | null;
   lastSourceUrl: string | null;
   activePreset: string | null;
+  camera?: CameraChoreography;
 }
 
 export interface Storage {
@@ -41,9 +46,10 @@ export function loadConfig(storage: Storage = safeLocalStorage()): StoredConfig 
   try {
     const raw = storage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredConfig;
-    if (parsed.version !== 1) return null;
-    return parsed;
+    // v1 files predate the camera; they hydrate with the default motion.
+    const parsed = JSON.parse(raw) as { version?: number };
+    if (parsed.version !== 1 && parsed.version !== 2) return null;
+    return parsed as unknown as StoredConfig;
   } catch {
     return null;
   }
@@ -83,9 +89,10 @@ export function toStoredConfig(opts: {
   lastSourceName: string | null;
   lastSourceUrl: string | null;
   activePreset: string | null;
+  camera?: CameraChoreography;
 }): StoredConfig {
   return {
-    version: 1,
+    version: 2,
     params: structuredCloneSafe(opts.params),
     visual: { ...opts.visual },
     matrix: [...opts.matrix],
@@ -95,6 +102,7 @@ export function toStoredConfig(opts: {
     lastSourceName: opts.lastSourceName,
     lastSourceUrl: opts.lastSourceUrl,
     activePreset: opts.activePreset,
+    camera: opts.camera ? { ...opts.camera } : undefined,
   };
 }
 

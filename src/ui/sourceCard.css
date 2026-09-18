@@ -87,6 +87,21 @@
   align-items: flex-start;
   gap: 10px;
 }
+/* The collapsed chip: a memory's face and name, tappable. */
+#source-card.chip .sc-inner {
+  padding: 8px 12px;
+}
+#source-card.chip .sc-thumb {
+  width: 28px;
+  height: 28px;
+}
+#source-card.chip .sc-meta {
+  align-items: center;
+  cursor: pointer;
+}
+#source-card.chip .sc-name {
+  margin-bottom: 2px;
+}
 #source-card .sc-thumb {
   display: none;
   flex: 0 0 auto;
@@ -146,12 +161,13 @@
 #source-card .sc-status .sc-error {
   color: #c96a6a;
 }
-/* Small screens: widen but stay usable */
+/* Small screens: the card docks at the top — the panel owns the bottom. */
 @media (max-width: 560px) {
   #source-card {
     width: calc(100vw - 32px);
     left: 16px;
-    bottom: 10px;
+    top: 10px;
+    bottom: auto;
   }
 }
 body.screensaver #source-card {

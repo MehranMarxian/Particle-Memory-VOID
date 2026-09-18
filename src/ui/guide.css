@@ -81,13 +81,33 @@
   align-items: baseline;
   padding: 2px 0;
 }
+/* The key chips: documentation on desktop, a keyboard on touch. */
+.gd-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  flex: 0 0 auto;
+  min-width: 52px;
+  justify-content: flex-start;
+}
 .gd-key {
-  flex: 0 0 52px;
+  flex: 0 0 auto;
   text-align: center;
   color: #cfcfcf;
   border: 1px solid #262626;
   padding: 2px 4px;
   letter-spacing: 0.1em;
+}
+button.gd-key-tap {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+button.gd-key-tap:hover,
+button.gd-key-tap:focus-visible {
+  color: #fff;
+  border-color: #666;
+  outline: none;
 }
 .gd-text {
   display: flex;
@@ -158,8 +178,17 @@
   .gd-body {
     grid-template-columns: 1fr;
   }
+  /* The chips are the keyboard here: full rows, tap-sized. */
+  .gd-row {
+    flex-wrap: wrap;
+  }
+  .gd-keys {
+    flex-basis: 100%;
+    margin-bottom: 4px;
+  }
   .gd-key {
-    flex-basis: 46px;
+    padding: 9px 12px;
+    min-width: 40px;
   }
 }
 body.screensaver #guide {
