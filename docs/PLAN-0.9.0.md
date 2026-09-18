@@ -231,6 +231,36 @@ force pass, as designed — but the defaults pretend otherwise:
   small: clamp catch-up (e.g. max 2 substeps, then dilate time — slow motion beats
   freeze).
 
+### measured: the engines in the running app (slice 2 measurement pass)
+
+The vitest numbers above isolate `step()` on a loose gaussian spawn. The numbers below
+are the running app in a real browser (dev GPU: RTX 4070 Ti, Chrome/D3D11, torus
+source, authored cycle, default settings, stats readout after settle):
+
+| particles | GPU fps | GPU sim ms | CPU fps | CPU sim ms |
+|---|---|---|---|---|
+| 4,000 | 60 | ~9–14 (first read includes warm-up) | 22 | 22.0 |
+| 8,000 | — | — | 8 | 61.2 |
+| 12,000 | 60 | 8.7 | 4 | 120.7 |
+| 32,000 | 60 | 11.2 | — | — |
+| 50,000 | 50 | 15.5 | — | — |
+
+Three findings, each load-bearing:
+
+1. **The GPU engine is readback-bound, not compute-bound.** Sim cost is nearly flat
+   across a 12× density range (8.7 → 15.5 ms); only at 50k does compute start to
+   matter (50 fps). This is the strongest argument for slice 3: closing the readback
+   loop should push even 50k past 60 fps, and it means the GPU engine's cost is a
+   *floor* problem, not a scaling problem.
+2. **The CPU engine is ~2× slower in the app than in vitest** (10.8 → 22 ms at 4k),
+   because the torus source is a dense shell: pair interactions follow clustering, not
+   particle count. Budgets must be set against the real source distribution. The
+   CPU density ceiling therefore lands at **4000, not the 8000 this plan first
+   proposed** — the audit's "45 fps at 4k on CPU" budget line was optimistic and is
+   corrected to ~22 fps at 4k on a fast desktop; the CPU backend is the fallback, not
+   the showpiece, and the slow-motion scheduler covers the rest.
+3. The iGPU and phone columns are still open — they need a human with the device.
+
 ### not measured, and why: GPU engine fps
 
 `GpuParticleEngine` needs a live WebGL2 context; this environment has no headless GPU,

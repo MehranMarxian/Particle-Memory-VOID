@@ -21,12 +21,15 @@ export const TOUCH_DENSITY_INDEX = 0;
 /**
  * What each backend sustains in real time.
  *
- * GPU: the top of the menu. CPU: the force pass is O(n · neighbours) and 12k
- * already costs ~50 ms a step on a fast desktop, so the menu caps at the
- * level the audit's CPU budget covers with a step of headroom — which is
- * also the cap the ecology's second neighbour pass implies.
+ * GPU: the top of the menu - measured 60 fps to 32k and 50 fps at 50k on the
+ * dev GPU, with the sim step nearly flat across the range (readback-bound,
+ * not compute-bound). CPU: measured in the running app, the torus source is
+ * a dense shell and pair interactions follow clustering, not particle count
+ * - 4k costs ~22 ms a step, 8k ~61 ms, 12k ~121 ms. 4k is the only density
+ * the CPU backend sustains; the slow-motion scheduler covers anything a
+ * sparse source lets through anyway.
  */
-export const DENSITY_CEILING: Record<Backend, number> = { gpu: 50000, cpu: 8000 };
+export const DENSITY_CEILING: Record<Backend, number> = { gpu: 50000, cpu: 4000 };
 
 /**
  * On a touch-primary device, auto picks the CPU engine at or below this
