@@ -126,6 +126,14 @@ interface SimEngine {
 const coarsePointer =
   typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
+/**
+ * Demo mode (?demo=1): a self-playing card for an embed. Fresh defaults,
+ * the Portrait look, the authored cycle, the author's own portrait as the
+ * source, and no UI. A demo never writes to the visitor's instrument state.
+ */
+const demoMode = new URLSearchParams(location.search).get("demo") === "1";
+const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/demo-portrait.jpg`;
+
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
 let currentCount = DENSITY_LEVELS[densityIndex];
@@ -146,7 +154,8 @@ function scheduleSave(): void {
 }
 
 function persistNow(): void {
-  if (!engine) return;
+  // A demo never writes to the visitor's instrument state.
+  if (!engine || demoMode) return;
   saveConfig(
     toStoredConfig({
       params,
@@ -677,8 +686,9 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
 
 // Build the initial torus memory.
 {
-  // Restore the persisted instrument state before the first build.
-  const cfg = loadConfig();
+  // Restore the persisted instrument state before the first build. Demo
+  // mode boots fresh: a demo must never write over the visitor's state.
+  const cfg = demoMode ? null : loadConfig();
   if (cfg) {
     Object.assign(params.memory, cfg.params.memory);
     Object.assign(params.life, cfg.params.life);
@@ -710,6 +720,15 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   }
 }
 {
+  // Demo mode applies the Portrait look and the authored cycle before the
+  // count param can adjust the density.
+  if (demoMode) {
+    currentCount = coarsePointer ? 4000 : 6000;
+    const portraitDef = PRESET_DEFINITIONS.find((d) => d.name === "portrait")!;
+    applyPreset(portraitDef, params, visual, matrix, ecologyParams, activeCamera);
+    memory.active = memory.auto = true;
+    document.body.classList.add("demo");
+  }
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
   if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= 50000) {
@@ -736,7 +755,8 @@ const sourceCard = createSourceCard({
   onUpload: () => fileInput.click(),
   onSample: (url) => void openUrlSource(url),
 });
-document.body.appendChild(sourceCard.element);
+// The demo card is the piece alone: no cards, no panel, no guide.
+if (!demoMode) document.body.appendChild(sourceCard.element);
 
 // --- Source persistence: the last memory survives a reload --------------------
 const sourceStore = openSourceStore();
@@ -1176,7 +1196,7 @@ async function applySoundToggle(): Promise<void> {
 // All bindings live in the shared keymap (ui/shortcuts): the guide renders
 // that table and handleKey dispatches it, so they cannot drift apart.
 const guide = createControlsGuide();
-document.body.appendChild(guide.element);
+if (!demoMode) document.body.appendChild(guide.element);
 guide.setState(memory.state);
 
 const shortcutCtx: ShortcutContext = {
@@ -1273,7 +1293,16 @@ let activeMatrix = matrix;
 {
   const search = new URLSearchParams(location.search);
   const srcParam = search.get("src");
-  if (srcParam) {
+  if (demoMode) {
+    // The demo always plays the author's portrait; failures stay quiet
+    // because a card that cannot load must never show an error card.
+    loadSourceFromUrl(DEMO_SOURCE, currentCount)
+      .then(({ handle }) => {
+        lastDroppedFile = null;
+        return adoptHandle(handle);
+      })
+      .catch(() => undefined);
+  } else if (srcParam) {
     lastSourceUrl = srcParam;
     setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: srcParam.split("/").pop() ?? srcParam }));
     loadSourceFromUrl(srcParam, currentCount)
@@ -1308,7 +1337,7 @@ let activeMatrix = matrix;
 }
 
 // --- Control panel (Phase 5) ------------------------------------------------
-{
+if (!demoMode) {
   panelApi = createPanel({
     params,
     visual,
@@ -1504,7 +1533,9 @@ let activeMatrix = matrix;
 
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
 // A screensaver that starts after boot still wins (checked at fire time).
-const introPlan = planIntro({
+// A demo visit is neither: it must not consume the visitor's first-run
+// introduction, so it plans nothing at all.
+const introPlan = demoMode ? "none" : planIntro({
   seenIntro: hasSeenIntro(),
   installed: new URLSearchParams(location.search).get("installed") === "1",
 });
@@ -1583,6 +1614,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistNow();
 });
 
+
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
 let accumulator = 0;
@@ -1605,8 +1637,9 @@ function frameInner(now: number): void {
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
-  // of doing six 50 ms steps a frame until the tab freezes.
-  const { steps, residual } = scheduleSteps(accumulator);
+  // of doing six 50 ms steps a frame until the tab freezes. A demo on a
+  // phone integrates one step per frame — a card may run dreamy, never hot.
+  const { steps, residual } = scheduleSteps(accumulator, demoMode && coarsePointer ? 1 : undefined);
   for (let s = 0; s < steps; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
