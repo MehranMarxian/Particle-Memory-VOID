@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./icons/void-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/void-32.png" />
+    <link rel="apple-touch-icon" href="./icons/void-192.png" />
+    <title>VOID / PARTICLE MEMORY</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      /* The canvas owns every first-finger gesture: the browser's
+         pull-to-refresh and scroll-back never fight the orbit. */
+      #stage,
+      #stage canvas {
+        touch-action: none;
+      }
+      #stage {
+        width: 100%;
+        height: 100%;
+      }
+      #dropzone {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 50;
+        pointer-events: none;
+      }
+      #dropzone div {
+        border: 1px dashed #4a4a4a;
+        padding: 34px 56px;
+        font: 12px ui-monospace, monospace;
+        color: #bdbdbd;
+        letter-spacing: 0.35em;
+        text-align: center;
+        line-height: 2.2;
+      }
+      #dropzone span {
+        display: block;
+        margin-top: 10px;
+        letter-spacing: 0.18em;
+        color: #666;
+        line-height: 1.9;
+      }
+      #filepicker {
+        display: none;
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 200;
+        transition: opacity 1.4s ease;
+      }
+      #splash img {
+        width: min(30vh, 260px);
+        height: auto;
+      }
+      #splash.gone {
+        opacity: 0;
+        pointer-events: none;
+      }
+      body.screensaver #panel,
+      body.screensaver #panel-toggle-btn,
+      body.screensaver #source-card {
+        display: none !important;
+      }
+      body.screensaver,
+      body.screensaver * {
+        cursor: none !important;
+      }
+      body.cursor-hidden,
+      body.cursor-hidden * {
+        cursor: none !important;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Bu0sE98j.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/three-Ccott6WJ.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-DA0iv0dd.css">
+  </head>
+  <body>
+    <script>
+      window.addEventListener("error", function (e) {
+        document.title = ("ERR " + (e.message || "unknown") + " @ " + (e.error && e.error.stack ? String(e.error.stack) : "")).slice(0, 900);
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        var frame = r && r.stack ? String(r.stack).split("\n")[1] : "";
+        document.title = ("REJ " + ((r && r.message) || "unknown") + " @ " + frame).slice(0, 300);
+      });
+      (function () {
+        var orig = console.error;
+        console.error = function () {
+          var msg = Array.prototype.slice.call(arguments).join(" ");
+          document.title = "CERR " + msg.slice(0, 600);
+          orig.apply(console, arguments);
+        };
+      })();
+    </script>
+    <div id="stage"></div>
+    <input id="filepicker" type="file"
+      accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.glb,.gltf,.obj,.stl,.ply" />
+    <div id="dropzone">
+      <div>DROP YOUR MEMORY<span>IMAGE&nbsp;&nbsp;PNG · JPG · WEBP · BMP · GIF<br>MODEL&nbsp;&nbsp;GLB · GLTF · OBJ · STL<br>CLOUD&nbsp;&nbsp;PLY</span></div>
+    </div>
+    <div id="splash"><img src="./void-logo.png" alt="VOID / PARTICLE MEMORY" /></div>
+  </body>
+</html>
