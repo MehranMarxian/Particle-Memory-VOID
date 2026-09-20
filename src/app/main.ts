@@ -67,6 +67,7 @@ import {
   wantsCpuBackend,
 } from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
+import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
@@ -140,6 +141,9 @@ const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/void-cloud.ply`;
 // in the piece (with diagnostics), never a silent black canvas. It also
 // replaces the inline pre-module bus and drains anything queued on it.
 installRecovery(() => ({ backend: activeBackend, density: currentCount, fps }));
+
+// The macro layer's live positions (the MOTION section's control surface).
+const macros = defaultMacros();
 
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
@@ -1428,6 +1432,7 @@ if (!demoMode) {
     params,
     visual,
     onLookChange: applyLook,
+    macros,
     ecology: ecologyParams,
     ecologyEvents,
     memory,
@@ -1440,6 +1445,19 @@ if (!demoMode) {
     pointer,
     backend: () => activeBackend,
     callbacks: {
+      onMacro(name: MacroName) {
+        // Macros land in the live params; the section sliders show them
+        // after refresh. An engine macro takes the wheel from the authored
+        // cycle (which would otherwise overwrite these every step);
+        // ATMOSPHERE shapes the visual alone and composes with the cycle.
+        applyMacros(macros, params, visual);
+        if (ENGINE_MACROS.includes(name) && memory.active) {
+          memory.active = false;
+          panelApi?.setState("MANUAL");
+          flashHint("MACRO: MANUAL CONTROL", 3);
+        }
+        panelApi?.refresh();
+      },
       onBackendToggle() {
         switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
       },

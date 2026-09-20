@@ -34,6 +34,7 @@ export interface GuideApi {
 
 /** The instrument's sections, in tier order, with their one-line meaning. */
 export const PANEL_SECTIONS_GUIDE: readonly { name: string; line: string }[] = [
+  { name: "MOTION", line: "The five macros: memory, energy, cohesion, dissolution, atmosphere." },
   { name: "MEMORY", line: "The authored cycle, and how hard the swarm pulls toward its source." },
   { name: "LIFE", line: "The species forces: who gathers, who pushes, how far they sense." },
   { name: "FIELD", line: "The weather: turbulence, drift, gravity, wander - and your touch." },

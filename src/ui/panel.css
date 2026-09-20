@@ -380,3 +380,53 @@
     padding: 12px 14px;
   }
 }
+
+/* The looks browser (v0.10.0 slice 4): a face per look. Static thumbnails,
+   lazy-loaded, from public/presets/; a missing image falls back to the word. */
+#panel .preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+#panel button.preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: #0b0b0b;
+  border: 1px solid #262626;
+  padding: 0 0 7px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  overflow: hidden;
+}
+#panel button.preset-card:hover {
+  border-color: #444;
+}
+#panel button.preset-card.on {
+  border-color: #5a5a5a;
+  background: #131313;
+}
+#panel .preset-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+#panel .preset-card .preset-name {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #bdbdbd;
+  padding: 6px 8px 0;
+}
+#panel button.preset-card.on .preset-name {
+  color: #ffffff;
+}
+#panel .preset-card .preset-desc {
+  font-size: 9px;
+  line-height: 1.5;
+  color: #6d6d6d;
+  padding: 2px 8px 0;
+}

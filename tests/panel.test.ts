@@ -6,6 +6,7 @@ import { defaultVisualSettings } from "@/rendering/VisualSettings";
 import { MemorySystem } from "@/memory/MemorySystem";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEcologyParams } from "@/ecology/ecologySystem";
+import { defaultMacros } from "@/presets/macros";
 
 /**
  * The three-tier panel. These tests pin the information architecture: what
@@ -14,6 +15,7 @@ import { defaultEcologyParams } from "@/ecology/ecologySystem";
  */
 
 const TIER2_SECTIONS = [
+  "MOTION",
   "MEMORY",
   "LIFE",
   "FIELD",
@@ -34,6 +36,7 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
     onDensityChange: noop("density"),
     onAddSource: noop("addSource"),
     onPreset: noop("preset"),
+    onMacro: noop("macro"),
     onRandomize: noop("randomize"),
     onUndo: noop("undo"),
     onReset: noop("reset"),
@@ -60,6 +63,7 @@ function makePanel() {
   const api = createPanel({
     params: defaultEngineParams(),
     visual: defaultVisualSettings(),
+    macros: defaultMacros(),
     memory: new MemorySystem({ auto: false }),
     matrix: new InteractionMatrix(4),
     speciesCount: 4,
