@@ -74,6 +74,8 @@ import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
+import { sourceNameFromUrl } from "@/sources/loaders";
+import { installRecovery, reportRecovery } from "@/ui/recovery";
 import {
   openSourceStore,
   shouldPersist,
@@ -133,6 +135,11 @@ const coarsePointer =
  */
 const demoMode = new URLSearchParams(location.search).get("demo") === "1";
 const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/void-cloud.ply`;
+
+// The recovery surface goes up first: a failure from here on is visible
+// in the piece (with diagnostics), never a silent black canvas. It also
+// replaces the inline pre-module bus and drains anything queued on it.
+installRecovery(() => ({ backend: activeBackend, density: currentCount, fps }));
 
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
@@ -851,6 +858,15 @@ memory.onStateChange = (name) => {
 };
 
 // --- Source loading -----------------------------------------------------------
+// Cancellation by obsolescence: every load captures the generation counter at
+// its start, and a newer load increments it. A stale load's results — and its
+// errors — are discarded, so the newest drop always owns the UI and the piece.
+let sourceLoadSeq = 0;
+
+function sourceLoadSuperseded(mySeq: number): boolean {
+  return mySeq !== sourceLoadSeq;
+}
+
 async function adoptHandle(handle: SourceHandle): Promise<void> {
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
@@ -879,14 +895,18 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
 }
 
 async function loadFile(file: File): Promise<void> {
+  const mySeq = ++sourceLoadSeq;
   lastSourceUrl = null;
   lastDroppedFile = file;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: file.name }));
   try {
     const handle = await loadSource(file.name, file);
+    if (sourceLoadSuperseded(mySeq)) return;
     await adoptHandle(handle);
+    if (sourceLoadSuperseded(mySeq)) return;
     rememberSource(file);
   } catch (err) {
+    if (sourceLoadSuperseded(mySeq)) return;
     failSource(file.name, err);
   }
 }
@@ -903,14 +923,17 @@ function failSource(name: string, err: unknown): void {
  * on top of the synthetic memory that is already running.
  */
 async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Promise<void> {
-  const name = url.split("/").pop() ?? url;
+  const mySeq = ++sourceLoadSeq;
+  const name = sourceNameFromUrl(url);
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name }));
   try {
     const { handle } = await loadSourceFromUrl(url, currentCount);
+    if (sourceLoadSuperseded(mySeq)) return;
     lastDroppedFile = null;
     lastSourceUrl = url;
     await adoptHandle(handle);
   } catch (err) {
+    if (sourceLoadSuperseded(mySeq)) return;
     if (options.quiet) {
       setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
       flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
@@ -928,11 +951,14 @@ async function restoreStoredSource(): Promise<void> {
     return;
   }
   if (!record) return;
+  const mySeq = ++sourceLoadSeq;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: record.name }));
   try {
     const handle = await loadSource(record.name, record.blob);
+    if (sourceLoadSuperseded(mySeq)) return;
     lastDroppedFile = null;
     await adoptHandle(handle);
+    if (sourceLoadSuperseded(mySeq)) return;
     if (record.blob.type.startsWith("image/")) {
       // The memory's face comes back with the memory.
       createImageBitmap(record.blob, { resizeWidth: 96 })
@@ -940,6 +966,7 @@ async function restoreStoredSource(): Promise<void> {
         .catch(() => sourceCard.setThumbnail(null));
     }
   } catch {
+    if (sourceLoadSuperseded(mySeq)) return;
     setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
     flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
   }
@@ -1684,9 +1711,10 @@ function frame(now: number): void {
   try {
     frameInner(now);
   } catch (err) {
-    // Keep the failure visible instead of silently killing the artwork.
-    flashHint(`RUNTIME ERROR: ${(err as Error).stack ?? (err as Error).message}`.slice(0, 300), 3600, true);
+    // Keep the failure visible instead of silently killing the artwork:
+    // the recovery overlay, with diagnostics — not a status-line stack.
     console.error(err);
+    reportRecovery(err, "frame loop");
     return;
   }
 }

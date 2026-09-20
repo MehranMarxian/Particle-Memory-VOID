@@ -16,6 +16,40 @@ export function extensionOf(name: string): string {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
+/**
+ * The filename a URL claims, with query and hash stripped before the last
+ * segment is taken — portrait.png?v=2 is a PNG, not a ".png?v=2". A bare
+ * origin or trailing slash yields the cleaned URL, which then fails kind
+ * detection with the full supported-format message.
+ */
+export function sourceNameFromUrl(url: string): string {
+  const clean = url.split(/[?#]/, 1)[0];
+  const name = clean.split("/").pop() ?? "";
+  return name || clean;
+}
+
+/**
+ * A bound, not a guarantee: past this a main-thread parse would freeze the
+ * tab long before it finished. 256 MB covers every source the piece can
+ * use today (images downsample to 768 px; the rest bounds the parse).
+ */
+export const MAX_SOURCE_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Mesh loader failures, made actionable. The common death for a .gltf is
+ * a sibling .bin or textures it cannot resolve (the parse runs with no
+ * resource base); the message says what actually helps.
+ */
+export function mapMeshParseError(name: string, ext: string, err: unknown): Error {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (ext === "gltf" && /external|\.bin|not found|no such|cannot locate|failed to load/i.test(raw)) {
+    return new Error(
+      "THIS .GLTF REFERENCES EXTERNAL FILES (A .BIN OR TEXTURES) - PACK IT AS A .GLB AND DROP THAT INSTEAD"
+    );
+  }
+  return new Error(`COULD NOT READ ${name}: ${raw.slice(0, 90)}`);
+}
+
 export function detectSourceKind(name: string): SourceKind | null {
   const ext = extensionOf(name);
   for (const [kind, exts] of Object.entries(FORMAT_REGISTRY)) {
@@ -60,6 +94,11 @@ export async function loadSource(
   data: Blob,
   kind?: SourceKind
 ): Promise<SourceHandle> {
+  if (data.size > MAX_SOURCE_BYTES) {
+    throw new Error(
+      `SOURCE TOO LARGE: ${Math.ceil(data.size / 1048576)} MB - THE BOUND IS 256 MB. DECIMATE THE MESH OR DOWNSAMPLE IT FIRST.`
+    );
+  }
   const detected = kind ?? detectSourceKind(name);
   if (!detected) {
     throw new Error(
@@ -98,26 +137,30 @@ export async function loadSource(
   const buffer = await data.arrayBuffer();
   let root: import("three").Object3D;
   const ext = extensionOf(name);
-  if (ext === "glb" || ext === "gltf") {
-    const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-    const loader = new GLTFLoader();
-    const isJson = ext === "gltf";
-    root = await new Promise<{ scene: import("three").Object3D }>((resolve, reject) =>
-      loader.parse(
-        isJson ? new TextDecoder().decode(buffer) : buffer,
-        "",
-        (gltf) => resolve(gltf),
-        reject
-      )
-    ).then((gltf) => gltf.scene);
-  } else if (ext === "obj") {
-    const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
-    root = new OBJLoader().parse(new TextDecoder().decode(buffer));
-  } else {
-    const { STLLoader } = await import("three/examples/jsm/loaders/STLLoader.js");
-    const geom = new STLLoader().parse(buffer);
-    const { Mesh, MeshStandardMaterial } = await import("three");
-    root = new Mesh(geom, new MeshStandardMaterial());
+  try {
+    if (ext === "glb" || ext === "gltf") {
+      const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+      const loader = new GLTFLoader();
+      const isJson = ext === "gltf";
+      root = await new Promise<{ scene: import("three").Object3D }>((resolve, reject) =>
+        loader.parse(
+          isJson ? new TextDecoder().decode(buffer) : buffer,
+          "",
+          (gltf) => resolve(gltf),
+          reject
+        )
+      ).then((gltf) => gltf.scene);
+    } else if (ext === "obj") {
+      const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
+      root = new OBJLoader().parse(new TextDecoder().decode(buffer));
+    } else {
+      const { STLLoader } = await import("three/examples/jsm/loaders/STLLoader.js");
+      const geom = new STLLoader().parse(buffer);
+      const { Mesh, MeshStandardMaterial } = await import("three");
+      root = new Mesh(geom, new MeshStandardMaterial());
+    }
+  } catch (err) {
+    throw mapMeshParseError(name, ext, err);
   }
 
   const meshes = collectMeshes(root);
@@ -157,7 +200,7 @@ export async function loadSourceFromUrl(url: string, count?: number): Promise<{
 }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`failed to fetch source ${url}: ${res.status}`);
-  const name = url.split("/").pop() ?? url;
+  const name = sourceNameFromUrl(url);
   const blob = await res.blob();
   const handle = await loadSource(name, blob);
   return { handle, sample: handle.resample(count ?? 12000) };
