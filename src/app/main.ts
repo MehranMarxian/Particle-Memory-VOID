@@ -4,7 +4,7 @@ import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
-import { TrailPass } from "@/rendering/TrailPass";
+import { TrailPass, trailDepositScale } from "@/rendering/TrailPass";
 import {
   COLOR_MODES,
   defaultVisualSettings,
@@ -1786,7 +1786,13 @@ function frameInner(now: number): void {
   } else {
     fieldTintTick = 0;
   }
-  if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
+  if (visual.trails) {
+    // Deposit compensation in the same time domain as the retention: at
+    // other refresh rates each frame draws proportionally more/less
+    // light, so steady-state brightness stays at the 60 fps calibration.
+    effective.opacity =
+      visual.opacity * (1 - visual.trailDecay) * trailDepositScale(dt, trailPass.hdr);
+  }
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {
     const bands = audio.read();
@@ -1806,7 +1812,7 @@ function frameInner(now: number): void {
   // when trails are off.
   trailPass.enabled = visual.trails;
   trailPass.decay = visual.trailDecay;
-  trailPass.render(scene, camera);
+  trailPass.render(scene, camera, dt);
 
   frames++;
   if (splash && !splashGone && frames > 2) {
