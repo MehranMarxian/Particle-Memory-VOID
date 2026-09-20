@@ -723,31 +723,33 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   // Demo mode applies the Portrait look and the authored cycle before the
   // count param can adjust the density.
   if (demoMode) {
-    currentCount = coarsePointer ? 4000 : 6000;
+    currentCount = coarsePointer ? 4000 : 12000;
     // The demo look: built on Portrait's quiet reconstruction, then opened
     // up so the card reads as ALIVE on its own — a strong shared heartbeat
-    // (every particle breathes in sync), visible wander and turbulence, a
-    // scent field the swarm writes and follows (the slow veins of a
-    // Physarum), gentle births and deaths, and species colour so the
-    // ecosystem's clusters and chases are legible at card size.
+    // (every particle breathes in sync), fast visible reactions, both
+    // stigmergic fields (the swarm follows its scent veins and scatters off
+    // its own hot trails), gentle births and deaths, and the default matrix
+    // so the species' pulls and pushes show as real spatial drama.
     const portraitDef = PRESET_DEFINITIONS.find((d) => d.name === "portrait")!;
     applyPreset(portraitDef, params, visual, matrix, ecologyParams, activeCamera);
     Object.assign(params.memory, { strength: 3.2, decay: 0, reconstructionEase: 1 });
     Object.assign(params.life, {
       interactionRadius: 0.95,
       coreRadius: 0.28,
-      forceScale: 8,
-      friction: 0.84,
-      attraction: 1.1,
-      repulsion: 0.9,
-      chaos: 0.14,
-      maxSpeed: 5,
+      forceScale: 9.5,
+      friction: 0.82,
+      attraction: 1.15,
+      repulsion: 0.95,
+      chaos: 0.18,
+      maxSpeed: 6,
     });
-    params.wander = 0.09;
-    params.phaseCoupling = 1.8;
-    params.turbulence = 0.09;
-    Object.assign(params.scent, { enabled: true, deposit: 0.7, decay: 0.45, steer: 1.8 });
-    Object.assign(params.lifecycle, { enabled: true, lifespan: 50, spread: 1 });
+    params.wander = 0.11;
+    params.phaseCoupling = 2.2;
+    params.turbulence = 0.12;
+    Object.assign(params.scent, { enabled: true, deposit: 0.9, decay: 0.45, steer: 2.4 });
+    Object.assign(params.heat, { enabled: true, deposit: 0.45, decay: 0.3, steer: -1.2 });
+    Object.assign(params.environment, { scent: 0.6, heat: 0 });
+    Object.assign(params.lifecycle, { enabled: true, lifespan: 35, spread: 1 });
     Object.assign(visual, {
       // White particles on black: the cloud's own cool white (SOURCE), so
       // the card sits quietly inside the site's design.
