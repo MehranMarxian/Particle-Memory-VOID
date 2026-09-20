@@ -814,6 +814,12 @@ export function createPanel(opts: {
   hideBtn.addEventListener("click", () => setPanelVisible(false));
   showPanelBtn.addEventListener("click", () => setPanelVisible(true));
   document.body.appendChild(showPanelBtn);
+  // A touch-primary device starts with the panel stowed: the piece first,
+  // the instrument behind its button. Desktop opens with the panel up, as
+  // the instrument has always been.
+  const touchPrimary =
+    typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  setPanelVisible(!touchPrimary);
 
   // Phone: the head is the sheet's handle — drag it down to stow the panel.
   // The drag is tracked at the window level, NOT with pointer capture:

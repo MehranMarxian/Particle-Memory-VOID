@@ -179,4 +179,19 @@ describe("the panel's three tiers", () => {
     show.click();
     expect(p.panel.style.display).toBe("block");
   });
+
+  it("a touch-primary device starts stowed behind the PANEL button", () => {
+    // The piece first on a phone: the panel opens from its button, and the
+    // floating button is the only thing on screen.
+    const original = window.matchMedia;
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (q: string) =>
+      ({ matches: q.includes("pointer: coarse"), media: q }) as MediaQueryList;
+    const touch = makePanel();
+    window.matchMedia = original;
+    expect(touch.panel.style.display).toBe("none");
+    const show = document.getElementById("panel-toggle-btn") as HTMLButtonElement;
+    expect(show.style.display).not.toBe("none");
+    show.click();
+    expect(touch.panel.style.display).toBe("block");
+  });
 });
