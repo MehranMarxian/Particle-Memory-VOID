@@ -106,6 +106,8 @@
           orig.apply(console, arguments);
         };
       })();
+      /* Demo cards start from pure black: no logo, no image, particles first. */
+      window.__VOID_DEMO = new URLSearchParams(location.search).get("demo") === "1";
     </script>
     <div id="stage"></div>
     <input id="filepicker" type="file"
@@ -113,7 +115,21 @@
     <div id="dropzone">
       <div>DROP YOUR MEMORY<span>IMAGE&nbsp;&nbsp;PNG · JPG · WEBP · BMP · GIF<br>MODEL&nbsp;&nbsp;GLB · GLTF · OBJ · STL<br>CLOUD&nbsp;&nbsp;PLY</span></div>
     </div>
-    <div id="splash"><img src="./void-logo.png" alt="VOID / PARTICLE MEMORY" /></div>
+    <div id="splash"><img id="splash-logo" alt="VOID / PARTICLE MEMORY" /></div>
+    <script>
+      /* The splash logo is wired here so a demo card never fetches it:
+         black background first, then particles - nothing before them. */
+      (function () {
+        var splash = document.getElementById("splash");
+        if (!splash) return;
+        if (window.__VOID_DEMO) {
+          splash.parentNode.removeChild(splash);
+        } else {
+          var img = document.getElementById("splash-logo");
+          if (img) img.src = "./void-logo.png";
+        }
+      })();
+    </script>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

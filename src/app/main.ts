@@ -752,9 +752,10 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     Object.assign(params.lifecycle, { enabled: true, lifespan: 35, spread: 1 });
     Object.assign(visual, {
       // White particles on black: the cloud's own cool white (SOURCE), so
-      // the card sits quietly inside the site's design.
+      // the card sits quietly inside the site's design. The size is dust -
+      // thousands of fine points, not dots.
       colorMode: "source",
-      particleSize: 0.75,
+      particleSize: 0.2,
       glow: 0.45,
       opacity: 0.68,
       dof: 0.2,
@@ -764,6 +765,14 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     // particles must read at card size.
     radius = 8.5;
     document.body.classList.add("demo");
+    // Embedded and interactive, the card must not trap the host page's
+    // scroll: wheel events over the iframe are relayed to the parent, whose
+    // snippet scrolls itself (see docs/embed-card.md).
+    if (window.parent !== window) {
+      window.addEventListener("wheel", (e) => {
+        window.parent.postMessage({ type: "void:wheel", deltaY: e.deltaY }, "*");
+      }, { passive: true });
+    }
   }
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
@@ -1589,7 +1598,9 @@ if (introPlan === "guide") {
 }
 
 // --- Splash: fade once the first frame has rendered -------------------------
-const splash = document.getElementById("splash")!;
+// Demo mode removes the splash before this runs (black first, particles
+// only), so the element may legitimately be absent.
+const splash = document.getElementById("splash");
 let splashGone = false;
 
 // --- Screensaver mode (Phase 7) ----------------------------------------------
@@ -1784,7 +1795,7 @@ function frameInner(now: number): void {
   trailPass.render(scene, camera);
 
   frames++;
-  if (!splashGone && frames > 2) {
+  if (splash && !splashGone && frames > 2) {
     splashGone = true;
     splash.classList.add("gone");
     window.setTimeout(() => splash.remove(), 1800);
