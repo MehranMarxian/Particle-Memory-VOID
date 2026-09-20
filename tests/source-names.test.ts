@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   detectSourceKind,
   loadSource,
-  mapMeshParseError,
   MAX_SOURCE_BYTES,
   sourceNameFromUrl,
 } from "@/sources/loaders";
@@ -44,21 +43,20 @@ describe("the source size bound", () => {
 
 describe("mesh parse failures say what to do", () => {
   it("an external .bin reference advises packing a .glb", () => {
-    const err = mapMeshParseError("scene.gltf", "gltf", new Error("Failed to load buffer 'scene.bin'"));
-    expect(err.message).toMatch(/PACK IT AS A \.GLB/i);
-    expect(err.message).toMatch(/EXTERNAL/i);
-  });
-
-  it("other mesh failures keep the original message, name attached", () => {
-    const err = mapMeshParseError("broken.obj", "obj", new Error("vertex parse failed"));
-    expect(err.message).toBe("COULD NOT READ broken.obj: vertex parse failed");
-  });
-
-  it("humanize passes the crafted messages through with the name", () => {
-    const crafted = mapMeshParseError("scene.gltf", "gltf", new Error("failed to load external resource"));
-    const text = humanizeSourceError("scene.gltf", crafted);
+    const text = humanizeSourceError("scene.gltf", new Error("Failed to load buffer 'scene.bin'"));
     expect(text).toMatch(/^scene\.gltf: /);
     expect(text).toMatch(/PACK IT AS A \.GLB/i);
     expect(text.length).toBeLessThanOrEqual(130);
+  });
+
+  it("the advice is gltf-specific: the same error on a glb reads plainly", () => {
+    const text = humanizeSourceError("scene.glb", new Error("failed to load buffer 'x.bin'"));
+    expect(text).not.toMatch(/PACK IT AS A \.GLB/i);
+    expect(text).toMatch(/scene\.glb: /);
+  });
+
+  it("other mesh failures keep the original message, name attached", () => {
+    const text = humanizeSourceError("broken.obj", new Error("vertex parse failed"));
+    expect(text).toBe("broken.obj: vertex parse failed");
   });
 });

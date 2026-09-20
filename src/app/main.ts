@@ -140,7 +140,7 @@ const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/void-cloud.ply`;
 // The recovery surface goes up first: a failure from here on is visible
 // in the piece (with diagnostics), never a silent black canvas. It also
 // replaces the inline pre-module bus and drains anything queued on it.
-installRecovery(() => ({ backend: activeBackend, density: currentCount, fps }));
+installRecovery(() => ({ backend: activeBackend, density: currentCount, fps, p95Ms: p95FrameTime() * 1000 }));
 
 // The macro layer's live positions (the MOTION section's control surface).
 const macros = defaultMacros();
@@ -160,7 +160,7 @@ let engineMode: "auto" | "gpu" | "cpu" = "auto";
 }
 let activeBackend: "gpu" | "cpu" = "cpu";
 let panelApi: PanelApi | null = null;
-let history: StateSnapshot[] = [];
+const history: StateSnapshot[] = [];
 let activePreset: string | null = null;
 let lastSourceName: string | null = null;
 let lastSourceUrl: string | null = null;
@@ -843,6 +843,16 @@ function rememberSource(file: File): void {
 let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
+// Rolling frame times for the p95 the stats line and the diagnostics carry:
+// mean fps hides the stalls; the p95 names them.
+const FRAME_TIME_WINDOW = 300;
+const frameTimes = new Float32Array(FRAME_TIME_WINDOW);
+let frameTimesIdx = 0;
+
+function p95FrameTime(): number {
+  const sample = Array.from(frameTimes).sort((a, b) => a - b);
+  return sample[Math.floor(FRAME_TIME_WINDOW * 0.95) - 1] ?? 0;
+}
 
 // A sticky hint (a runtime error) must not be shouted over by routine
 // messages, but it must also expire: latching it until reload muted the
@@ -948,7 +958,7 @@ async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Pr
 }
 
 async function restoreStoredSource(): Promise<void> {
-  let record: StoredSource | null = null;
+  let record: StoredSource | null | undefined;
   try {
     record = await sourceStore.get(SOURCE_STORE_KEY);
   } catch {
@@ -1643,11 +1653,18 @@ if (!demoMode) {
   panelApi.setActivePreset(activePreset);
 }
 
+// Reduced motion (v0.10.0 slice 6): the media query answers for itself -
+// a slower idle orbit, no auto-opened guide, and one quiet note that the
+// piece noticed. Everything still works; it just moves less.
+const reducedMotion =
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
 // A screensaver that starts after boot still wins (checked at fire time).
 // A demo visit is neither: it must not consume the visitor's first-run
 // introduction, so it plans nothing at all.
-const introPlan = demoMode ? "none" : planIntro({
+const introPlan = demoMode || reducedMotion ? "none" : planIntro({
   seenIntro: hasSeenIntro(),
   installed: new URLSearchParams(location.search).get("installed") === "1",
 });
@@ -1661,6 +1678,11 @@ if (introPlan === "guide") {
   window.setTimeout(() => {
     if (saver.active) return;
     flashHint(coarsePointer ? "TAP PANEL FOR SETTINGS" : "PRESS ? FOR CONTROLS", 6);
+  }, 2400);
+} else if (reducedMotion) {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    flashHint("REDUCED MOTION: ON - THE PIECE MOVES LESS", 5);
   }, 2400);
 }
 
@@ -1686,7 +1708,8 @@ saver.onExit = () => {
   // In installed screensaver mode, exiting IS termination: tell the
   // wrapper to close the browser and end the screensaver.
   if (new URLSearchParams(location.search).get("installed") === "1") {
-    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { }
+    // Best effort: the .scr wrapper is closing the browser either way.
+    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { /* nothing to recover */ }
   }
   persistNow();
 };
@@ -1782,6 +1805,7 @@ function frameInner(now: number): void {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
+  frameTimes[frameTimesIdx++ % FRAME_TIME_WINDOW] = dt;
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
@@ -1827,7 +1851,9 @@ function frameInner(now: number): void {
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
     : demoMode
       ? 0.03 // a card must look alive without being touched
-      : 0.02);
+      : reducedMotion
+        ? 0.008 // the reduced-motion answer: drift, not sway
+        : 0.02);
   let radiusNow = radius;
   let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
   let azimuthNow = azimuth;
@@ -1937,7 +1963,7 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       (coarsePointer
         ? `guide: the ? button - tap any key in it to run it`

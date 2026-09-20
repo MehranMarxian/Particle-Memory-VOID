@@ -35,21 +35,6 @@ export function sourceNameFromUrl(url: string): string {
  */
 export const MAX_SOURCE_BYTES = 256 * 1024 * 1024;
 
-/**
- * Mesh loader failures, made actionable. The common death for a .gltf is
- * a sibling .bin or textures it cannot resolve (the parse runs with no
- * resource base); the message says what actually helps.
- */
-export function mapMeshParseError(name: string, ext: string, err: unknown): Error {
-  const raw = err instanceof Error ? err.message : String(err);
-  if (ext === "gltf" && /external|\.bin|not found|no such|cannot locate|failed to load/i.test(raw)) {
-    return new Error(
-      "THIS .GLTF REFERENCES EXTERNAL FILES (A .BIN OR TEXTURES) - PACK IT AS A .GLB AND DROP THAT INSTEAD"
-    );
-  }
-  return new Error(`COULD NOT READ ${name}: ${raw.slice(0, 90)}`);
-}
-
 export function detectSourceKind(name: string): SourceKind | null {
   const ext = extensionOf(name);
   for (const [kind, exts] of Object.entries(FORMAT_REGISTRY)) {
@@ -134,33 +119,33 @@ export async function loadSource(
   }
 
   // Mesh formats.
+  // NB: the dynamic imports stay bare - wrapping them in try/catch pulled
+  // the loader modules into the eager graph and blew the bundle budget
+  // (found by the budget gate, v0.10.0 slice 6). Parse failures are
+  // humanized instead by humanizeSourceError, which maps them by regex.
   const buffer = await data.arrayBuffer();
   let root: import("three").Object3D;
   const ext = extensionOf(name);
-  try {
-    if (ext === "glb" || ext === "gltf") {
-      const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-      const loader = new GLTFLoader();
-      const isJson = ext === "gltf";
-      root = await new Promise<{ scene: import("three").Object3D }>((resolve, reject) =>
-        loader.parse(
-          isJson ? new TextDecoder().decode(buffer) : buffer,
-          "",
-          (gltf) => resolve(gltf),
-          reject
-        )
-      ).then((gltf) => gltf.scene);
-    } else if (ext === "obj") {
-      const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
-      root = new OBJLoader().parse(new TextDecoder().decode(buffer));
-    } else {
-      const { STLLoader } = await import("three/examples/jsm/loaders/STLLoader.js");
-      const geom = new STLLoader().parse(buffer);
-      const { Mesh, MeshStandardMaterial } = await import("three");
-      root = new Mesh(geom, new MeshStandardMaterial());
-    }
-  } catch (err) {
-    throw mapMeshParseError(name, ext, err);
+  if (ext === "glb" || ext === "gltf") {
+    const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+    const loader = new GLTFLoader();
+    const isJson = ext === "gltf";
+    root = await new Promise<{ scene: import("three").Object3D }>((resolve, reject) =>
+      loader.parse(
+        isJson ? new TextDecoder().decode(buffer) : buffer,
+        "",
+        (gltf) => resolve(gltf),
+        reject
+      )
+    ).then((gltf) => gltf.scene);
+  } else if (ext === "obj") {
+    const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
+    root = new OBJLoader().parse(new TextDecoder().decode(buffer));
+  } else {
+    const { STLLoader } = await import("three/examples/jsm/loaders/STLLoader.js");
+    const geom = new STLLoader().parse(buffer);
+    const { Mesh, MeshStandardMaterial } = await import("three");
+    root = new Mesh(geom, new MeshStandardMaterial());
   }
 
   const meshes = collectMeshes(root);
