@@ -139,6 +139,14 @@ let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
 let currentCount = DENSITY_LEVELS[densityIndex];
 let engine!: SimEngine;
 let engineMode: "auto" | "gpu" | "cpu" = "auto";
+// ?backend=gpu|cpu forces the backend — boot, the panel switch and the G key
+// all read engineMode, so comparisons between the engines are one URL away.
+// An unavailable forced GPU falls back through the existing GPU-unavailable
+// hint path.
+{
+  const forced = new URLSearchParams(location.search).get("backend");
+  if (forced === "gpu" || forced === "cpu") engineMode = forced;
+}
 let activeBackend: "gpu" | "cpu" = "cpu";
 let panelApi: PanelApi | null = null;
 let history: StateSnapshot[] = [];
@@ -463,8 +471,10 @@ function buildFromSource(sample: FlatSource): void {
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
   // Auto follows the density policy: on a touch-primary device at low
-  // density the CPU engine wins, because the GPU path pays three
-  // synchronous readbacks a frame whatever the workload.
+  // density the CPU engine wins — the GPU path's one fixed position
+  // readback costs the same whatever the count, so at low density it
+  // dominates. Provisional, like simPolicy.ts's rationale (re-measure in
+  // v0.10.0 slice 6).
   if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
     try {
       next = createGpuEngine(sample, count, seed, rng);
@@ -556,6 +566,10 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   // Live state is carried, not reborn: positions, velocities, per-particle
   // memory, organism clocks and the simulation clock, so the swarm does not
   // screech to a halt on every G.
+  // The carry reads engine.memoryPerParticle; on the GPU engine that mirror
+  // is a snapshot — the living memory is the velocity texture's w channel.
+  // One switch-time readback keeps the carry honest.
+  if ("syncMemoryMirror" in old) (old as GpuParticleEngine).syncMemoryMirror();
   carryLiveState(old, next);
   next.configureGrid(params);
   if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
