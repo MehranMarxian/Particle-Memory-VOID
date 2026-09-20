@@ -44,6 +44,8 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
     onRelease: noop("release"),
     onFullscreen: noop("fullscreen"),
     onScreensaver: noop("screensaver"),
+    onTogglePause: noop("pause"),
+    onCapture: noop("capture"),
     onBackendToggle: noop("backend"),
     onSpeciesChange: noop("species"),
     onUserInteraction: noop("interaction"),

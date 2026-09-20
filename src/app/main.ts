@@ -1291,6 +1291,8 @@ guide.setState(memory.state);
 
 const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
+  togglePause: () => togglePause(),
+  captureMoment: () => captureMoment(),
   toggleColor: () => {
     visual.colorMode = nextColorMode(visual.colorMode);
     applyLook();
@@ -1445,6 +1447,12 @@ if (!demoMode) {
     pointer,
     backend: () => activeBackend,
     callbacks: {
+      onTogglePause() {
+        togglePause();
+      },
+      onCapture() {
+        captureMoment();
+      },
       onMacro(name: MacroName) {
         // Macros land in the live params; the section sliders show them
         // after refresh. An engine macro takes the wheel from the authored
@@ -1724,6 +1732,39 @@ document.addEventListener("visibilitychange", () => {
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
 let accumulator = 0;
+// Simulation pause (v0.10.0 slice 5): steps stop — engines, ecology, the
+// memory cycle and the evolver — while the camera, trails and sound keep
+// breathing. Distinct from the screensaver and the memory cycle's auto mode.
+let simPaused = false;
+let capturePending = false;
+
+function togglePause(): void {
+  simPaused = !simPaused;
+  panelApi?.setPaused(simPaused);
+  flashHint(simPaused ? "PAUSED - THE MOMENT HOLDS" : "RESUMED", 3);
+}
+
+/** Save the current frame: flagged here, taken right after the next render. */
+function captureMoment(): void {
+  capturePending = true;
+}
+
+function saveFrame(): void {
+  const safeName = (currentSourceName || "void")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\w-]+/g, "-")
+    .slice(0, 40);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  renderer3d.domElement.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `void-${safeName}-${stamp}.png`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flashHint("MOMENT SAVED", 3);
+  }, "image/png");
+}
 
 function frame(now: number): void {
   try {
@@ -1747,7 +1788,11 @@ function frameInner(now: number): void {
   // of doing six 50 ms steps a frame until the tab freezes. A demo on a
   // phone integrates one step per frame — a card may run dreamy, never hot.
   const { steps, residual } = scheduleSteps(accumulator, demoMode && coarsePointer ? 1 : undefined);
-  for (let s = 0; s < steps; s++) {
+  if (simPaused) {
+    // The moment holds: no steps, no catch-up debt when play resumes.
+    accumulator = 0;
+  }
+  for (let s = 0; s < steps && !simPaused; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
@@ -1777,7 +1822,7 @@ function frameInner(now: number): void {
     }
   }
 
-  evolver.tick(dt);
+  if (!simPaused) evolver.tick(dt);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
     : demoMode
@@ -1859,6 +1904,12 @@ function frameInner(now: number): void {
   trailPass.enabled = visual.trails;
   trailPass.decay = visual.trailDecay;
   trailPass.render(scene, camera, dt);
+  // Capture takes the present-pass pixels in the same task as the render:
+  // with preserveDrawingBuffer off, the buffer is valid only until compositing.
+  if (capturePending) {
+    capturePending = false;
+    saveFrame();
+  }
 
   frames++;
   if (splash && !splashGone && frames > 2) {

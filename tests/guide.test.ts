@@ -34,6 +34,8 @@ function makeCtx(isGuideOpen: () => boolean = () => false) {
     toggleSound: () => calls.push("sound"),
     toggleEvolve: () => calls.push("evolve"),
     toggleEcology: () => calls.push("ecology"),
+    togglePause: () => calls.push("pause"),
+    captureMoment: () => calls.push("capture"),
   };
 }
 

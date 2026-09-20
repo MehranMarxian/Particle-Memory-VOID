@@ -58,6 +58,8 @@ export interface PanelCallbacks {
   onRelease(): void;
   onFullscreen(): void;
   onScreensaver(): void;
+  onTogglePause(): void;
+  onCapture(): void;
   onBackendToggle(): void;
   onSpeciesChange(n: number): void;
   onUserInteraction(): void;
@@ -75,6 +77,8 @@ export interface PanelApi {
   setSourceInfo(name: string, kind: string, detail: string, count: number): void;
   setCount(count: number): void;
   setActivePreset(name: string | null): void;
+  /** Reflect the simulation-pause state on the PAUSE/PLAY action. */
+  setPaused(paused: boolean): void;
   setState(name: string): void;
   setStats(text: string): void;
   setHint(text: string, seconds: number, sticky: boolean): void;
@@ -364,15 +368,25 @@ export function createPanel(opts: {
     "How many particles remember the source."
   );
 
+  // The PAUSE action's label is driven from the app via api.setPaused.
+  let pauseStateSetter: ((paused: boolean) => void) | null = null;
   {
     const grid = document.createElement("div");
     grid.className = "btn-grid";
     mkBtn(grid, "RECONSTRUCT", () => callbacks.onReconstruct(), true);
     mkBtn(grid, "RELEASE", () => callbacks.onRelease(), true);
+    // Simulation pause, distinct from the screensaver and the memory
+    // cycle: steps stop, the camera and trails keep breathing.
+    const pauseBtn = mkBtn(grid, "PAUSE", () => callbacks.onTogglePause());
+    mkBtn(grid, "CAPTURE", () => callbacks.onCapture());
     mkBtn(grid, "SOURCE", () => callbacks.onAddSource());
     mkBtn(grid, "SCREENSAVER", () => callbacks.onScreensaver());
     mkBtn(grid, "FULLSCREEN", () => callbacks.onFullscreen());
     tier1.appendChild(grid);
+    pauseStateSetter = (paused: boolean) => {
+      pauseBtn.textContent = paused ? "PLAY" : "PAUSE";
+      pauseBtn.classList.toggle("on", paused);
+    };
   }
 
   const doors = document.createElement("div");
@@ -912,6 +926,9 @@ export function createPanel(opts: {
     },
     setActivePreset(name) {
       for (const [pname, btn] of presetBtns) btn.classList.toggle("on", pname === name);
+    },
+    setPaused(paused) {
+      pauseStateSetter?.(paused);
     },
     setState(name) {
       const el = document.getElementById("panel-state");
