@@ -127,12 +127,12 @@ const coarsePointer =
   typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 /**
- * Demo mode (?demo=1): a self-playing card for an embed. Fresh defaults,
- * the Portrait look, the authored cycle, the author's own portrait as the
- * source, and no UI. A demo never writes to the visitor's instrument state.
+ * Demo mode (?demo=1): a self-playing card for an embed. Fresh defaults, a
+ * lively look, the authored cycle, the bundled cloud as the source, and no
+ * UI. A demo never writes to the visitor's instrument state.
  */
 const demoMode = new URLSearchParams(location.search).get("demo") === "1";
-const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/demo-portrait.jpg`;
+const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/void-cloud.ply`;
 
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
@@ -724,9 +724,43 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   // count param can adjust the density.
   if (demoMode) {
     currentCount = coarsePointer ? 4000 : 6000;
+    // The demo look: built on Portrait's quiet reconstruction, then opened
+    // up so the card reads as ALIVE on its own — a strong shared heartbeat
+    // (every particle breathes in sync), visible wander and turbulence, a
+    // scent field the swarm writes and follows (the slow veins of a
+    // Physarum), gentle births and deaths, and species colour so the
+    // ecosystem's clusters and chases are legible at card size.
     const portraitDef = PRESET_DEFINITIONS.find((d) => d.name === "portrait")!;
     applyPreset(portraitDef, params, visual, matrix, ecologyParams, activeCamera);
+    Object.assign(params.memory, { strength: 3.2, decay: 0, reconstructionEase: 1 });
+    Object.assign(params.life, {
+      interactionRadius: 0.95,
+      coreRadius: 0.28,
+      forceScale: 8,
+      friction: 0.84,
+      attraction: 1.1,
+      repulsion: 0.9,
+      chaos: 0.14,
+      maxSpeed: 5,
+    });
+    params.wander = 0.09;
+    params.phaseCoupling = 1.8;
+    params.turbulence = 0.09;
+    Object.assign(params.scent, { enabled: true, deposit: 0.7, decay: 0.45, steer: 1.8 });
+    Object.assign(params.lifecycle, { enabled: true, lifespan: 50, spread: 1 });
+    Object.assign(visual, {
+      // White particles on black: the cloud's own cool white (SOURCE), so
+      // the card sits quietly inside the site's design.
+      colorMode: "source",
+      particleSize: 0.75,
+      glow: 0.45,
+      opacity: 0.68,
+      dof: 0.2,
+    });
     memory.active = memory.auto = true;
+    // Half the usual camera distance: the cloud is a big subject and the
+    // particles must read at card size.
+    radius = 8.5;
     document.body.classList.add("demo");
   }
   // URL params override persisted state.
@@ -1671,7 +1705,11 @@ function frameInner(now: number): void {
   }
 
   evolver.tick(dt);
-  azimuth += dt * (saver.active ? activeCamera.orbitSpeed * activeCamera.orbitDirection : 0.02);
+  azimuth += dt * (saver.active
+    ? activeCamera.orbitSpeed * activeCamera.orbitDirection
+    : demoMode
+      ? 0.03 // a card must look alive without being touched
+      : 0.02);
   let radiusNow = radius;
   let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
   let azimuthNow = azimuth;
