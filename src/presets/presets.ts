@@ -22,6 +22,13 @@ export interface PresetDefinition {
   visual?: Partial<VisualSettings>;
   /** Ecology overrides. Only meaningful on the CPU backend. */
   ecology?: Partial<EcologyParams>;
+  /**
+   * The one pointer field a look may arm: the gravitational ripple
+   * amplitude. Strength and mode stay live input state and are never
+   * preset data. A preset without `pointer` disarms ripples (the reset
+   * zeroes the field), so a look's ripples cannot leak into another.
+   */
+  pointer?: { ripple?: number };
   /** "random" regenerates the matrix on apply; otherwise a flat row-major matrix. */
   matrix?: readonly number[] | "random";
   /**
@@ -42,6 +49,37 @@ export interface PresetDefinition {
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
+  {
+    name: "moon",
+    label: "Moon Dust",
+    description:
+      "The signature look: a silver constellation that ripples under your hand, glows, and always comes home",
+    memory: { strength: 7, decay: 0, reconstructionEase: 1.3 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.85,
+      coreRadius: 0.3,
+      forceScale: 4.5,
+      friction: 0.9,
+      attraction: 1.1,
+      repulsion: 0.9,
+      chaos: 0.06,
+      maxSpeed: 3.2,
+    },
+    field: { turbulence: 0.04, wander: 0.035, drift: 0, gravity: 0 },
+    pointer: { ripple: 1 },
+    visual: {
+      trails: true,
+      trailDecay: 0.7,
+      glow: 0.85,
+      fogDensity: 0.12,
+      particleSize: 0.95,
+      opacity: 0.8,
+      colorMode: "monochrome",
+      shape: "circle",
+    },
+    lifecycle: { enabled: false },
+  },
   {
     name: "portrait",
     label: "Portrait",
@@ -505,8 +543,12 @@ export function applyPreset(
   // Reset to the known default before applying overrides, in place: nested
   // objects are mutated, never replaced, because the panel holds references
   // to the live sections (replacing them would orphan every slider).
-  // The pointer is deliberately not preset material — it is live input state.
+  // The pointer is deliberately not preset material — it is live input
+  // state. The one exception is the ripple amplitude, which is a look's
+  // character: zeroed here (so Moon Dust's ripples cannot leak into
+  // another look) and re-armed from the definition below.
   assignDefaultsInPlace(params, defaultEngineParams(), ["pointer"]);
+  params.pointer.ripple = 0;
   assignDefaultsInPlace(visual, defaultVisualSettings());
   if (ecology) assignDefaultsInPlace(ecology, defaultEcologyParams());
   // A preset either ships a camera or yields today's default motion.
@@ -521,6 +563,7 @@ export function applyPreset(
   if (def.heat) Object.assign(params.heat, def.heat);
   if (def.environment) Object.assign(params.environment, def.environment);
   if (def.lifecycle) Object.assign(params.lifecycle, def.lifecycle);
+  if (def.pointer && def.pointer.ripple !== undefined) params.pointer.ripple = def.pointer.ripple;
   if (def.wander !== undefined) params.wander = def.wander;
   if (def.phaseCoupling !== undefined) params.phaseCoupling = def.phaseCoupling;
   if (def.visual) Object.assign(visual, clampVisualSettings({ ...visual, ...def.visual }));

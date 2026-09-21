@@ -90,22 +90,47 @@
   </head>
   <body>
     <script>
+      /* Recovery: failures surface in the piece, not the tab title. This
+         inline bus only covers the window before the module arrives - it
+         queues and shows a bare overlay; src/ui/recovery.ts replaces it at
+         boot with the full surface (COPY DIAGNOSTICS, CONTINUE, RELOAD).
+         ?debug=1 keeps the old title mode for field use. */
+      window.__VOID_DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+      window.__voidRecovery = (function () {
+        var shown = false;
+        function report(p) {
+          var message = (p && p.message) || String(p);
+          if (window.__VOID_DEBUG) {
+            document.title = ("ERR " + message + " @ " + ((p && p.stack) || "")).slice(0, 900);
+            return;
+          }
+          if (shown) return;
+          shown = true;
+          var el = document.createElement("div");
+          el.style.cssText =
+            "position:fixed;left:0;right:0;bottom:0;z-index:300;background:#0a0a0a;color:#bdbdbd;" +
+            "font:12px/1.7 ui-monospace,monospace;padding:14px 18px;border-top:1px solid #3a3a3a;white-space:pre-wrap";
+          el.textContent = "THE PIECE HIT A PROBLEM\n" + message + "\n\nRELOAD THE PAGE TO START FRESH.";
+          (document.body || document.documentElement).appendChild(el);
+        }
+        return {
+          installed: false,
+          queue: [],
+          report: function (p) {
+            this.queue.push(p);
+            report(p);
+          },
+        };
+      })();
       window.addEventListener("error", function (e) {
-        document.title = ("ERR " + (e.message || "unknown") + " @ " + (e.error && e.error.stack ? String(e.error.stack) : "")).slice(0, 900);
+        window.__voidRecovery.report({ message: e.message || "unknown error", stack: e.error && String(e.error.stack), context: e.type });
       });
       window.addEventListener("unhandledrejection", function (e) {
         var r = e.reason;
-        var frame = r && r.stack ? String(r.stack).split("\n")[1] : "";
-        document.title = ("REJ " + ((r && r.message) || "unknown") + " @ " + frame).slice(0, 300);
+        window.__voidRecovery.report({ message: (r && r.message) || String(r), stack: r && r.stack ? String(r.stack) : "", context: e.type });
       });
-      (function () {
-        var orig = console.error;
-        console.error = function () {
-          var msg = Array.prototype.slice.call(arguments).join(" ");
-          document.title = "CERR " + msg.slice(0, 600);
-          orig.apply(console, arguments);
-        };
-      })();
+      /* Demo cards start from pure black: no logo, no image, particles first. */
+      window.__VOID_DEMO = new URLSearchParams(location.search).get("demo") === "1";
     </script>
     <div id="stage"></div>
     <input id="filepicker" type="file"
@@ -113,7 +138,21 @@
     <div id="dropzone">
       <div>DROP YOUR MEMORY<span>IMAGE&nbsp;&nbsp;PNG · JPG · WEBP · BMP · GIF<br>MODEL&nbsp;&nbsp;GLB · GLTF · OBJ · STL<br>CLOUD&nbsp;&nbsp;PLY</span></div>
     </div>
-    <div id="splash"><img src="./void-logo.png" alt="VOID / PARTICLE MEMORY" /></div>
+    <div id="splash"><img id="splash-logo" alt="VOID / PARTICLE MEMORY" /></div>
+    <script>
+      /* The splash logo is wired here so a demo card never fetches it:
+         black background first, then particles - nothing before them. */
+      (function () {
+        var splash = document.getElementById("splash");
+        if (!splash) return;
+        if (window.__VOID_DEMO) {
+          splash.parentNode.removeChild(splash);
+        } else {
+          var img = document.getElementById("splash-logo");
+          if (img) img.src = "./void-logo.png";
+        }
+      })();
+    </script>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

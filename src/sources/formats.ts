@@ -37,6 +37,15 @@ export function unsupportedFormatMessage(name: string): string {
 export function humanizeSourceError(name: string, err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/unsupported source format/i.test(raw)) return unsupportedFormatMessage(name);
+  if (/SOURCE TOO LARGE/i.test(raw)) return `${name}: ${raw}`;
+  // The common death for a .gltf is a sibling .bin or textures it cannot
+  // resolve (the parse runs with no resource base); say what actually helps.
+  if (
+    extensionOf(name) === "gltf" &&
+    /external|\.bin|not found|no such|cannot locate|failed to load/i.test(raw)
+  ) {
+    return `${name}: THIS .GLTF REFERENCES EXTERNAL FILES (A .BIN OR TEXTURES) - PACK IT AS A .GLB AND DROP THAT INSTEAD`;
+  }
   if (/PLY: missing 'ply' magic/i.test(raw)) return `${name}: NOT A VALID PLY POINT CLOUD`;
   if (/PLY:/i.test(raw)) return `${name}: THE POINT CLOUD IS MALFORMED`;
   if (/failed to fetch/i.test(raw)) return `COULD NOT FETCH ${name}`;

@@ -7,6 +7,7 @@ import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulati
 import { packGridTextures, type PackedGridTextures } from "./gridTextures";
 import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
+import { RippleField } from "@/input/ripples";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
@@ -25,7 +26,14 @@ import { ScentField } from "../scent/ScentField";
  * stress probe, the backend carry), and velocities are estimated from
  * consecutive position mirrors instead of being read back at all.
  *
- * Force formulas are identical to ParticleEngine.step.
+ * Memory (the velocity texture's w channel) evolves in the shader since
+ * v0.10.0 — decay, regain and restore are the velocity pass's job, and
+ * rebirth placement is the position pass's. Its CPU mirror syncs only at
+ * switch and species-change time (one extra readback each, off the
+ * per-frame budget).
+ *
+ * Force formulas and per-particle memory evolution mirror
+ * ParticleEngine.step (memoryStep.ts is the shared contract).
  */
 const FIELD_TEXTURE_SYNC_FRAMES = 10;
 const STATE_READBACK_FRAMES = 30;
@@ -54,6 +62,8 @@ export class GpuParticleEngine {
   private stateReadback: Float32Array;
   readonly scent = new ScentField();
   readonly heat = new ScentField();
+  /** The pointer's movement rings the swarm (Moon Dust); the shader mirrors RippleField.force. */
+  readonly ripples = new RippleField();
   private scentTex: THREE.DataTexture;
   private grid: SpatialGrid;
   private packed: PackedGridTextures;
@@ -195,6 +205,10 @@ export class GpuParticleEngine {
       vu[name] = { value: 0 };
     }
     vu["uPointer"] = { value: new THREE.Vector3() };
+    vu["uRipples"] = {
+      value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, -1000)),
+    };
+    vu["uRippleAmp"] = { value: 0 };
     vu["uKernel"] = { value: 0 };
     vu["uWander"] = { value: 0.06 };
     vu["uScentOn"] = { value: 0 };
@@ -224,6 +238,11 @@ export class GpuParticleEngine {
     const pu = this.positionVar.material.uniforms;
     pu["uCount"] = { value: count };
     pu["uDt"] = { value: 1 / 60 };
+    pu["uTime"] = { value: 0 };
+    pu["uLifeOn"] = { value: 0 };
+    pu["uLifespan"] = { value: 10 };
+    pu["uLifeSpread"] = { value: 0.3 };
+    pu["texTargets"] = { value: this.targetsTex };
   }
 
   /** Create and initialize a GPU engine; throws when the platform can't. */
@@ -386,7 +405,15 @@ export class GpuParticleEngine {
     // throttled state mirror first, so the re-upload carries the live
     // phases rather than a 30-frame-old snapshot.
     this.syncStateMirror();
+    // Memory lives in the velocity texture's w channel now; the re-upload
+    // must carry the living per-particle memory, not the stale mirror.
+    this.syncMemoryMirror();
     this.uploadInitialState();
+  }
+
+  /** Ring the swarm: a ripple wavefront born at the pointer now. */
+  spawnRipple(x: number, y: number, z: number): void {
+    this.ripples.spawn(x, y, z, this.simTime);
   }
 
   regainMemory(dt: number, rate: number): void {
@@ -549,6 +576,16 @@ export class GpuParticleEngine {
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
     u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);
+    u["uRippleAmp"].value = params.pointer.ripple;
+    {
+      const slots = u["uRipples"].value as THREE.Vector4[];
+      const live = this.ripples.all();
+      for (let ri = 0; ri < 4; ri++) {
+        const r = live[ri];
+        if (r) slots[ri].set(r.x, r.y, r.z, r.born);
+        else slots[ri].set(0, 0, 0, -1000);
+      }
+    }
     u["uPointerStrength"].value = params.pointer.strength;
     u["uPointerMode"].value = params.pointer.mode;
     u["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;
@@ -558,7 +595,12 @@ export class GpuParticleEngine {
       L.kernel === "pulse" ? 0 : L.kernel === "inverse" ? 1 : 2;
     u["uRegain"].value = this.pendingRegain;
     u["uRestore"].value = this.pendingRestore;
-    this.positionVar.material.uniforms["uDt"].value = dt;
+    const pu = this.positionVar.material.uniforms;
+    pu["uDt"].value = dt;
+    pu["uTime"].value = this.simTime;
+    pu["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;
+    pu["uLifespan"].value = params.lifecycle.lifespan;
+    pu["uLifeSpread"].value = params.lifecycle.spread;
 
     // 5. Compute, then clear one-frame flags.
     this.compute.compute();
@@ -611,6 +653,22 @@ export class GpuParticleEngine {
       this.renderState[i * 4 + 1] = this.stateReadback[i * 4 + 1];
       this.renderState[i * 4 + 2] = this.stateReadback[i * 4 + 2];
       this.renderState[i * 4 + 3] = this.stateReadback[i * 4 + 3];
+    }
+  }
+
+  /**
+   * Pull the living memory back into the CPU mirror. The velocity shader
+   * owns the w channel now, so the mirror goes stale between steps; the
+   * two moments that read it (the backend carry, the species re-upload)
+   * call this first. One switch-time readback, off the per-frame budget.
+   */
+  syncMemoryMirror(): void {
+    this.readBack(
+      this.compute.getCurrentRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget,
+      this.readback
+    );
+    for (let i = 0; i < this.count; i++) {
+      this.memoryPerParticle[i] = this.readback[i * 4 + 3];
     }
   }
 

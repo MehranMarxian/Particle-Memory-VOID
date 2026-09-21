@@ -108,7 +108,7 @@ describe("particle engine responds to the touch", () => {
       engine.velocities[i * 3 + 1] = 0;
       engine.velocities[i * 3 + 2] = 0;
     }
-    params.pointer = { strength, mode, x: 2, y: 0, z: 0 };
+    params.pointer = { strength, mode, ripple: 0, x: 2, y: 0, z: 0 };
     for (let step = 0; step < steps; step++) engine.step(1 / 60, params, matrix);
 
     let sum = 0;

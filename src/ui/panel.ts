@@ -13,19 +13,27 @@ import { GRADIENT_PALETTE_NAMES } from "@/rendering/palette";
 import type { MemorySystem } from "@/memory/MemorySystem";
 import type { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { PRESET_DEFINITIONS } from "@/presets/presets";
+import {
+  MACRO_LABELS,
+  MACRO_ORDER,
+  MACRO_TIPS,
+  type MacroName,
+  type MacroValues,
+} from "@/presets/macros";
 import "./panel.css";
 
 /**
  * The control panel (v0.9.0 IA): three tiers, by consequence.
  *
  * Tier 1 — THE PIECE. Always visible: the source chip, the density, the two
- * great gestures (RECONSTRUCT / RELEASE), the screensaver and fullscreen,
- * and the doors to what lies beneath.
+ * great gestures (RECONSTRUCT / RELEASE), the direct SOURCE action, the
+ * screensaver and fullscreen, and the doors to what lies beneath.
  *
  * Tier 2 — THE INSTRUMENT. An accordion, closed by default, one section open
- * at a time: MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND,
- * EVOLVE, and the PRESETS / ACTIONS grids. The piece's whole identity is
- * withhold-and-reveal; the instrument hides behind discovery, not confusion.
+ * at a time: MOTION (the macro layer), MEMORY, LIFE, FIELD, SCENT & HEAT,
+ * ECOLOGY, VISUAL, SOUND, EVOLVE, and the PRESETS / ACTIONS sections. The
+ * piece's whole identity is withhold-and-reveal; the instrument hides
+ * behind discovery, not confusion.
  *
  * Tier 3 — THE LAB. Behind one explicit door: the backend switch, the ghost
  * replay, the quiet modulators (sync, the environment affinities), and the
@@ -41,6 +49,8 @@ export interface PanelCallbacks {
   onDensityChange(count: number): void;
   onAddSource(): void;
   onPreset(name: string): void;
+  /** A macro slider moved. The app applies it and exits the authored cycle for engine macros. */
+  onMacro(name: MacroName): void;
   onRandomize(): void;
   onUndo(): void;
   onReset(): void;
@@ -48,6 +58,8 @@ export interface PanelCallbacks {
   onRelease(): void;
   onFullscreen(): void;
   onScreensaver(): void;
+  onTogglePause(): void;
+  onCapture(): void;
   onBackendToggle(): void;
   onSpeciesChange(n: number): void;
   onUserInteraction(): void;
@@ -65,6 +77,8 @@ export interface PanelApi {
   setSourceInfo(name: string, kind: string, detail: string, count: number): void;
   setCount(count: number): void;
   setActivePreset(name: string | null): void;
+  /** Reflect the simulation-pause state on the PAUSE/PLAY action. */
+  setPaused(paused: boolean): void;
   setState(name: string): void;
   setStats(text: string): void;
   setHint(text: string, seconds: number, sticky: boolean): void;
@@ -81,6 +95,8 @@ export function createPanel(opts: {
   matrix: InteractionMatrix;
   speciesCount: number;
   currentCount: number;
+  /** The live macro positions (the MOTION section reads and writes them). */
+  macros: MacroValues;
   sound: { enabled: boolean; sensitivity: number; source: AudioSource };
   soundscape: { enabled: boolean; volume: number };
   evolve: { enabled: boolean; trialSeconds: number; mutation: number; phenotype: boolean; ecology: boolean };
@@ -101,7 +117,7 @@ export function createPanel(opts: {
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -352,14 +368,49 @@ export function createPanel(opts: {
     "How many particles remember the source."
   );
 
+  // The PAUSE action's label is driven from the app via api.setPaused.
+  let pauseStateSetter: ((paused: boolean) => void) | null = null;
+  // The signature look: one prominent action, never a nested menu. A moon
+  // crescent with a visible label and a spoken label (the accessible name
+  // carries the description the tooltip would).
+  {
+    const moonBtn = document.createElement("button");
+    moonBtn.className = "act moon";
+    moonBtn.setAttribute("aria-label", "Moon Dust, the signature look: ripples under your hand, luminous trails, and a swarm that comes home");
+    moonBtn.title = "Moon Dust — the signature look";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z");
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    const label = document.createElement("span");
+    label.textContent = "MOON DUST";
+    moonBtn.append(svg, label);
+    moonBtn.addEventListener("click", () => callbacks.onPreset("moon"));
+    tier1.appendChild(moonBtn);
+  }
+
   {
     const grid = document.createElement("div");
     grid.className = "btn-grid";
     mkBtn(grid, "RECONSTRUCT", () => callbacks.onReconstruct(), true);
     mkBtn(grid, "RELEASE", () => callbacks.onRelease(), true);
+    // Simulation pause, distinct from the screensaver and the memory
+    // cycle: steps stop, the camera and trails keep breathing.
+    const pauseBtn = mkBtn(grid, "PAUSE", () => callbacks.onTogglePause());
+    mkBtn(grid, "CAPTURE", () => callbacks.onCapture());
+    mkBtn(grid, "SOURCE", () => callbacks.onAddSource());
     mkBtn(grid, "SCREENSAVER", () => callbacks.onScreensaver());
     mkBtn(grid, "FULLSCREEN", () => callbacks.onFullscreen());
     tier1.appendChild(grid);
+    pauseStateSetter = (paused: boolean) => {
+      pauseBtn.textContent = paused ? "PLAY" : "PAUSE";
+      pauseBtn.classList.toggle("on", paused);
+    };
   }
 
   const doors = document.createElement("div");
@@ -371,6 +422,28 @@ export function createPanel(opts: {
   tier2.className = "panel-tier2";
   tier2.style.display = "none";
   panel.appendChild(tier2);
+
+  // The macro layer: five expressive axes over the engine's real
+  // parameters. Moving an engine macro exits the authored cycle (the app
+  // does that — the panel only reports); ATMOSPHERE shapes the visual
+  // alone and composes with the cycle.
+  const motionBody = section("MOTION", tier2, true);
+  for (const name of MACRO_ORDER) {
+    const macroName: MacroName = name;
+    addSlider(
+      motionBody,
+      MACRO_LABELS[macroName],
+      { min: 0, max: 1, step: 0.01 },
+      () => opts.macros[macroName],
+      (v) => {
+        macros[macroName] = v;
+        callbacks.onMacro(macroName);
+      },
+      (v) => v.toFixed(2),
+      true,
+      MACRO_TIPS[macroName]
+    );
+  }
 
   const memBody = section("MEMORY", tier2, true);
   addToggle(
@@ -686,18 +759,34 @@ export function createPanel(opts: {
     evolveReadout = readout;
   }
 
+  // The looks browser: each look as a face — a static thumbnail (captured
+  // once from a fixed seed, shipped in public/presets/), its name, and its
+  // one-line description. A look with no thumbnail falls back to the word.
+  // Static images on purpose: twelve live simulations to populate a browser
+  // would work against every performance budget the piece keeps.
   const presetBody = section("PRESETS", tier2, true);
   const presetGrid = document.createElement("div");
-  presetGrid.className = "btn-grid";
+  presetGrid.className = "preset-grid";
   const presetBtns = new Map<string, HTMLButtonElement>();
   for (const def of PRESET_DEFINITIONS) {
-    const btn = document.createElement("button");
-    btn.className = "act";
-    btn.textContent = def.label.toUpperCase();
-    btn.title = def.description;
-    btn.addEventListener("click", () => callbacks.onPreset(def.name));
-    presetGrid.appendChild(btn);
-    presetBtns.set(def.name, btn);
+    const card = document.createElement("button");
+    card.className = "preset-card";
+    card.title = def.description;
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = `${def.label} look`;
+    img.src = `${import.meta.env.BASE_URL}presets/${def.name}.png`;
+    img.addEventListener("error", () => img.remove());
+    const label = document.createElement("span");
+    label.className = "preset-name";
+    label.textContent = def.label.toUpperCase();
+    const desc = document.createElement("span");
+    desc.className = "preset-desc";
+    desc.textContent = def.description;
+    card.append(img, label, desc);
+    card.addEventListener("click", () => callbacks.onPreset(def.name));
+    presetGrid.appendChild(card);
+    presetBtns.set(def.name, card);
   }
   presetBody.appendChild(presetGrid);
   syncFns.push(() => {
@@ -861,6 +950,9 @@ export function createPanel(opts: {
     },
     setActivePreset(name) {
       for (const [pname, btn] of presetBtns) btn.classList.toggle("on", pname === name);
+    },
+    setPaused(paused) {
+      pauseStateSetter?.(paused);
     },
     setState(name) {
       const el = document.getElementById("panel-state");

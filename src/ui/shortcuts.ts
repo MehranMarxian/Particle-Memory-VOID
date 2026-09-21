@@ -137,6 +137,20 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: ".",
+    keys: ["."],
+    label: "Pause",
+    hint: "Hold the swarm still; the camera keeps breathing.",
+  },
+  {
+    group: "SYSTEM",
+    display: "M",
+    keys: ["M"],
+    label: "Capture",
+    hint: "Save this moment as an image.",
+  },
+  {
+    group: "SYSTEM",
     display: "S",
     keys: ["S"],
     label: "Screensaver",
@@ -184,6 +198,10 @@ export interface ShortcutContext {
   densityDown(): void;
   toggleBackend(): void;
   toggleScreensaver(): void;
+  /** Simulation pause: steps stop, the camera keeps breathing. */
+  togglePause(): void;
+  /** Save the current frame through the HDR chain. */
+  captureMoment(): void;
   setMemoryState(index: number): void;
   toggleGuide(): void;
   closeGuide(): void;
@@ -272,6 +290,12 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       return true;
     case "S":
       ctx.toggleScreensaver();
+      return true;
+    case ".":
+      ctx.togglePause();
+      return true;
+    case "M":
+      ctx.captureMoment();
       return true;
     case "]":
     case "+":

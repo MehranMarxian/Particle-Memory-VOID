@@ -4,10 +4,14 @@
  * Force model mirrors ParticleEngine.step exactly: species interactions
  * over the CPU-built spatial grid, core repulsion, memory spring toward
  * targets, curl turbulence, drift, gravity, per-frame friction, speed
- * clamp, stochastic per-particle memory decay/regain.
+ * clamp, stochastic per-particle memory decay/regain (see memoryStep.ts,
+ * the TypeScript mirror the contract tests hold the GLSL to).
  *
  * Position texture:  xyz = position,  w = species
- * Velocity texture:  xyz = velocity,  w = memoryPerParticle (0..1)
+ * Velocity texture:  xyz = velocity,  w = memoryPerParticle (0..1) — and
+ * the w channel lives: decay, regain and restore evolve it every step.
+ * Rebirth placement also lives in the position pass, which is where pos
+ * can actually persist.
  *
  * GPUComputationRenderer injects `resolution` and the dependency samplers
  * (texturePosition / textureVelocity) automatically.
@@ -15,6 +19,13 @@
 export const gpuPositionShader = /* glsl */ `
   uniform float uCount;
   uniform float uDt;
+  uniform float uTime;
+  uniform float uLifeOn;
+  uniform float uLifespan;
+  uniform float uLifeSpread;
+  uniform sampler2D texTargets;
+
+  float hash1(float n) { return fract(sin(n) * 43758.5453123); }
 
   void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -22,6 +33,22 @@ export const gpuPositionShader = /* glsl */ `
     vec4 pos = texture2D(texturePosition, uv);
     if (idx >= uCount) { gl_FragColor = vec4(0.0); return; }
     vec4 vel = texture2D(textureVelocity, uv);
+
+    // Rebirth places the particle at its source point, as the CPU engine's
+    // teleport does (ParticleEngine.step): the same age test and ring
+    // offset the velocity pass's life cycle uses, applied where pos can
+    // actually persist.
+    if (uLifeOn > 0.5) {
+      float lifeSpan = max(2.0, uLifespan);
+      float lifeAge = mod(uTime + hash1(idx * 1.618 + 7.13) * uLifeSpread * lifeSpan, lifeSpan);
+      if (lifeAge < uDt * 1.5) {
+        float br1 = hash1(idx * 2.71 + 3.3) * 6.28318530718;
+        float br2 = hash1(idx * 3.17 + 9.1);
+        vec4 tgt = texture2D(texTargets, uv);
+        pos = vec4(tgt.xyz + vec3(cos(br1), sin(br1), (br2 - 0.5)) * 0.35, pos.w);
+      }
+    }
+
     gl_FragColor = vec4(pos.xyz + vel.xyz * uDt, pos.w);
   }
 `;
@@ -128,6 +155,12 @@ export const gpuVelocityShader = /* glsl */ `
   uniform vec3 uPointer;
   uniform float uPointerStrength;
   uniform float uPointerMode;
+  // Gravitational ripples (Moon Dust): xyz origin, w birth time; w < -1 is
+  // an empty slot. Constants mirror RippleField exactly (speed 5.5, width
+  // 1.15, life 1.6, cutoff 4 life) — the contract tests hold both to the
+  // pure module.
+  uniform vec4 uRipples[4];
+  uniform float uRippleAmp;
   uniform float uLifeOn;
   uniform float uLifespan;
   uniform float uLifeSpread;
@@ -232,6 +265,23 @@ export const gpuVelocityShader = /* glsl */ `
     float species = pos4.w;
     float mem = vel4.w;
 
+    // --- MEMORY: the w channel lives (mirrors ParticleEngine.step) ------
+    // Regain walks forgotten particles home, restore fills everyone, and
+    // forgetting is stochastic — a per-step coin at uMemoryDecay * uDt
+    // shaving 0.15, the CPU engine's own draw (see memoryStep.ts). Order
+    // matches the CPU: regain first, decay second; restore is exclusive —
+    // a refill is not degraded in the same step. The spring below uses
+    // the updated value, as the CPU's force loop does after its decay.
+    if (uRestore > 0.5) {
+      mem = 1.0;
+    } else {
+      if (uRegain > 0.0) mem = min(1.0, mem + uRegain);
+      if (uMemoryDecay > 0.0 &&
+          hash1(idx * 0.173 + mod(floor(uTime * 60.0), 288.0) * 3.77) < uMemoryDecay * uDt) {
+        mem = max(0.0, mem - 0.15);
+      }
+    }
+
     float r2max = uInteractionRadius * uInteractionRadius;
     float coreR = uInteractionRadius * uCoreRadius;
 
@@ -318,11 +368,11 @@ export const gpuVelocityShader = /* glsl */ `
       float lifeFadeOut = 1.0 - smoothstep(lifeSpan * 0.82, lifeSpan, lifeAge);
       lifeScale = lifeMature * lifeFadeOut;
       if (lifeAge < uDt * 1.5) {
-        // Born this frame: from the memory, with a small puff outward.
-        vec4 birthTarget = texture2D(texTargets, uv);
+        // Born this frame: a small puff outward. The placement to the
+        // source point lives in the position shader, which owns pos —
+        // a write here could never reach the position texture.
         float br1 = hash1(idx * 2.71 + 3.3) * 6.28318530718;
         float br2 = hash1(idx * 3.17 + 9.1);
-        pos = birthTarget.xyz + vec3(cos(br1), sin(br1), (br2 - 0.5)) * 0.35;
         vel = vec3(cos(br1), sin(br1), (br2 - 0.5) * 0.75) * 0.6;
       }
     }
@@ -355,6 +405,23 @@ export const gpuVelocityShader = /* glsl */ `
       float pDist = sqrt(pDist2) + 0.0001;
       float pFall = 1.0 / (1.0 + pDist2 * 0.25);
       accel += (toPointer / pDist) * (uPointerStrength * uPointerMode * pFall);
+    }
+
+    // Gravitational ripples: expanding wavefronts tugging the swarm toward
+    // the ring — the CPU engine calls RippleField.force for the same math.
+    if (uRippleAmp > 0.0) {
+      for (int ri = 0; ri < 4; ri++) {
+        vec4 rp = uRipples[ri];
+        float age = uTime - rp.w;
+        if (rp.w < -1.0 || age < 0.0 || age > 6.4) continue;
+        vec3 d = pos - rp.xyz;
+        float dist = length(d) + 1e-6;
+        float band = (dist - age * 5.5) / 1.15;
+        float amp = exp(-age / 1.6) * exp(-band * band);
+        if (amp < 0.001) continue;
+        float outward = dist < age * 5.5 ? 1.0 : -1.0;
+        accel += d * ((outward * amp / dist) * uRippleAmp);
+      }
     }
 
     // Heat steering: flee the swarm's own warmth, or seek it.

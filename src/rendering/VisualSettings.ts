@@ -97,7 +97,9 @@ export const defaultVisualSettings = (): VisualSettings => ({
 export function clampVisualSettings(s: VisualSettings): VisualSettings {
   const cl = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
   return {
-    particleSize: cl(s.particleSize, 0.4, 8),
+    // The floor admits "dust": the demo card draws its swarm at a size the
+    // panel slider never offers, and persisted state must survive that.
+    particleSize: cl(s.particleSize, 0.15, 8),
     glow: cl(s.glow, 0, 2.5),
     opacity: cl(s.opacity, 0.05, 1),
     trails: !!s.trails,

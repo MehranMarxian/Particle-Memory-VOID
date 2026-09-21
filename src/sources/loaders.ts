@@ -16,6 +16,25 @@ export function extensionOf(name: string): string {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
+/**
+ * The filename a URL claims, with query and hash stripped before the last
+ * segment is taken — portrait.png?v=2 is a PNG, not a ".png?v=2". A bare
+ * origin or trailing slash yields the cleaned URL, which then fails kind
+ * detection with the full supported-format message.
+ */
+export function sourceNameFromUrl(url: string): string {
+  const clean = url.split(/[?#]/, 1)[0];
+  const name = clean.split("/").pop() ?? "";
+  return name || clean;
+}
+
+/**
+ * A bound, not a guarantee: past this a main-thread parse would freeze the
+ * tab long before it finished. 256 MB covers every source the piece can
+ * use today (images downsample to 768 px; the rest bounds the parse).
+ */
+export const MAX_SOURCE_BYTES = 256 * 1024 * 1024;
+
 export function detectSourceKind(name: string): SourceKind | null {
   const ext = extensionOf(name);
   for (const [kind, exts] of Object.entries(FORMAT_REGISTRY)) {
@@ -60,6 +79,11 @@ export async function loadSource(
   data: Blob,
   kind?: SourceKind
 ): Promise<SourceHandle> {
+  if (data.size > MAX_SOURCE_BYTES) {
+    throw new Error(
+      `SOURCE TOO LARGE: ${Math.ceil(data.size / 1048576)} MB - THE BOUND IS 256 MB. DECIMATE THE MESH OR DOWNSAMPLE IT FIRST.`
+    );
+  }
   const detected = kind ?? detectSourceKind(name);
   if (!detected) {
     throw new Error(
@@ -95,6 +119,10 @@ export async function loadSource(
   }
 
   // Mesh formats.
+  // NB: the dynamic imports stay bare - wrapping them in try/catch pulled
+  // the loader modules into the eager graph and blew the bundle budget
+  // (found by the budget gate, v0.10.0 slice 6). Parse failures are
+  // humanized instead by humanizeSourceError, which maps them by regex.
   const buffer = await data.arrayBuffer();
   let root: import("three").Object3D;
   const ext = extensionOf(name);
@@ -157,7 +185,7 @@ export async function loadSourceFromUrl(url: string, count?: number): Promise<{
 }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`failed to fetch source ${url}: ${res.status}`);
-  const name = url.split("/").pop() ?? url;
+  const name = sourceNameFromUrl(url);
   const blob = await res.blob();
   const handle = await loadSource(name, blob);
   return { handle, sample: handle.resample(count ?? 12000) };

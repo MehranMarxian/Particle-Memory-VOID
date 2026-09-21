@@ -1,17 +1,54 @@
 import * as THREE from "three";
 
 /**
+ * Time-true trail retention (v0.10.0 slice 2): r60 is the per-frame
+ * retention calibrated at 60 fps; the per-frame fade for a real frame dt
+ * is r60^(60·Δt), so the decay DURATION is frame-rate invariant —
+ * r(Δt) = r60^(60Δt). At exactly 60 fps this is the old multiply.
+ */
+export function trailRetention(r60: number, dt: number): number {
+  return Math.pow(r60, dt * 60);
+}
+
+/**
+ * Camera-aware trail damping (v0.10.0): a fast orbit must not smear the
+ * whole image across itself. Below ~0.5 rad/s the trails are untouched;
+ * beyond that the retention damps toward a tenth of its setting by
+ * 3 rad/s, so turning the camera clears the afterimage instead of
+ * buttering the frame.
+ */
+export function cameraTrailDecay(decay: number, angularSpeed: number): number {
+  const t = Math.min(1, Math.max(0, (angularSpeed - 0.5) / 2.5));
+  return decay * (1 - 0.9 * t * t);
+}
+
+/**
+ * Per-frame deposit compensation: a particle deposits light once per
+ * rendered frame, so at other refresh rates each frame draws
+ * proportionally more/less to keep the light deposited per SECOND
+ * invariant. HDR targets take the exact factor; LDR caps at 1 — a slow
+ * frame errs dim rather than clipped.
+ */
+export function trailDepositScale(dt: number, hdr: boolean): number {
+  return hdr ? dt * 60 : Math.min(1, dt * 60);
+}
+
+/**
  * Afterimage motion trails.
  *
  * A ping-pong pair of render targets: each frame the previous frame is
- * faded by `decay` into the current target, the live scene is drawn on
- * top (additive particles accumulate), and the result is presented to
- * the screen. Cheap, cinematic trails without per-particle line meshes.
+ * faded by a time-true retention into the current target, the live scene
+ * is drawn on top (additive particles accumulate), and the result is
+ * presented to the screen. Cheap, cinematic trails without per-particle
+ * line meshes.
  */
 export class TrailPass {
   enabled = true;
-  /** Per-frame retention: 0.3 = short, 0.9 = long smears. */
+  /** Per-frame retention at 60 fps: 0.3 = short, 0.9 = long smears. */
   decay = 0.55;
+
+  /** Whether the accumulation targets are HDR (drives deposit scaling). */
+  readonly hdr: boolean;
 
   private rtA: THREE.WebGLRenderTarget;
   private rtB: THREE.WebGLRenderTarget;
@@ -32,6 +69,7 @@ export class TrailPass {
     // HDR accumulation removes additive clipping; fall back to LDR where
     // float render targets are unsupported.
     const hdr = renderer.extensions.get("EXT_color_buffer_float") ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    this.hdr = hdr === THREE.HalfFloatType;
     const opts: THREE.RenderTargetOptions = {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
@@ -93,17 +131,30 @@ export class TrailPass {
     this.rtB.setSize(width, height);
   }
 
-  /** Render the scene into the feedback chain and present it (HDR + ACES). */
-  render(scene: THREE.Scene, camera: THREE.Camera): void {
+  /**
+   * Render the scene into the feedback chain and present it (HDR + ACES).
+   * `dt` is the real frame time: retention is a duration, not a frame
+   * count, so identical settings smear identically at 30, 60 or 120 fps.
+   */
+  render(scene: THREE.Scene, camera: THREE.Camera, dt = 1 / 60): void {
     const r = this.renderer;
 
-    // Fade the previous frame into rtA (decay 0 when trails are off).
-    this.fadeMat.uniforms.tDiffuse.value = this.rtB.texture;
-    this.fadeMat.uniforms.uDecay.value = this.enabled ? this.decay : 0;
-    r.setRenderTarget(this.rtA);
-    r.setClearColor(0x000000, 1);
-    r.clear();
-    r.render(this.quadScene, this.quadCam);
+    if (this.enabled) {
+      // Fade the previous frame into rtA by the time-true retention.
+      this.fadeMat.uniforms.tDiffuse.value = this.rtB.texture;
+      this.fadeMat.uniforms.uDecay.value = trailRetention(this.decay, dt);
+      r.setRenderTarget(this.rtA);
+      r.setClearColor(0x000000, 1);
+      r.clear();
+      r.render(this.quadScene, this.quadCam);
+    } else {
+      // Trails off: the history dies here — a clear, not a fade quad
+      // that multiplies by zero through a shader. The HDR present pass
+      // (tone mapping + dither) still runs below.
+      r.setRenderTarget(this.rtA);
+      r.setClearColor(0x000000, 1);
+      r.clear();
+    }
 
     // Draw the live scene on top without clearing.
     r.autoClear = false;

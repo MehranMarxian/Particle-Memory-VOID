@@ -59,6 +59,10 @@ export interface PointerParams {
   strength: number;
   /** +1 attracts, -1 repels. */
   mode: number;
+  /** Gravitational ripple amplitude: the pointer's movement rings the
+   *  swarm (0 = no ripples). Armed by a look (Moon Dust); the position and
+   *  timing of each ripple are live input, not preset data. */
+  ripple: number;
   /** World-space position of the touch. */
   x: number;
   y: number;
@@ -68,6 +72,7 @@ export interface PointerParams {
 export const defaultPointerParams = (): PointerParams => ({
   strength: 0,
   mode: 1,
+  ripple: 0,
   x: 0,
   y: 0,
   z: 0,

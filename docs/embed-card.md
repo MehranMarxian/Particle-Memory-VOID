@@ -2,13 +2,16 @@
 
 `?demo=1` boots the piece as a self-playing card: fresh defaults, a lively
 look (a strong shared heartbeat, wander, a scent field the swarm writes and
-follows, gentle births and deaths), the bundled cloud as the source, the
-camera at half distance so the particles read at card size, cool-white
-particles on black, and no UI at all — no panel, no source card, no guide, no
-first-run intro, and never a write to the visitor's own instrument state
+follows, gentle births and deaths), the bundled cloud as the source at dust
+size, the camera at half distance so the particles read at card size,
+cool-white particles on black, and no UI at all — no panel, no source card,
+no guide, no splash logo (a card starts from pure black: particles, nothing
+before them), and never a write to the visitor's own instrument state
 (verified: clean storage stays clean through unload). On touch devices the
 demo integrates one fixed step per frame, so a card may run dreamy but never
-hot. Drag rotates the camera, wheel/pinch zooms.
+hot. Drag rotates the camera, wheel/pinch zooms — and when embedded, wheel
+deltas are relayed to the host page so an interactive full-screen card never
+traps the page's scroll.
 
 ## The card snippet
 
@@ -39,7 +42,7 @@ inert so page scrolling never fights the demo.
     border: 0;
     display: block;
   }
-  /* desktop: the demo is touchable — drag rotates the camera */
+  /* desktop: the demo is touchable — click-drag rotates the camera */
   .void-card iframe { pointer-events: auto; }
   /* phone: the demo yields to the page, so scrolling always wins */
   @media (pointer: coarse) {
@@ -76,6 +79,14 @@ inert so page scrolling never fights the demo.
   (function () {
     var card = document.getElementById("void-card");
     if (!card || !("IntersectionObserver" in window)) return;
+    // The demo relays wheel events from inside its iframe (an interactive
+    // full-screen card must not trap the host page's scroll) — scroll the
+    // page by the same delta, only while the card is on screen.
+    window.addEventListener("message", function (e) {
+      if (e.data && e.data.type === "void:wheel" && typeof e.data.deltaY === "number") {
+        window.scrollBy(0, e.data.deltaY);
+      }
+    });
     var io = new IntersectionObserver(function (entries) {
       for (var e of entries) {
         if (e.isIntersecting && !card.querySelector("iframe")) {

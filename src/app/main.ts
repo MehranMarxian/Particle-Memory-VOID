@@ -4,7 +4,8 @@ import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
-import { TrailPass } from "@/rendering/TrailPass";
+import { cameraTrailDecay, TrailPass, trailDepositScale } from "@/rendering/TrailPass";
+import { cappedPixelRatio, QualityGovernor } from "@/rendering/quality";
 import {
   COLOR_MODES,
   defaultVisualSettings,
@@ -67,6 +68,7 @@ import {
   wantsCpuBackend,
 } from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
+import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
@@ -74,6 +76,8 @@ import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
 import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
+import { sourceNameFromUrl } from "@/sources/loaders";
+import { installRecovery, reportRecovery } from "@/ui/recovery";
 import {
   openSourceStore,
   shouldPersist,
@@ -120,6 +124,8 @@ interface SimEngine {
   restoreMemory(): void;
   setSpeciesCount(matrix: InteractionMatrix, n: number): void;
   meanTargetDistance(): number;
+  /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
+  spawnRipple(x: number, y: number, z: number): void;
 }
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
@@ -134,14 +140,30 @@ const coarsePointer =
 const demoMode = new URLSearchParams(location.search).get("demo") === "1";
 const DEMO_SOURCE = `${import.meta.env.BASE_URL}samples/void-cloud.ply`;
 
+// The recovery surface goes up first: a failure from here on is visible
+// in the piece (with diagnostics), never a silent black canvas. It also
+// replaces the inline pre-module bus and drains anything queued on it.
+installRecovery(() => ({ backend: activeBackend, density: currentCount, fps, p95Ms: p95FrameTime() * 1000 }));
+
+// The macro layer's live positions (the MOTION section's control surface).
+const macros = defaultMacros();
+
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
 let currentCount = DENSITY_LEVELS[densityIndex];
 let engine!: SimEngine;
 let engineMode: "auto" | "gpu" | "cpu" = "auto";
+// ?backend=gpu|cpu forces the backend — boot, the panel switch and the G key
+// all read engineMode, so comparisons between the engines are one URL away.
+// An unavailable forced GPU falls back through the existing GPU-unavailable
+// hint path.
+{
+  const forced = new URLSearchParams(location.search).get("backend");
+  if (forced === "gpu" || forced === "cpu") engineMode = forced;
+}
 let activeBackend: "gpu" | "cpu" = "cpu";
 let panelApi: PanelApi | null = null;
-let history: StateSnapshot[] = [];
+const history: StateSnapshot[] = [];
 let activePreset: string | null = null;
 let lastSourceName: string | null = null;
 let lastSourceUrl: string | null = null;
@@ -463,8 +485,10 @@ function buildFromSource(sample: FlatSource): void {
   let next: SimEngine;
   let backend: "gpu" | "cpu" = "cpu";
   // Auto follows the density policy: on a touch-primary device at low
-  // density the CPU engine wins, because the GPU path pays three
-  // synchronous readbacks a frame whatever the workload.
+  // density the CPU engine wins — the GPU path's one fixed position
+  // readback costs the same whatever the count, so at low density it
+  // dominates. Provisional, like simPolicy.ts's rationale (re-measure in
+  // v0.10.0 slice 6).
   if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
     try {
       next = createGpuEngine(sample, count, seed, rng);
@@ -556,6 +580,10 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   // Live state is carried, not reborn: positions, velocities, per-particle
   // memory, organism clocks and the simulation clock, so the swarm does not
   // screech to a halt on every G.
+  // The carry reads engine.memoryPerParticle; on the GPU engine that mirror
+  // is a snapshot — the living memory is the velocity texture's w channel.
+  // One switch-time readback keeps the carry honest.
+  if ("syncMemoryMirror" in old) (old as GpuParticleEngine).syncMemoryMirror();
   carryLiveState(old, next);
   next.configureGrid(params);
   if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
@@ -598,7 +626,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
 // --- Scene -----------------------------------------------------------------
 const stage = document.getElementById("stage")!;
 const renderer3d = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer3d.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer3d.setPixelRatio(cappedPixelRatio(window.devicePixelRatio));
 renderer3d.setSize(window.innerWidth, window.innerHeight);
 renderer3d.setClearColor(0x000000, 1);
 stage.appendChild(renderer3d.domElement);
@@ -627,12 +655,24 @@ const visual: VisualSettings = defaultVisualSettings();
   const dof = search.get("dof");
   if (dof !== null) visual.dof = dof === "0" ? 0 : Math.min(1, Math.max(0, Number(dof) || 0.25));
 }
+// The adaptive quality governor: sustained frame-time pressure steps the
+// render scale down (resolution first, always); the swarm's density and
+// structure are never its to touch. Hysteresis keeps it from oscillating.
+const quality = new QualityGovernor();
+
+function applyQualityScale(scale: number): void {
+  renderer3d.setPixelRatio(cappedPixelRatio(window.devicePixelRatio) * scale);
+  const t = trailSize();
+  trailPass.setSize(t.w, t.h);
+}
+
 // Full-DPR trail afterimages are a desktop luxury: on a touch-primary device
 // the render-target pair is the biggest memory resident in the tab, and at
 // 1.5x the difference is invisible on a small screen.
 const TRAIL_DPR_CAP_TOUCH = 1.5;
 
 function trailPixelRatio(): number {
+  // The governor's scale already rides renderer3d's pixel ratio.
   const dpr = renderer3d.getPixelRatio();
   return coarsePointer ? Math.min(dpr, TRAIL_DPR_CAP_TOUCH) : dpr;
 }
@@ -752,9 +792,10 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     Object.assign(params.lifecycle, { enabled: true, lifespan: 35, spread: 1 });
     Object.assign(visual, {
       // White particles on black: the cloud's own cool white (SOURCE), so
-      // the card sits quietly inside the site's design.
+      // the card sits quietly inside the site's design. The size is dust -
+      // thousands of fine points, not dots.
       colorMode: "source",
-      particleSize: 0.75,
+      particleSize: 0.2,
       glow: 0.45,
       opacity: 0.68,
       dof: 0.2,
@@ -764,6 +805,14 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     // particles must read at card size.
     radius = 8.5;
     document.body.classList.add("demo");
+    // Embedded and interactive, the card must not trap the host page's
+    // scroll: wheel events over the iframe are relayed to the parent, whose
+    // snippet scrolls itself (see docs/embed-card.md).
+    if (window.parent !== window) {
+      window.addEventListener("wheel", (e) => {
+        window.parent.postMessage({ type: "void:wheel", deltaY: e.deltaY }, "*");
+      }, { passive: true });
+    }
   }
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
@@ -809,6 +858,16 @@ function rememberSource(file: File): void {
 let frames = 0;
 let fps = 0;
 let lastFpsTime = performance.now();
+// Rolling frame times for the p95 the stats line and the diagnostics carry:
+// mean fps hides the stalls; the p95 names them.
+const FRAME_TIME_WINDOW = 300;
+const frameTimes = new Float32Array(FRAME_TIME_WINDOW);
+let frameTimesIdx = 0;
+
+function p95FrameTime(): number {
+  const sample = Array.from(frameTimes).sort((a, b) => a - b);
+  return sample[Math.floor(FRAME_TIME_WINDOW * 0.95) - 1] ?? 0;
+}
 
 // A sticky hint (a runtime error) must not be shouted over by routine
 // messages, but it must also expire: latching it until reload muted the
@@ -828,6 +887,15 @@ memory.onStateChange = (name) => {
 };
 
 // --- Source loading -----------------------------------------------------------
+// Cancellation by obsolescence: every load captures the generation counter at
+// its start, and a newer load increments it. A stale load's results — and its
+// errors — are discarded, so the newest drop always owns the UI and the piece.
+let sourceLoadSeq = 0;
+
+function sourceLoadSuperseded(mySeq: number): boolean {
+  return mySeq !== sourceLoadSeq;
+}
+
 async function adoptHandle(handle: SourceHandle): Promise<void> {
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
@@ -856,14 +924,18 @@ async function adoptHandle(handle: SourceHandle): Promise<void> {
 }
 
 async function loadFile(file: File): Promise<void> {
+  const mySeq = ++sourceLoadSeq;
   lastSourceUrl = null;
   lastDroppedFile = file;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: file.name }));
   try {
     const handle = await loadSource(file.name, file);
+    if (sourceLoadSuperseded(mySeq)) return;
     await adoptHandle(handle);
+    if (sourceLoadSuperseded(mySeq)) return;
     rememberSource(file);
   } catch (err) {
+    if (sourceLoadSuperseded(mySeq)) return;
     failSource(file.name, err);
   }
 }
@@ -880,14 +952,17 @@ function failSource(name: string, err: unknown): void {
  * on top of the synthetic memory that is already running.
  */
 async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Promise<void> {
-  const name = url.split("/").pop() ?? url;
+  const mySeq = ++sourceLoadSeq;
+  const name = sourceNameFromUrl(url);
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name }));
   try {
     const { handle } = await loadSourceFromUrl(url, currentCount);
+    if (sourceLoadSuperseded(mySeq)) return;
     lastDroppedFile = null;
     lastSourceUrl = url;
     await adoptHandle(handle);
   } catch (err) {
+    if (sourceLoadSuperseded(mySeq)) return;
     if (options.quiet) {
       setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
       flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
@@ -898,18 +973,21 @@ async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Pr
 }
 
 async function restoreStoredSource(): Promise<void> {
-  let record: StoredSource | null = null;
+  let record: StoredSource | null | undefined;
   try {
     record = await sourceStore.get(SOURCE_STORE_KEY);
   } catch {
     return;
   }
   if (!record) return;
+  const mySeq = ++sourceLoadSeq;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: record.name }));
   try {
     const handle = await loadSource(record.name, record.blob);
+    if (sourceLoadSuperseded(mySeq)) return;
     lastDroppedFile = null;
     await adoptHandle(handle);
+    if (sourceLoadSuperseded(mySeq)) return;
     if (record.blob.type.startsWith("image/")) {
       // The memory's face comes back with the memory.
       createImageBitmap(record.blob, { resizeWidth: 96 })
@@ -917,6 +995,7 @@ async function restoreStoredSource(): Promise<void> {
         .catch(() => sourceCard.setThumbnail(null));
     }
   } catch {
+    if (sourceLoadSuperseded(mySeq)) return;
     setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
     flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
   }
@@ -1031,6 +1110,10 @@ function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: nu
   return { x: hit.x, y: hit.y, z: hit.z };
 }
 
+// Where the last ripple was born, in NDC: ripples answer movement, so a
+// wavefront drops whenever the hand has travelled a meaningful distance.
+const lastRippleNdc = { x: 0, y: 0 };
+
 function updateTouch(dt: number): void {
   // Consume the gesture layer first: orbit, pinch zoom, two-finger pan,
   // and the touch-hold that becomes the pointer force.
@@ -1069,6 +1152,19 @@ function updateTouch(dt: number): void {
     ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
     pointerInfluence.touch();
     ghostNdc = ndc; // the recorded path leans the camera toward the hand
+  }
+  // The hand rings the swarm even when the attractor rests: a look that
+  // arms ripples gets wavefronts wherever the pointer travels. The field
+  // throttles its own gap.
+  if (params.pointer.ripple > 0 && ndc && pointerInfluence.current > 0.4) {
+    const rdx = ndc.x - lastRippleNdc.x;
+    const rdy = ndc.y - lastRippleNdc.y;
+    if (rdx * rdx + rdy * rdy > 0.0016) {
+      lastRippleNdc.x = ndc.x;
+      lastRippleNdc.y = ndc.y;
+      const rippleWorld = pointerWorldPosition(ndc);
+      engine.spawnRipple(rippleWorld.x, rippleWorld.y, rippleWorld.z);
+    }
   }
   const strength = pointer.strength * pointerInfluence.current;
   if (!ndc || strength <= 0.0001) {
@@ -1237,6 +1333,8 @@ guide.setState(memory.state);
 
 const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
+  togglePause: () => togglePause(),
+  captureMoment: () => captureMoment(),
   toggleColor: () => {
     visual.colorMode = nextColorMode(visual.colorMode);
     applyLook();
@@ -1378,6 +1476,7 @@ if (!demoMode) {
     params,
     visual,
     onLookChange: applyLook,
+    macros,
     ecology: ecologyParams,
     ecologyEvents,
     memory,
@@ -1390,6 +1489,25 @@ if (!demoMode) {
     pointer,
     backend: () => activeBackend,
     callbacks: {
+      onTogglePause() {
+        togglePause();
+      },
+      onCapture() {
+        captureMoment();
+      },
+      onMacro(name: MacroName) {
+        // Macros land in the live params; the section sliders show them
+        // after refresh. An engine macro takes the wheel from the authored
+        // cycle (which would otherwise overwrite these every step);
+        // ATMOSPHERE shapes the visual alone and composes with the cycle.
+        applyMacros(macros, params, visual);
+        if (ENGINE_MACROS.includes(name) && memory.active) {
+          memory.active = false;
+          panelApi?.setState("MANUAL");
+          flashHint("MACRO: MANUAL CONTROL", 3);
+        }
+        panelApi?.refresh();
+      },
       onBackendToggle() {
         switchBackend(activeBackend === "gpu" ? "cpu" : "gpu");
       },
@@ -1567,11 +1685,18 @@ if (!demoMode) {
   panelApi.setActivePreset(activePreset);
 }
 
+// Reduced motion (v0.10.0 slice 6): the media query answers for itself -
+// a slower idle orbit, no auto-opened guide, and one quiet note that the
+// piece noticed. Everything still works; it just moves less.
+const reducedMotion =
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 // First visit: the guide introduces itself once. Afterwards, a quiet nudge.
 // A screensaver that starts after boot still wins (checked at fire time).
 // A demo visit is neither: it must not consume the visitor's first-run
 // introduction, so it plans nothing at all.
-const introPlan = demoMode ? "none" : planIntro({
+const introPlan = demoMode || reducedMotion ? "none" : planIntro({
   seenIntro: hasSeenIntro(),
   installed: new URLSearchParams(location.search).get("installed") === "1",
 });
@@ -1586,10 +1711,17 @@ if (introPlan === "guide") {
     if (saver.active) return;
     flashHint(coarsePointer ? "TAP PANEL FOR SETTINGS" : "PRESS ? FOR CONTROLS", 6);
   }, 2400);
+} else if (reducedMotion) {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    flashHint("REDUCED MOTION: ON - THE PIECE MOVES LESS", 5);
+  }, 2400);
 }
 
 // --- Splash: fade once the first frame has rendered -------------------------
-const splash = document.getElementById("splash")!;
+// Demo mode removes the splash before this runs (black first, particles
+// only), so the element may legitimately be absent.
+const splash = document.getElementById("splash");
 let splashGone = false;
 
 // --- Screensaver mode (Phase 7) ----------------------------------------------
@@ -1608,7 +1740,8 @@ saver.onExit = () => {
   // In installed screensaver mode, exiting IS termination: tell the
   // wrapper to close the browser and end the screensaver.
   if (new URLSearchParams(location.search).get("installed") === "1") {
-    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { }
+    // Best effort: the .scr wrapper is closing the browser either way.
+    try { void fetch("/shutdown", { keepalive: true } as RequestInit); } catch { /* nothing to recover */ }
   }
   persistNow();
 };
@@ -1654,14 +1787,51 @@ document.addEventListener("visibilitychange", () => {
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
 let accumulator = 0;
+// What the camera did last frame, for the trail damping.
+let prevFrameAzimuth = 0;
+let prevFrameRadius = 0;
+// Simulation pause (v0.10.0 slice 5): steps stop — engines, ecology, the
+// memory cycle and the evolver — while the camera, trails and sound keep
+// breathing. Distinct from the screensaver and the memory cycle's auto mode.
+let simPaused = false;
+let capturePending = false;
+
+function togglePause(): void {
+  simPaused = !simPaused;
+  panelApi?.setPaused(simPaused);
+  flashHint(simPaused ? "PAUSED - THE MOMENT HOLDS" : "RESUMED", 3);
+}
+
+/** Save the current frame: flagged here, taken right after the next render. */
+function captureMoment(): void {
+  capturePending = true;
+}
+
+function saveFrame(): void {
+  const safeName = (currentSourceName || "void")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\w-]+/g, "-")
+    .slice(0, 40);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  renderer3d.domElement.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `void-${safeName}-${stamp}.png`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flashHint("MOMENT SAVED", 3);
+  }, "image/png");
+}
 
 function frame(now: number): void {
   try {
     frameInner(now);
   } catch (err) {
-    // Keep the failure visible instead of silently killing the artwork.
-    flashHint(`RUNTIME ERROR: ${(err as Error).stack ?? (err as Error).message}`.slice(0, 300), 3600, true);
+    // Keep the failure visible instead of silently killing the artwork:
+    // the recovery overlay, with diagnostics — not a status-line stack.
     console.error(err);
+    reportRecovery(err, "frame loop");
     return;
   }
 }
@@ -1670,13 +1840,19 @@ function frameInner(now: number): void {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
+  frameTimes[frameTimesIdx++ % FRAME_TIME_WINDOW] = dt;
+  if (quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
   // of doing six 50 ms steps a frame until the tab freezes. A demo on a
   // phone integrates one step per frame — a card may run dreamy, never hot.
   const { steps, residual } = scheduleSteps(accumulator, demoMode && coarsePointer ? 1 : undefined);
-  for (let s = 0; s < steps; s++) {
+  if (simPaused) {
+    // The moment holds: no steps, no catch-up debt when play resumes.
+    accumulator = 0;
+  }
+  for (let s = 0; s < steps && !simPaused; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
@@ -1706,12 +1882,14 @@ function frameInner(now: number): void {
     }
   }
 
-  evolver.tick(dt);
+  if (!simPaused) evolver.tick(dt);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
     : demoMode
       ? 0.03 // a card must look alive without being touched
-      : 0.02);
+      : reducedMotion
+        ? 0.008 // the reduced-motion answer: drift, not sway
+        : 0.02);
   let radiusNow = radius;
   let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
   let azimuthNow = azimuth;
@@ -1761,7 +1939,13 @@ function frameInner(now: number): void {
   } else {
     fieldTintTick = 0;
   }
-  if (visual.trails) effective.opacity = visual.opacity * (1 - visual.trailDecay);
+  if (visual.trails) {
+    // Deposit compensation in the same time domain as the retention: at
+    // other refresh rates each frame draws proportionally more/less
+    // light, so steady-state brightness stays at the 60 fps calibration.
+    effective.opacity =
+      visual.opacity * (1 - visual.trailDecay) * trailDepositScale(dt, trailPass.hdr);
+  }
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {
     const bands = audio.read();
@@ -1780,11 +1964,23 @@ function frameInner(now: number): void {
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
-  trailPass.decay = visual.trailDecay;
-  trailPass.render(scene, camera);
+  // A fast orbit (or a pinch zoom) clears the afterimage instead of
+  // smearing the whole image across itself.
+  const angular = Math.abs(azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);
+  const zoomJump = Math.abs(radiusNow - prevFrameRadius) / Math.max(dt, 1e-3) / Math.max(1, radiusNow);
+  prevFrameAzimuth = azimuthNow;
+  prevFrameRadius = radiusNow;
+  trailPass.decay = cameraTrailDecay(visual.trailDecay, angular + zoomJump * 2);
+  trailPass.render(scene, camera, dt);
+  // Capture takes the present-pass pixels in the same task as the render:
+  // with preserveDrawingBuffer off, the buffer is valid only until compositing.
+  if (capturePending) {
+    capturePending = false;
+    saveFrame();
+  }
 
   frames++;
-  if (!splashGone && frames > 2) {
+  if (splash && !splashGone && frames > 2) {
     splashGone = true;
     splash.classList.add("gone");
     window.setTimeout(() => splash.remove(), 1800);
@@ -1809,7 +2005,7 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       (coarsePointer
         ? `guide: the ? button - tap any key in it to run it`
