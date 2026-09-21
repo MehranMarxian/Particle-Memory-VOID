@@ -7,6 +7,7 @@ import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulati
 import { packGridTextures, type PackedGridTextures } from "./gridTextures";
 import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
+import { RippleField } from "@/input/ripples";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
@@ -61,6 +62,8 @@ export class GpuParticleEngine {
   private stateReadback: Float32Array;
   readonly scent = new ScentField();
   readonly heat = new ScentField();
+  /** The pointer's movement rings the swarm (Moon Dust); the shader mirrors RippleField.force. */
+  readonly ripples = new RippleField();
   private scentTex: THREE.DataTexture;
   private grid: SpatialGrid;
   private packed: PackedGridTextures;
@@ -202,6 +205,10 @@ export class GpuParticleEngine {
       vu[name] = { value: 0 };
     }
     vu["uPointer"] = { value: new THREE.Vector3() };
+    vu["uRipples"] = {
+      value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, -1000)),
+    };
+    vu["uRippleAmp"] = { value: 0 };
     vu["uKernel"] = { value: 0 };
     vu["uWander"] = { value: 0.06 };
     vu["uScentOn"] = { value: 0 };
@@ -404,6 +411,11 @@ export class GpuParticleEngine {
     this.uploadInitialState();
   }
 
+  /** Ring the swarm: a ripple wavefront born at the pointer now. */
+  spawnRipple(x: number, y: number, z: number): void {
+    this.ripples.spawn(x, y, z, this.simTime);
+  }
+
   regainMemory(dt: number, rate: number): void {
     this.pendingRegain = Math.min(1, this.pendingRegain + rate * dt);
   }
@@ -564,6 +576,16 @@ export class GpuParticleEngine {
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
     u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);
+    u["uRippleAmp"].value = params.pointer.ripple;
+    {
+      const slots = u["uRipples"].value as THREE.Vector4[];
+      const live = this.ripples.all();
+      for (let ri = 0; ri < 4; ri++) {
+        const r = live[ri];
+        if (r) slots[ri].set(r.x, r.y, r.z, r.born);
+        else slots[ri].set(0, 0, 0, -1000);
+      }
+    }
     u["uPointerStrength"].value = params.pointer.strength;
     u["uPointerMode"].value = params.pointer.mode;
     u["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;

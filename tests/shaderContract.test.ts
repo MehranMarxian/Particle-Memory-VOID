@@ -23,7 +23,7 @@ const ENTRIES: Array<[string, string]> = [
 
 function declaredUniforms(src: string): string[] {
   const names: string[] = [];
-  const re = /\buniform\s+\w+\s+(\w+)\s*;/g;
+  const re = /\buniform\s+\w+\s+(\w+)\s*(?:\[\d*\])?\s*;/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) names.push(m[1]);
   return names;

@@ -2,6 +2,97 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.10.0] - 2026-09-21
+
+The release where the engine's namesake starts working everywhere, the
+looks get faces, and the piece gets its signature. Six slices from the
+v0.10.0 plan (phases 1 and 2), then Moon Dust and the first steps of the
+roadmap.
+
+### Added — Moon Dust, the signature look
+
+- A thirteenth preset and a button to match: MOON DUST sits at the top of
+  THE PIECE as a full-width moon-crescent action with a visible label and
+  an accessible name — one press, never a nested menu. A silver
+  constellation that ripples under your hand, leaves luminous trails, and
+  always comes home.
+- Gravitational ripples: the pointer's movement now rings the swarm. Each
+  meaningful travel of the hand drops an expanding wavefront that tugs
+  particles toward it and fades — on both engines, from one pure module
+  (`RippleField`) whose math the GPU shader mirrors exactly. Ripples are
+  armed by a look (`pointer.ripple`, zeroed on every other preset so
+  nothing leaks) while the pointer's position and timing stay live input,
+  as the schema always said they were.
+- A thumbnail of the look ships with the twelve others in the browser.
+
+### Fixed — the memory the review caught (part 1a)
+
+- The GPU engine never forgot: uMemoryDecay, uRegain and uRestore were
+  declared, set every step, and read by nothing, so the memory channel sat
+  frozen while the CPU engine forgot particle by particle. The velocity
+  shader now evolves the w channel with the CPU's own semantics
+  (stochastic decay, regain, restore), and DRIFT, REMEMBER and RECONSTRUCT
+  finally behave identically wherever the piece runs.
+- GPU rebirth never came home: the birth placement wrote a local variable
+  that never reached the position texture. The position shader now places
+  reborn particles at their source, as the CPU engine always did.
+- Trail persistence was a frame count, not a duration: identical settings
+  smeared differently at 30, 60 and 120 fps. Retention is now
+  r60^(60·Δt), the deposit is compensated in the same time domain, and a
+  fast orbit clears the afterimage instead of smearing the whole image
+  across itself.
+- Sources failed uselessly: a URL like portrait.png?v=2 broke format
+  detection, a .gltf with a sibling .bin died in loader jargon, and
+  oversized inputs froze the tab. Names are parsed honestly, meshes map
+  to actionable messages, a 256 MB bound says so, and a newer drop
+  supersedes an older load instead of racing it.
+- Errors lived in the tab title. A failure now surfaces in the piece: one
+  recovery overlay with the message, COPY DIAGNOSTICS (error, stack, UA,
+  URL, backend, density, frame p95), CONTINUE and RELOAD. ?debug=1 keeps
+  the old title mode for field use. The console.error monkey patch is
+  gone — a shader warning is not a page-worthy event.
+
+### Added — the looks get faces, and the macros underneath
+
+- The PRESETS section is a browser: every look as a static thumbnail
+  (captured once from a fixed seed, lazy-loaded, never a live
+  simulation), its name and its one-line description, with a visible
+  selected state.
+- A MOTION section with five macros — MEMORY, ENERGY, COHESION,
+  DISSOLUTION, ATMOSPHERE — each a tested, disjoint mapping onto the
+  engine's real parameters. The section sliders remain the honest surface
+  underneath. Engine macros take the wheel from the authored cycle;
+  ATMOSPHERE composes with it.
+- THE PIECE grows a direct SOURCE action.
+
+### Added — the piece holds, saves, and adapts
+
+- PAUSE (button and `.`): steps stop — engines, ecology, the memory cycle,
+  the evolver — while the camera and trails keep breathing. CAPTURE
+  (button and `M`): the current frame re-presented through the HDR chain
+  and saved as a PNG.
+- An adaptive quality governor: sustained frame-time pressure steps the
+  render scale down a ladder with hysteresis and a cooldown; headroom
+  walks it back up. Resolution is presentation — the swarm's density and
+  structure are never its to touch. The device pixel ratio is capped at 2.
+- prefers-reduced-motion is answered: a slower idle orbit, no auto-opened
+  guide, one quiet note that the piece noticed.
+
+### Changed — the small print made honest
+
+- The panel gained a focus treatment where `outline: none` had no
+  replacement, a 10 px desktop type floor, and 10 px slider thumbs.
+- The LAB stats line carries the frame p95; the diagnostics carry it too.
+- An eslint flat config joins the package (`npm run lint`), and the three
+  findings it raised on first run were fixed.
+- simPolicy's touch rationale describes the one-readback present, marked
+  provisional until a phone measures it.
+- The eager bundle is 189.1 kB gzip against the 220 kB gate — which fired
+  and was answered during this release: a try/catch around the mesh
+  loaders' dynamic imports had pulled them into the eager graph, and the
+  budget refused the build until the mapping moved to the message layer
+  where it belonged.
+
 ## [0.9.0] - 2026-09-19
 
 The release that folds the instrument and opens the piece to touch. Six

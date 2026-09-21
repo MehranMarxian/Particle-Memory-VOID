@@ -155,6 +155,12 @@ export const gpuVelocityShader = /* glsl */ `
   uniform vec3 uPointer;
   uniform float uPointerStrength;
   uniform float uPointerMode;
+  // Gravitational ripples (Moon Dust): xyz origin, w birth time; w < -1 is
+  // an empty slot. Constants mirror RippleField exactly (speed 5.5, width
+  // 1.15, life 1.6, cutoff 4 life) — the contract tests hold both to the
+  // pure module.
+  uniform vec4 uRipples[4];
+  uniform float uRippleAmp;
   uniform float uLifeOn;
   uniform float uLifespan;
   uniform float uLifeSpread;
@@ -399,6 +405,23 @@ export const gpuVelocityShader = /* glsl */ `
       float pDist = sqrt(pDist2) + 0.0001;
       float pFall = 1.0 / (1.0 + pDist2 * 0.25);
       accel += (toPointer / pDist) * (uPointerStrength * uPointerMode * pFall);
+    }
+
+    // Gravitational ripples: expanding wavefronts tugging the swarm toward
+    // the ring — the CPU engine calls RippleField.force for the same math.
+    if (uRippleAmp > 0.0) {
+      for (int ri = 0; ri < 4; ri++) {
+        vec4 rp = uRipples[ri];
+        float age = uTime - rp.w;
+        if (rp.w < -1.0 || age < 0.0 || age > 6.4) continue;
+        vec3 d = pos - rp.xyz;
+        float dist = length(d) + 1e-6;
+        float band = (dist - age * 5.5) / 1.15;
+        float amp = exp(-age / 1.6) * exp(-band * band);
+        if (amp < 0.001) continue;
+        float outward = dist < age * 5.5 ? 1.0 : -1.0;
+        accel += d * ((outward * amp / dist) * uRippleAmp);
+      }
     }
 
     // Heat steering: flee the swarm's own warmth, or seek it.

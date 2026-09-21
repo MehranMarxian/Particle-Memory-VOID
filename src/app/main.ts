@@ -4,7 +4,8 @@ import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
 import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
-import { TrailPass, trailDepositScale } from "@/rendering/TrailPass";
+import { cameraTrailDecay, TrailPass, trailDepositScale } from "@/rendering/TrailPass";
+import { cappedPixelRatio, QualityGovernor } from "@/rendering/quality";
 import {
   COLOR_MODES,
   defaultVisualSettings,
@@ -123,6 +124,8 @@ interface SimEngine {
   restoreMemory(): void;
   setSpeciesCount(matrix: InteractionMatrix, n: number): void;
   meanTargetDistance(): number;
+  /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
+  spawnRipple(x: number, y: number, z: number): void;
 }
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
@@ -623,7 +626,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
 // --- Scene -----------------------------------------------------------------
 const stage = document.getElementById("stage")!;
 const renderer3d = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer3d.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer3d.setPixelRatio(cappedPixelRatio(window.devicePixelRatio));
 renderer3d.setSize(window.innerWidth, window.innerHeight);
 renderer3d.setClearColor(0x000000, 1);
 stage.appendChild(renderer3d.domElement);
@@ -652,12 +655,24 @@ const visual: VisualSettings = defaultVisualSettings();
   const dof = search.get("dof");
   if (dof !== null) visual.dof = dof === "0" ? 0 : Math.min(1, Math.max(0, Number(dof) || 0.25));
 }
+// The adaptive quality governor: sustained frame-time pressure steps the
+// render scale down (resolution first, always); the swarm's density and
+// structure are never its to touch. Hysteresis keeps it from oscillating.
+const quality = new QualityGovernor();
+
+function applyQualityScale(scale: number): void {
+  renderer3d.setPixelRatio(cappedPixelRatio(window.devicePixelRatio) * scale);
+  const t = trailSize();
+  trailPass.setSize(t.w, t.h);
+}
+
 // Full-DPR trail afterimages are a desktop luxury: on a touch-primary device
 // the render-target pair is the biggest memory resident in the tab, and at
 // 1.5x the difference is invisible on a small screen.
 const TRAIL_DPR_CAP_TOUCH = 1.5;
 
 function trailPixelRatio(): number {
+  // The governor's scale already rides renderer3d's pixel ratio.
   const dpr = renderer3d.getPixelRatio();
   return coarsePointer ? Math.min(dpr, TRAIL_DPR_CAP_TOUCH) : dpr;
 }
@@ -1095,6 +1110,10 @@ function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: nu
   return { x: hit.x, y: hit.y, z: hit.z };
 }
 
+// Where the last ripple was born, in NDC: ripples answer movement, so a
+// wavefront drops whenever the hand has travelled a meaningful distance.
+const lastRippleNdc = { x: 0, y: 0 };
+
 function updateTouch(dt: number): void {
   // Consume the gesture layer first: orbit, pinch zoom, two-finger pan,
   // and the touch-hold that becomes the pointer force.
@@ -1133,6 +1152,19 @@ function updateTouch(dt: number): void {
     ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
     pointerInfluence.touch();
     ghostNdc = ndc; // the recorded path leans the camera toward the hand
+  }
+  // The hand rings the swarm even when the attractor rests: a look that
+  // arms ripples gets wavefronts wherever the pointer travels. The field
+  // throttles its own gap.
+  if (params.pointer.ripple > 0 && ndc && pointerInfluence.current > 0.4) {
+    const rdx = ndc.x - lastRippleNdc.x;
+    const rdy = ndc.y - lastRippleNdc.y;
+    if (rdx * rdx + rdy * rdy > 0.0016) {
+      lastRippleNdc.x = ndc.x;
+      lastRippleNdc.y = ndc.y;
+      const rippleWorld = pointerWorldPosition(ndc);
+      engine.spawnRipple(rippleWorld.x, rippleWorld.y, rippleWorld.z);
+    }
   }
   const strength = pointer.strength * pointerInfluence.current;
   if (!ndc || strength <= 0.0001) {
@@ -1755,6 +1787,9 @@ document.addEventListener("visibilitychange", () => {
 // --- Loop -----------------------------------------------------------------------
 let lastTime = performance.now();
 let accumulator = 0;
+// What the camera did last frame, for the trail damping.
+let prevFrameAzimuth = 0;
+let prevFrameRadius = 0;
 // Simulation pause (v0.10.0 slice 5): steps stop — engines, ecology, the
 // memory cycle and the evolver — while the camera, trails and sound keep
 // breathing. Distinct from the screensaver and the memory cycle's auto mode.
@@ -1806,6 +1841,7 @@ function frameInner(now: number): void {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   frameTimes[frameTimesIdx++ % FRAME_TIME_WINDOW] = dt;
+  if (quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
@@ -1928,7 +1964,13 @@ function frameInner(now: number): void {
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
-  trailPass.decay = visual.trailDecay;
+  // A fast orbit (or a pinch zoom) clears the afterimage instead of
+  // smearing the whole image across itself.
+  const angular = Math.abs(azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);
+  const zoomJump = Math.abs(radiusNow - prevFrameRadius) / Math.max(dt, 1e-3) / Math.max(1, radiusNow);
+  prevFrameAzimuth = azimuthNow;
+  prevFrameRadius = radiusNow;
+  trailPass.decay = cameraTrailDecay(visual.trailDecay, angular + zoomJump * 2);
   trailPass.render(scene, camera, dt);
   // Capture takes the present-pass pixels in the same task as the render:
   // with preserveDrawingBuffer off, the buffer is valid only until compositing.

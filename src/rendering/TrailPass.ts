@@ -11,6 +11,18 @@ export function trailRetention(r60: number, dt: number): number {
 }
 
 /**
+ * Camera-aware trail damping (v0.10.0): a fast orbit must not smear the
+ * whole image across itself. Below ~0.5 rad/s the trails are untouched;
+ * beyond that the retention damps toward a tenth of its setting by
+ * 3 rad/s, so turning the camera clears the afterimage instead of
+ * buttering the frame.
+ */
+export function cameraTrailDecay(decay: number, angularSpeed: number): number {
+  const t = Math.min(1, Math.max(0, (angularSpeed - 0.5) / 2.5));
+  return decay * (1 - 0.9 * t * t);
+}
+
+/**
  * Per-frame deposit compensation: a particle deposits light once per
  * rendered frame, so at other refresh rates each frame draws
  * proportionally more/less to keep the light deposited per SECOND

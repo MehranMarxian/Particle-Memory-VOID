@@ -430,3 +430,31 @@
   color: #6d6d6d;
   padding: 2px 8px 0;
 }
+
+/* The signature look: a full-width, icon-plus-label action up front. */
+#panel button.moon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  background: #101014;
+  border: 1px solid #3d3d4a;
+  color: #e8e8ef;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  padding: 9px 8px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+#panel button.moon:hover {
+  border-color: #6a6a85;
+}
+#panel button.moon.on {
+  border-color: #8f8fb0;
+  background: #16161d;
+}
+#panel button.moon svg {
+  flex: 0 0 auto;
+}

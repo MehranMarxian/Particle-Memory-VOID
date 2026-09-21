@@ -1,5 +1,6 @@
 import { SpatialGrid } from "./SpatialGrid";
 import { ScentField } from "./scent/ScentField";
+import { RippleField } from "@/input/ripples";
 import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
@@ -40,6 +41,9 @@ export class ParticleEngine {
   private rng: () => number;
   readonly scent: ScentField;
   readonly heat: ScentField;
+  /** The pointer's movement rings the swarm (Moon Dust); pure, mirrored by the GPU shader. */
+  readonly ripples: RippleField;
+  private readonly rippleScratch = { x: 0, y: 0, z: 0 };
   private ax: Float32Array = new Float32Array(0);
   private ay: Float32Array = new Float32Array(0);
   private az: Float32Array = new Float32Array(0);
@@ -79,6 +83,7 @@ export class ParticleEngine {
     this.wanderField = new Float32Array(capacity * 3);
     this.scent = new ScentField();
     this.heat = new ScentField();
+    this.ripples = new RippleField();
     this.rng = mulberry32(seed);
     for (let i = 0; i < capacity; i++) {
       this.renderState[i * 4] = this.rng() * Math.PI * 2; // phase
@@ -287,6 +292,8 @@ export class ParticleEngine {
     const drift = params.drift;
     const grav = params.gravity;
     const pointerStrength = params.pointer.strength;
+    const rippleAmp = params.pointer.ripple;
+    const rippleOut = this.rippleScratch;
     const pointerMode = params.pointer.mode;
     const pointerX = params.pointer.x;
     const pointerY = params.pointer.y;
@@ -426,6 +433,17 @@ export class ParticleEngine {
         az[i] += (pdz / pd) * pull;
       }
 
+      // Gravitational ripples: the pointer's movement rings the swarm. The
+      // tug accumulates across the live wavefronts; the force is exactly
+      // RippleField.force, which the GPU shader mirrors.
+      if (rippleAmp > 0) {
+        rippleOut.x = rippleOut.y = rippleOut.z = 0;
+        this.ripples.force(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2], time, rippleOut);
+        ax[i] += rippleOut.x * rippleAmp;
+        ay[i] += rippleOut.y * rippleAmp;
+        az[i] += rippleOut.z * rippleAmp;
+      }
+
       // Integrate.
       velocities[i * 3] = (vx + ax[i] * dt) * frictionFactor;
       velocities[i * 3 + 1] = (vy + ay[i] * dt) * frictionFactor;
@@ -536,6 +554,11 @@ export class ParticleEngine {
   /** Re-raise memory of all particles (REMEMBER). */
   restoreMemory(): void {
     this.memoryPerParticle.fill(1);
+  }
+
+  /** Ring the swarm: a ripple wavefront born at the pointer now. */
+  spawnRipple(x: number, y: number, z: number): void {
+    this.ripples.spawn(x, y, z, this.simTime);
   }
 
   /** Gradually bring forgotten particles back to full memory (REMEMBER). */

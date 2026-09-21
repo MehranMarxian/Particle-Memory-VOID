@@ -370,6 +370,30 @@ export function createPanel(opts: {
 
   // The PAUSE action's label is driven from the app via api.setPaused.
   let pauseStateSetter: ((paused: boolean) => void) | null = null;
+  // The signature look: one prominent action, never a nested menu. A moon
+  // crescent with a visible label and a spoken label (the accessible name
+  // carries the description the tooltip would).
+  {
+    const moonBtn = document.createElement("button");
+    moonBtn.className = "act moon";
+    moonBtn.setAttribute("aria-label", "Moon Dust, the signature look: ripples under your hand, luminous trails, and a swarm that comes home");
+    moonBtn.title = "Moon Dust — the signature look";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z");
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    const label = document.createElement("span");
+    label.textContent = "MOON DUST";
+    moonBtn.append(svg, label);
+    moonBtn.addEventListener("click", () => callbacks.onPreset("moon"));
+    tier1.appendChild(moonBtn);
+  }
+
   {
     const grid = document.createElement("div");
     grid.className = "btn-grid";
