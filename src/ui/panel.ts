@@ -1238,6 +1238,10 @@ export function createPanel(opts: {
   ] as const) {
     sheetBtns.set(id, iconBtn(nav, `sheet-${id}`, ic, label, () => setSheet(sheet === id ? null : id)));
   }
+  // The credit the desktop keeps in the properties footer, under the bar.
+  const navCredit = credit.cloneNode(true) as HTMLElement;
+  navCredit.className = "credit nav-credit";
+  nav.appendChild(navCredit);
 
   function setSheet(next: Sheet | null): void {
     sheet = next;

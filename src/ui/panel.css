@@ -642,7 +642,7 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
 @media (max-width: 760px) {
   #void-studio {
     --top: 48px;
-    --nav: 58px;
+    --nav: 72px;
   }
   :root {
     --caption-bottom: 78px;
@@ -689,6 +689,7 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
   #void-mobile-nav {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: 50px auto;
     position: fixed;
     left: 0;
     right: 0;
@@ -699,9 +700,21 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
     border-top: 1px solid var(--line);
     z-index: 112;
   }
+  #void-mobile-nav .nav-credit {
+    grid-column: 1 / -1;
+    padding: 0 0 6px;
+    text-align: center;
+    font-size: 8.5px;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+  }
+  #void-mobile-nav .nav-credit a {
+    color: inherit;
+    text-decoration: none;
+  }
   #void-mobile-nav .ibtn {
     width: 100%;
-    height: 100%;
+    height: 50px;
     min-width: 0;
     border: 0;
     border-top: 1px solid transparent;
@@ -711,7 +724,10 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
     border-top-color: var(--accent);
   }
 
-  /* Every panel is a sheet above the bar, hidden until its tab is chosen. */
+  /* Every panel is a sheet above the bar, hidden until its tab is chosen.
+     The sheet rules win over [hidden] (!important): on a touch device the
+     desktop layout starts with tools and properties closed, and a chosen
+     tab must still open its sheet. */
   #void-tools,
   #panel,
   #void-looks,
@@ -731,7 +747,7 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
   }
   /* Every tool in view at once: two rows, no sideways scrolling. */
   #void-studio.sheet-tools #void-tools {
-    display: grid;
+    display: grid !important;
     grid-template-columns: repeat(6, 1fr);
     gap: 0;
     padding: 4px;
@@ -742,15 +758,15 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
     height: 54px;
   }
   #void-studio.sheet-props #panel {
-    display: flex;
+    display: flex !important;
     max-height: 62vh;
   }
   #void-studio.sheet-looks #void-looks {
-    display: flex;
+    display: flex !important;
     height: auto;
   }
   #void-studio.sheet-more #void-more {
-    display: block;
+    display: block !important;
     padding: 8px;
   }
   #void-more .more-grid {
