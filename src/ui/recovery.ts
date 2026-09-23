@@ -67,14 +67,16 @@ export function createRecoveryPanel(facts: () => DiagnosticFacts = () => ({})): 
     "background:rgba(0,0,0,0.86)";
   const box = document.createElement("div");
   box.style.cssText =
-    "max-width:520px;margin:24px;padding:28px 32px;background:#0a0a0a;border:1px solid #3a3a3a;" +
+    "box-sizing:border-box;width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;" +
+    "margin:16px;padding:24px 22px;background:#0a0a0a;border:1px solid #3a3a3a;" +
     "color:#bdbdbd;font:12px/1.8 ui-monospace,monospace";
   const head = document.createElement("div");
   head.textContent = "THE PIECE HIT A PROBLEM";
   head.style.cssText = "color:#e8e8e8;letter-spacing:0.22em;margin-bottom:14px";
   const message = document.createElement("div");
   message.id = "recovery-message";
-  message.style.cssText = "white-space:pre-wrap;margin-bottom:16px";
+  // Error text can be one long token (a minified call): it must wrap anywhere.
+  message.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:16px";
   const buttons = document.createElement("div");
   buttons.style.cssText = "display:flex;gap:10px;flex-wrap:wrap";
   const mkButton = (id: string, label: string): HTMLButtonElement => {
@@ -119,6 +121,8 @@ export function createRecoveryPanel(facts: () => DiagnosticFacts = () => ({})): 
 
   const panel: RecoveryPanel = {
     show(payload: RecoveryPayload): void {
+      // A browser without WebGL already has its own, calmer explanation.
+      if ((window as unknown as { __voidNoWebgl?: boolean }).__voidNoWebgl) return;
       last = payload;
       message.textContent =
         (payload.message || "UNKNOWN ERROR") +
