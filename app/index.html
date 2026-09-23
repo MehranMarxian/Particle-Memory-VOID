@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./icons/void-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/void-32.png" />
+    <link rel="apple-touch-icon" href="./icons/void-192.png" />
+    <title>VOID / PARTICLE MEMORY</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      /* The canvas owns every first-finger gesture: the browser's
+         pull-to-refresh and scroll-back never fight the orbit. */
+      #stage,
+      #stage canvas {
+        touch-action: none;
+      }
+      #stage {
+        width: 100%;
+        height: 100%;
+      }
+      #dropzone {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 50;
+        pointer-events: none;
+      }
+      #dropzone div {
+        border: 1px dashed #4a4a4a;
+        padding: 34px 56px;
+        font: 12px ui-monospace, monospace;
+        color: #bdbdbd;
+        letter-spacing: 0.35em;
+        text-align: center;
+        line-height: 2.2;
+      }
+      #dropzone span {
+        display: block;
+        margin-top: 10px;
+        letter-spacing: 0.18em;
+        color: #666;
+        line-height: 1.9;
+      }
+      #filepicker {
+        display: none;
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 200;
+        transition: opacity 1.4s ease;
+      }
+      #splash img {
+        width: min(30vh, 260px);
+        height: auto;
+      }
+      #splash.gone {
+        opacity: 0;
+        pointer-events: none;
+      }
+      body.screensaver {
+        --caption-bottom: 56px;
+      }
+      body.screensaver #void-studio,
+      body.screensaver #panel,
+      body.screensaver #panel-toggle-btn,
+      body.screensaver #source-card {
+        display: none !important;
+      }
+      body.screensaver,
+      body.screensaver * {
+        cursor: none !important;
+      }
+      body.cursor-hidden,
+      body.cursor-hidden * {
+        cursor: none !important;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-DLrbNbDK.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/three-Ccott6WJ.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-C-llew0X.css">
+  </head>
+  <body>
+    <script>
+      /* Recovery: failures surface in the piece, not the tab title. This
+         inline bus only covers the window before the module arrives - it
+         queues and shows a bare overlay; src/ui/recovery.ts replaces it at
+         boot with the full surface (COPY DIAGNOSTICS, CONTINUE, RELOAD).
+         ?debug=1 keeps the old title mode for field use. */
+      window.__VOID_DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+      window.__voidRecovery = (function () {
+        var shown = false;
+        function report(p) {
+          var message = (p && p.message) || String(p);
+          if (window.__VOID_DEBUG) {
+            document.title = ("ERR " + message + " @ " + ((p && p.stack) || "")).slice(0, 900);
+            return;
+          }
+          if (shown) return;
+          shown = true;
+          var el = document.createElement("div");
+          el.style.cssText =
+            "position:fixed;left:0;right:0;bottom:0;z-index:300;background:#0a0a0a;color:#bdbdbd;" +
+            "font:12px/1.7 ui-monospace,monospace;padding:14px 18px;border-top:1px solid #3a3a3a;white-space:pre-wrap";
+          el.textContent = "THE PIECE HIT A PROBLEM\n" + message + "\n\nRELOAD THE PAGE TO START FRESH.";
+          (document.body || document.documentElement).appendChild(el);
+        }
+        return {
+          installed: false,
+          queue: [],
+          report: function (p) {
+            this.queue.push(p);
+            report(p);
+          },
+        };
+      })();
+      window.addEventListener("error", function (e) {
+        window.__voidRecovery.report({ message: e.message || "unknown error", stack: e.error && String(e.error.stack), context: e.type });
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        window.__voidRecovery.report({ message: (r && r.message) || String(r), stack: r && r.stack ? String(r.stack) : "", context: e.type });
+      });
+      /* Demo cards start from pure black: no logo, no image, particles first. */
+      window.__VOID_DEMO = new URLSearchParams(location.search).get("demo") === "1";
+    </script>
+    <div id="stage"></div>
+    <input id="filepicker" type="file"
+      accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.glb,.gltf,.obj,.stl,.ply" />
+    <div id="dropzone">
+      <div>DROP YOUR MEMORY<span>IMAGE&nbsp;&nbsp;PNG · JPG · WEBP · BMP · GIF<br>MODEL&nbsp;&nbsp;GLB · GLTF · OBJ · STL<br>CLOUD&nbsp;&nbsp;PLY</span></div>
+    </div>
+    <div id="splash"><img id="splash-logo" alt="VOID / PARTICLE MEMORY" /></div>
+    <script>
+      /* The splash logo is wired here so a demo card never fetches it:
+         black background first, then particles - nothing before them. */
+      (function () {
+        var splash = document.getElementById("splash");
+        if (!splash) return;
+        if (window.__VOID_DEMO) {
+          splash.parentNode.removeChild(splash);
+        } else {
+          var img = document.getElementById("splash-logo");
+          if (img) img.src = "./void-logo.png";
+        }
+      })();
+    </script>
+  </body>
+</html>
