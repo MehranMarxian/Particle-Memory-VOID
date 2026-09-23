@@ -54,6 +54,25 @@ export const GRADIENT_PALETTES: Readonly<Record<string, GradientStops>> = {
     { t: 0.5, rgb: [0.18, 0.58, 0.85] },
     { t: 1, rgb: [0.95, 0.85, 0.32] },
   ],
+  // Dry soil to the colour of the grain that did not arrive (Witness).
+  GRAIN: [
+    { t: 0, rgb: [0.1, 0.07, 0.05] },
+    { t: 0.55, rgb: [0.62, 0.45, 0.22] },
+    { t: 1, rgb: [0.96, 0.88, 0.68] },
+  ],
+  // A night sky that moves: green curtain, violet hem (Aurora).
+  AURORA: [
+    { t: 0, rgb: [0.03, 0.08, 0.14] },
+    { t: 0.4, rgb: [0.12, 0.78, 0.5] },
+    { t: 0.75, rgb: [0.42, 0.36, 0.9] },
+    { t: 1, rgb: [0.92, 0.84, 1] },
+  ],
+  // Deep water to foam (Tide, Murmuration).
+  TIDE: [
+    { t: 0, rgb: [0.02, 0.06, 0.12] },
+    { t: 0.5, rgb: [0.1, 0.42, 0.55] },
+    { t: 1, rgb: [0.85, 0.95, 0.93] },
+  ],
 };
 
 export const GRADIENT_PALETTE_NAMES: readonly string[] = Object.keys(GRADIENT_PALETTES);

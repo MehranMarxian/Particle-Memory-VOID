@@ -51,6 +51,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     hint: "A fresh species matrix, never seen before.",
   },
   {
+    group: "MEMORY",
+    display: "N",
+    keys: ["N"],
+    label: "Genesis",
+    hint: "A ring of fire sweeps out from the heart and the memory re-forms behind it.",
+  },
+  {
     group: "LIFE",
     display: "Y",
     keys: ["Y"],
@@ -210,6 +217,8 @@ export interface ShortcutContext {
   toggleSound(): void;
   toggleEvolve(): void;
   toggleEcology(): void;
+  /** GENESIS: release, a ring of fire, reconstruction. */
+  genesis(): void;
 }
 
 export interface KeyModifiers {
@@ -248,6 +257,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
   switch (key) {
     case "E":
       ctx.toggleEvolve();
+      return true;
+    case "N":
+      ctx.genesis();
       return true;
     case "Y":
       ctx.toggleEcology();

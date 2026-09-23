@@ -1,32 +1,22 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from "vitest";
-import { createPanel, type PanelCallbacks } from "@/ui/panel";
+import { createPanel, LAYOUT_KEY, type PanelCallbacks } from "@/ui/panel";
 import { defaultEngineParams } from "@/types";
 import { defaultVisualSettings } from "@/rendering/VisualSettings";
 import { MemorySystem } from "@/memory/MemorySystem";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEcologyParams } from "@/ecology/ecologySystem";
 import { defaultMacros } from "@/presets/macros";
+import { PRESET_DEFINITIONS } from "@/presets/presets";
 
 /**
- * The three-tier panel. These tests pin the information architecture: what
- * lives in the always-visible piece, what folds into the instrument, what
- * hides in the lab, and that the accordion behaves.
+ * The studio (v0.11.0). These tests pin the layout: the gestures on top,
+ * the tools on the left, the properties on the right, the looks at the
+ * bottom - every action an icon with a name - and that each panel can be
+ * closed, reopened and remembered.
  */
 
-const TIER2_SECTIONS = [
-  "MOTION",
-  "MEMORY",
-  "LIFE",
-  "FIELD",
-  "SCENT & HEAT",
-  "ECOLOGY",
-  "VISUAL",
-  "SOUND",
-  "EVOLVE",
-  "PRESETS",
-  "ACTIONS",
-];
+const SECTIONS = ["MOTION", "MEMORY", "LIFE", "FIELD", "SCENT & HEAT", "ECOLOGY", "VISUAL", "SOUND", "EVOLVE", "LAB"];
 
 function makeCallbacks(): PanelCallbacks & { calls: string[] } {
   const calls: string[] = [];
@@ -35,13 +25,14 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
     calls,
     onDensityChange: noop("density"),
     onAddSource: noop("addSource"),
-    onPreset: noop("preset"),
+    onPreset: (name: string) => calls.push(`preset:${name}`),
     onMacro: noop("macro"),
     onRandomize: noop("randomize"),
     onUndo: noop("undo"),
     onReset: noop("reset"),
     onReconstruct: noop("reconstruct"),
     onRelease: noop("release"),
+    onGenesis: noop("genesis"),
     onFullscreen: noop("fullscreen"),
     onScreensaver: noop("screensaver"),
     onTogglePause: noop("pause"),
@@ -62,9 +53,10 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
 function makePanel() {
   document.body.innerHTML = ""; // isolate: createPanel appends to the body
   const callbacks = makeCallbacks();
+  const visual = defaultVisualSettings();
   const api = createPanel({
     params: defaultEngineParams(),
-    visual: defaultVisualSettings(),
+    visual,
     macros: defaultMacros(),
     memory: new MemorySystem({ auto: false }),
     matrix: new InteractionMatrix(4),
@@ -80,124 +72,138 @@ function makePanel() {
     callbacks,
   });
   document.body.appendChild(api.element);
-  return { api, callbacks, panel: api.element };
+  return { api, callbacks, studio: api.element, visual };
 }
 
-describe("the panel's three tiers", () => {
+const q = <T extends Element = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+
+describe("the studio layout", () => {
   let p: ReturnType<typeof makePanel>;
   beforeEach(() => {
+    window.localStorage.clear();
     p = makePanel();
   });
 
-  it("tier 1 always shows the piece: the great gestures and the doors", () => {
-    const tier1 = p.panel.querySelector(".panel-tier1")!;
-    expect(tier1).toBeTruthy();
-    for (const label of ["RECONSTRUCT", "RELEASE", "SCREENSAVER", "FULLSCREEN", "INSTRUMENT", "LAB"]) {
-      const btn = [...tier1.querySelectorAll("button")].find((b) => b.textContent === label);
-      expect(btn, `${label} in tier 1`).toBeTruthy();
+  it("puts the great gestures on top, each an icon with its name", () => {
+    const expected: Record<string, string> = {
+      source: "addSource",
+      moon: "preset:moon",
+      genesis: "genesis",
+      reconstruct: "reconstruct",
+      release: "release",
+      pause: "pause",
+      capture: "capture",
+      screensaver: "screensaver",
+      fullscreen: "fullscreen",
+    };
+    for (const [action, call] of Object.entries(expected)) {
+      const btn = q<HTMLButtonElement>(`#void-topbar [data-action="${action}"]`);
+      expect(btn, action).toBeTruthy();
+      expect(btn.querySelector("svg"), `${action} icon`).toBeTruthy();
+      expect(btn.querySelector(".lbl")?.textContent, `${action} label`).toBeTruthy();
+      btn.click();
+      expect(p.callbacks.calls).toContain(call);
     }
-    // The density slider lives here too.
-    const slider = tier1.querySelector('input[type="range"]');
-    expect(slider).toBeTruthy();
   });
 
   it("the source chip is the door to the picker", () => {
-    const chip = p.panel.querySelector("#panel-source-chip") as HTMLButtonElement;
-    chip.click();
+    q<HTMLButtonElement>("#panel-source-chip").click();
     expect(p.callbacks.calls).toContain("addSource");
   });
 
-  it("tier 2 starts hidden and holds every instrument section, closed", () => {
-    const tier2 = p.panel.querySelector(".panel-tier2") as HTMLElement;
-    expect(tier2.style.display).toBe("none");
-    const titles = [...tier2.querySelectorAll("section > h3")].map((h) => h.textContent);
-    expect(titles).toEqual(TIER2_SECTIONS);
-    for (const sec of tier2.querySelectorAll("section")) {
-      expect(sec.classList.contains("closed"), `${sec.querySelector("h3")?.textContent} closed`).toBe(true);
-    }
+  it("the tool rail opens one flyout at a time, and a second tap closes it", () => {
+    const flyout = q("#void-flyout");
+    expect(flyout.hidden).toBe(true);
+    q<HTMLButtonElement>('[data-action="tool-color"]').click();
+    expect(flyout.hidden).toBe(false);
+    const visible = [...flyout.querySelectorAll<HTMLElement>(".flyout-body")].filter((b) => !b.hidden);
+    expect(visible).toHaveLength(1);
+    q<HTMLButtonElement>('[data-action="tool-shape"]').click();
+    expect([...flyout.querySelectorAll<HTMLElement>(".flyout-body")].filter((b) => !b.hidden)).toHaveLength(1);
+    q<HTMLButtonElement>('[data-action="tool-shape"]').click();
+    expect(flyout.hidden).toBe(true);
   });
 
-  it("the instrument door opens tier 2 and closes the lab", () => {
-    const doors = [...p.panel.querySelectorAll<HTMLElement>(".panel-doors button")];
-    const instrument = doors.find((b) => b.textContent === "INSTRUMENT")!;
-    const lab = doors.find((b) => b.textContent === "LAB")!;
-    instrument.click();
-    expect((p.panel.querySelector(".panel-tier2") as HTMLElement).style.display).toBe("block");
-    lab.click();
-    expect((p.panel.querySelector(".panel-tier2") as HTMLElement).style.display).toBe("none");
-    expect((p.panel.querySelector(".panel-tier3") as HTMLElement).style.display).toBe("block");
-    lab.click();
-    expect((p.panel.querySelector(".panel-tier3") as HTMLElement).style.display).toBe("none");
+  it("a colour swatch changes the look and keeps the other panel in step", () => {
+    q<HTMLButtonElement>('[data-action="tool-color"]').click();
+    const species = q<HTMLButtonElement>('#void-flyout [aria-label="Color: species"]');
+    species.click();
+    expect(p.visual.colorMode).toBe("species");
+    const mirror = q<HTMLButtonElement>('#panel [aria-label="Color: species"]');
+    expect(mirror.classList.contains("on")).toBe(true);
   });
 
-  it("the accordion opens one section at a time", () => {
-    p.panel.querySelectorAll<HTMLElement>(".panel-doors button")[0]!.click();
-    const tier2 = p.panel.querySelector(".panel-tier2")!;
-    const [memory, life] = [...tier2.querySelectorAll("section")] as HTMLElement[];
-    (memory.querySelector("h3") as HTMLElement).click();
-    expect(memory.classList.contains("closed")).toBe(false);
-    (life.querySelector("h3") as HTMLElement).click();
-    expect(life.classList.contains("closed")).toBe(false);
+  it("properties hold every section; MOTION starts open and sections fold independently", () => {
+    const titles = [...document.querySelectorAll("#panel section .section-title")].map((h) => h.textContent);
+    expect(titles).toEqual(SECTIONS);
+    const [motion, memory, life] = [...document.querySelectorAll<HTMLElement>("#panel section")];
+    expect(motion.classList.contains("closed")).toBe(false);
     expect(memory.classList.contains("closed")).toBe(true);
-    (life.querySelector("h3") as HTMLElement).click();
-    expect(life.classList.contains("closed")).toBe(true);
+    memory.querySelector<HTMLButtonElement>(".section-toggle")!.click();
+    life.querySelector<HTMLButtonElement>(".section-toggle")!.click();
+    expect(memory.classList.contains("closed")).toBe(false);
+    expect(life.classList.contains("closed")).toBe(false);
   });
 
-  it("tier 3 hides the lab: the backend switch, the ghost, and the stats", () => {
-    const tier3 = p.panel.querySelector(".panel-tier3") as HTMLElement;
-    expect(tier3.style.display).toBe("none");
-    p.panel.querySelectorAll<HTMLElement>(".panel-doors button")[1]!.click();
-    expect(tier3.style.display).toBe("block");
-    const sim = tier3.querySelector("button.sim") as HTMLButtonElement;
+  it("the lab keeps the backend switch and the stats", () => {
+    const sim = q<HTMLButtonElement>("#panel button.sim");
     expect(sim.textContent).toBe("SIM: GPU");
     sim.click();
     expect(p.callbacks.calls).toContain("backend");
-    expect(tier3.querySelector("#panel-stats")).toBeTruthy();
-    // the ghost toggle moved here from the field
-    const ghostRow = [...tier3.querySelectorAll(".row label")].find((l) => l.textContent === "Ghost");
-    expect(ghostRow).toBeTruthy();
+    expect(q("#panel-stats")).toBeTruthy();
   });
 
-  it("the head drag stows the panel without ever capturing the pointer", () => {
-    // Pointer capture on the head retargeted taps away from ? and HIDE, and
-    // both died on real devices. The drag tracks at the window instead.
-    let captured = false;
-    const head = p.panel.querySelector(".panel-head") as HTMLElement;
-    head.setPointerCapture = () => {
-      captured = true;
-    };
-    const down = new MouseEvent("pointerdown", { bubbles: true, clientY: 100 });
-    Object.defineProperty(down, "pointerId", { value: 7 });
-    head.dispatchEvent(down);
-    expect(captured).toBe(false); // a fresh press must not capture
-    const move = new MouseEvent("pointermove", { bubbles: true, clientY: 180 });
-    Object.defineProperty(move, "pointerId", { value: 7 });
-    window.dispatchEvent(move);
-    expect(p.panel.style.display).toBe("none"); // dragged down: stowed
+  it("the looks dock shows every look as a face", () => {
+    const cards = document.querySelectorAll<HTMLButtonElement>("#void-looks .preset-card");
+    expect(cards).toHaveLength(PRESET_DEFINITIONS.length);
+    q<HTMLButtonElement>('#void-looks [data-preset="witness"]').click();
+    expect(p.callbacks.calls).toContain("preset:witness");
+    p.api.setActivePreset("witness");
+    expect(q('#void-looks [data-preset="witness"]').classList.contains("on")).toBe(true);
+    for (const a of ["randomize", "undo", "reset"]) {
+      q<HTMLButtonElement>(`#void-looks [data-action="${a}"]`).click();
+      expect(p.callbacks.calls).toContain(a);
+    }
   });
 
-  it("hide and show round-trip the panel", () => {
-    const hide = [...p.panel.querySelectorAll<HTMLElement>(".panel-toggle")]
-      .find((b) => b.textContent === "HIDE")!;
-    hide.click();
-    expect(p.panel.style.display).toBe("none");
-    const show = document.getElementById("panel-toggle-btn") as HTMLButtonElement;
-    show.click();
-    expect(p.panel.style.display).toBe("block");
+  it("each panel closes, reopens from the top bar, and the layout is remembered", () => {
+    q<HTMLButtonElement>("#panel .panel-head .close").click();
+    expect(q("#panel").hidden).toBe(true);
+    expect(JSON.parse(window.localStorage.getItem(LAYOUT_KEY)!).props).toBe(false);
+    // A fresh studio honours the saved layout.
+    makePanel();
+    expect(q("#panel").hidden).toBe(true);
+    q<HTMLButtonElement>('[data-action="window-props"]').click();
+    expect(q("#panel").hidden).toBe(false);
   });
 
-  it("a touch-primary device starts stowed behind the PANEL button", () => {
-    // The piece first on a phone: the panel opens from its button, and the
-    // floating button is the only thing on screen.
-    const original = window.matchMedia;
-    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (q: string) =>
-      ({ matches: q.includes("pointer: coarse"), media: q }) as MediaQueryList;
-    const touch = makePanel();
-    window.matchMedia = original;
-    expect(touch.panel.style.display).toBe("none");
-    const show = document.getElementById("panel-toggle-btn") as HTMLButtonElement;
+  it("HIDE stows the whole studio and the STUDIO button brings it back", () => {
+    q<HTMLButtonElement>('[data-action="hide"]').click();
+    expect(p.studio.classList.contains("stowed")).toBe(true);
+    const show = q<HTMLButtonElement>("#panel-toggle-btn");
     expect(show.style.display).not.toBe("none");
     show.click();
-    expect(touch.panel.style.display).toBe("block");
+    expect(p.studio.classList.contains("stowed")).toBe(false);
+    p.api.toggleVisible();
+    expect(p.studio.classList.contains("stowed")).toBe(true);
+  });
+
+  it("pause flips to play", () => {
+    p.api.setPaused(true);
+    expect(q('[data-action="pause"] .lbl').textContent).toBe("PLAY");
+    p.api.setPaused(false);
+    expect(q('[data-action="pause"] .lbl').textContent).toBe("PAUSE");
+  });
+
+  it("a touch-primary device starts with the piece first: tools and properties closed", () => {
+    window.localStorage.clear();
+    const original = window.matchMedia;
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+      ({ matches: query.includes("pointer: coarse"), media: query }) as MediaQueryList;
+    makePanel();
+    window.matchMedia = original;
+    expect(q("#void-tools").hidden).toBe(true);
+    expect(q("#panel").hidden).toBe(true);
+    expect(q("#void-looks").hidden).toBe(false);
   });
 });

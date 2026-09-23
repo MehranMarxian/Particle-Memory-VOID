@@ -100,6 +100,9 @@ import {
   type AudioSource,
 } from "@/audio/audioReactive";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
+import { Witness } from "@/app/witness";
+import { Genesis } from "@/app/genesis";
+import { createWitnessOverlay } from "@/ui/witnessOverlay";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -228,6 +231,17 @@ let subjectRadius = 1;
 let fieldTintTick = 0;
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
+
+// --- Witness and Genesis (v0.11.0) -------------------------------------------
+// Witness keeps a real count (see app/witness.ts); its seed is fixed so the
+// same particles are the same people across a density change.
+const WITNESS_SEED = 0x5eed;
+const witness = new Witness();
+const witnessOverlay = createWitnessOverlay();
+let witnessLastNow = performance.now();
+// Genesis borrows the look for its fire and gives it back when it settles.
+const genesis = new Genesis();
+let genesisSaved: { visual: VisualSettings; ripple: number } | null = null;
 
 // --- Ecology state ---------------------------------------------------------
 // Predation, population and mortality. CPU backend only, on purpose: death and
@@ -370,6 +384,8 @@ function applyLookColors(): void {
     engine.colors.set(sourceColors.subarray(0, Math.min(sourceColors.length, engine.count * 3)));
   }
   lastLookMode = mode;
+  // Witness: the people already lost stay lost through every re-bake.
+  witness.applyTo(engine.colors, engine.count);
   particleRenderer.markColorsDirty();
 }
 
@@ -527,6 +543,7 @@ function buildFromSource(sample: FlatSource): void {
   // at the live count with a different capacity, and the pristine copy must
   // follow the count, not the buffer it was captured from.
   sourceColors = engine.colors.slice(0, engine.count * 3);
+  witness.resize(engine.count, WITNESS_SEED);
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
@@ -1408,6 +1425,7 @@ const shortcutCtx: ShortcutContext = {
     applyEvolveToggle();
   },
   isGuideOpen: () => guide.isOpen(),
+  genesis: () => startGenesis(),
 };
 
 window.addEventListener("keydown", (e) => {
@@ -1532,6 +1550,7 @@ if (!demoMode) {
         if (!def) return;
         pushHistory();
         abandonEvolution();
+        cancelGenesis();
         activePreset = name;
         // Presets own the parameters directly — the authored cycle yields.
         memory.active = memory.auto = false;
@@ -1547,6 +1566,8 @@ if (!demoMode) {
         // A preset owns the matrix: an alternate (H) yields.
         activeMatrix = matrix;
         engine.configureGrid(params);
+        if (def.witness) beginWitness(def.statement ?? def.description);
+        else endWitness();
         applyLook();
         if (ecologyParams.enabled) {
           installEcology();
@@ -1560,6 +1581,8 @@ if (!demoMode) {
       onRandomize() {
         pushHistory();
         abandonEvolution();
+        cancelGenesis();
+        endWitness();
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
@@ -1572,6 +1595,8 @@ if (!demoMode) {
       },
       onUndo() {
         abandonEvolution();
+        cancelGenesis();
+        endWitness();
         const snap = history.pop();
         if (!snap) {
           flashHint("NOTHING TO UNDO", 2);
@@ -1590,6 +1615,8 @@ if (!demoMode) {
       onReset() {
         pushHistory();
         abandonEvolution();
+        cancelGenesis();
+        endWitness();
         Object.assign(params.memory, {
           strength: 0,
           decay: 0,
@@ -1633,6 +1660,9 @@ if (!demoMode) {
         engine.restoreMemory();
         panelApi?.setState(memory.state);
         flashHint("RECONSTRUCT", 2);
+      },
+      onGenesis() {
+        startGenesis();
       },
       onRelease() {
         memory.setState("VOID");
@@ -1683,6 +1713,15 @@ if (!demoMode) {
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
+}
+if (!demoMode) {
+  document.body.appendChild(witnessOverlay.element);
+  // Witness survives a reload: its count starts again, because the watching does.
+  const witnessDef = PRESET_DEFINITIONS.find((d) => d.name === activePreset && d.witness);
+  if (witnessDef) {
+    beginWitness(witnessDef.statement ?? witnessDef.description);
+    applyLook();
+  }
 }
 
 // Reduced motion (v0.10.0 slice 6): the media query answers for itself -
@@ -1802,6 +1841,84 @@ function togglePause(): void {
   flashHint(simPaused ? "PAUSED - THE MOMENT HOLDS" : "RESUMED", 3);
 }
 
+// --- Genesis: the score's cues, performed ------------------------------------
+function startGenesis(): void {
+  if (genesis.active) return;
+  genesis.start();
+  flashHint("GENESIS - THE MEMORY BURNS AND IS REBORN", 5);
+}
+
+/** A look change mid-Genesis wins: the fire is not allowed to restore over it. */
+function cancelGenesis(): void {
+  genesis.active = false;
+  genesisSaved = null;
+}
+
+function stepGenesis(dt: number): void {
+  for (const cue of genesis.tick(dt)) {
+    if (cue === "release") {
+      memory.setState("VOID");
+      panelApi?.setState(memory.state);
+    } else if (cue === "ignite") {
+      genesisSaved = { visual: { ...visual }, ripple: params.pointer.ripple };
+      Object.assign(visual, {
+        colorMode: "gradient",
+        gradientPalette: "EMBER",
+        gradientAxis: "radial",
+        trails: true,
+        trailDecay: Math.max(visual.trailDecay, 0.86),
+        glow: Math.max(visual.glow, 0.8),
+      });
+      params.pointer.ripple = Math.max(params.pointer.ripple, 1.8);
+      applyLook();
+      panelApi?.refresh();
+    } else if (cue === "ring") {
+      // Every wavefront is born at the heart of the subject.
+      engine.spawnRipple(0, 0, 0);
+    } else if (cue === "reconstruct") {
+      memory.setState("RECONSTRUCT");
+      engine.restoreMemory();
+      panelApi?.setState(memory.state);
+    } else if (cue === "settle" && genesisSaved) {
+      Object.assign(visual, genesisSaved.visual);
+      params.pointer.ripple = genesisSaved.ripple;
+      genesisSaved = null;
+      applyLook();
+      panelApi?.refresh();
+    }
+  }
+}
+
+// --- Witness -------------------------------------------------------------------
+function beginWitness(statement: string): void {
+  witness.enabled = true;
+  witness.begin(engine.count, WITNESS_SEED);
+  witnessLastNow = performance.now();
+  witnessOverlay.setCount(0);
+  witnessOverlay.show(statement);
+}
+
+function endWitness(): void {
+  if (!witness.enabled) return;
+  witness.enabled = false;
+  witnessOverlay.hide();
+}
+
+/** Wall time, not sim time: the world does not pause when the piece does. */
+function stepWitness(now: number): void {
+  if (!witness.enabled) return;
+  const dt = Math.max(0, (now - witnessLastNow) / 1000);
+  witnessLastNow = now;
+  const lost = witness.tick(dt);
+  if (lost.length === 0) return;
+  // Each absence sends one quiet wave through the crowd.
+  const i = lost[lost.length - 1];
+  const p = engine.positions;
+  if (i < engine.count) engine.spawnRipple(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+  applyLookColors();
+  witnessOverlay.setCount(witness.lost);
+}
+
 /** Save the current frame: flagged here, taken right after the next render. */
 function captureMoment(): void {
   capturePending = true;
@@ -1883,6 +2000,8 @@ function frameInner(now: number): void {
   }
 
   if (!simPaused) evolver.tick(dt);
+  if (!simPaused) stepGenesis(dt);
+  stepWitness(now);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
     : demoMode

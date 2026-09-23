@@ -46,6 +46,13 @@ export interface PresetDefinition {
   camera?: Partial<CameraChoreography>;
   wander?: number;
   phaseCoupling?: number;
+  /**
+   * Witness mode: the look keeps a real-time count. One particle goes dark
+   * at the measured rate of hunger deaths, for as long as someone watches.
+   */
+  witness?: boolean;
+  /** The one line a look says about itself when it is chosen (optional). */
+  statement?: string;
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
@@ -482,6 +489,119 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       fogDensity: 0.06,
     },
     camera: { orbitSpeed: 0.012, zoomAmplitude: 3.5, zoomPeriodSeconds: 80, elevationWander: 0.09, path: "orbit" },
+  },
+  {
+    name: "witness",
+    label: "Witness",
+    description:
+      "Every light is a person. One goes out every four seconds - the rate at which the world loses someone to hunger",
+    statement:
+      "One light goes out every four seconds. That is the estimated rate at which people die of hunger and its causes. Nothing here is faster than the truth.",
+    witness: true,
+    // The crowd holds its shape - the loss is visible because the memory is
+    // strong. Nothing flies apart; each absence is a quiet hole and a wave.
+    memory: { strength: 8, decay: 0, reconstructionEase: 1.1 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.7,
+      coreRadius: 0.3,
+      forceScale: 3,
+      friction: 0.9,
+      attraction: 1,
+      repulsion: 1,
+      chaos: 0.03,
+      maxSpeed: 2.5,
+    },
+    field: { turbulence: 0.02, drift: 0, gravity: 0.06, wander: 0.02, phaseCoupling: 1.4 },
+    scent: { enabled: false },
+    heat: { enabled: false },
+    pointer: { ripple: 0.7 },
+    visual: {
+      colorMode: "gradient",
+      gradientAxis: "depth",
+      gradientPalette: "GRAIN",
+      shape: "circle",
+      particleSize: 0.95,
+      glow: 0.55,
+      opacity: 0.72,
+      trails: true,
+      trailDecay: 0.6,
+      dof: 0.3,
+      fogDensity: 0.04,
+    },
+    camera: { orbitSpeed: 0.006, zoomAmplitude: 1.5, zoomPeriodSeconds: 120, path: "orbit" },
+  },
+  {
+    name: "murmuration",
+    label: "Murmuration",
+    description: "Starlings at dusk - one body of thousands, folding over the memory and pouring back",
+    speciesCount: 2,
+    // Two flocks that court each other: each chases the other a little
+    // harder than it holds itself, so the body folds instead of settling.
+    matrix: [0.7, 0.9, 0.85, 0.6],
+    memory: { strength: 1.4, decay: 0.02, reconstructionEase: 1.4 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 1.2,
+      coreRadius: 0.22,
+      forceScale: 9,
+      friction: 0.9,
+      attraction: 1.2,
+      repulsion: 0.8,
+      chaos: 0.05,
+      maxSpeed: 7,
+    },
+    field: { turbulence: 0.22, drift: 0.2, gravity: 0, wander: 0.12, phaseCoupling: 2.4 },
+    scent: { enabled: true, deposit: 0.5, decay: 0.5, steer: 1.4 },
+    heat: { enabled: false },
+    visual: {
+      colorMode: "gradient",
+      gradientAxis: "depth",
+      gradientPalette: "TIDE",
+      shape: "triangle",
+      particleSize: 0.7,
+      glow: 0.25,
+      opacity: 0.7,
+      trails: true,
+      trailDecay: 0.5,
+      dof: 0.25,
+      fogDensity: 0.03,
+    },
+    camera: { orbitSpeed: 0.02, zoomAmplitude: 4, zoomPeriodSeconds: 70, elevationWander: 0.1, path: "figure8" },
+  },
+  {
+    name: "aurora",
+    label: "Aurora",
+    description: "The memory hangs in the sky as light - curtains that breathe and never quite land",
+    memory: { strength: 3, decay: 0, reconstructionEase: 1.3 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.9,
+      coreRadius: 0.3,
+      forceScale: 4,
+      friction: 0.9,
+      attraction: 1,
+      repulsion: 1,
+      chaos: 0.08,
+      maxSpeed: 4,
+    },
+    field: { turbulence: 0.14, drift: 0.05, gravity: -0.12, wander: 0.1, phaseCoupling: 2 },
+    scent: { enabled: true, deposit: 0.8, decay: 0.7, steer: 1.6 },
+    heat: { enabled: false },
+    visual: {
+      colorMode: "gradient",
+      gradientAxis: "scent",
+      gradientPalette: "AURORA",
+      shape: "circle",
+      particleSize: 1.2,
+      glow: 0.9,
+      opacity: 0.5,
+      trails: true,
+      trailDecay: 0.9,
+      dof: 0.3,
+      fogDensity: 0.02,
+    },
+    camera: { orbitSpeed: 0.008, zoomAmplitude: 2, zoomPeriodSeconds: 100, elevationWander: 0.06, path: "orbit" },
   },
 ];
 

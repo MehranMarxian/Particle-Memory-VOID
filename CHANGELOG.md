@@ -2,6 +2,49 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.11.0] - 2026-09-24
+
+The studio, a witness and a genesis. This release gives the instrument a
+layout you can read by where things are, and gives the piece something to
+say.
+
+### Added: the studio
+
+- A new layout replaces the three-tier panel. The **top bar** holds the main
+  gestures. The **tool rail** on the left opens flyouts beside it. The
+  **properties** panel on the right has independently folding sections, with
+  the LAB folded in as the last one. The **looks dock** runs along the bottom.
+  Every action is an icon with its name underneath (a new hand-drawn set in
+  `src/ui/icons.ts`).
+- Colour modes show up as swatches, ramps as gradient previews and shapes as
+  their own glyphs. Sliders fill as they move, and toggles are switches.
+- Any panel can be closed and reopened from the top bar, and the layout is
+  remembered (`void.layout.v1`). RESET LAYOUT is in the LAB.
+- Hints appear as a centred toast instead of a line hidden in the panel
+  footer.
+- A look without a thumbnail shows its own palette as light instead of a
+  bare word.
+
+### Added: looks, and what they say
+
+- **Witness**: every particle is a person, and one goes dark every four
+  seconds, the estimated rate of deaths from hunger and its causes. The
+  clock runs on wall time, so pausing the piece doesn't pause it. Each loss
+  sends one ripple through the crowd, and a quiet counter says how many
+  people have died since you began watching. The logic is in
+  `src/app/witness.ts`.
+- **Murmuration**: two courting flocks folding over the memory.
+- **Aurora**: scent-driven curtains of light.
+- New palettes: GRAIN, AURORA, TIDE.
+
+### Added: GENESIS (`N`)
+
+- A tribute to William Reeves' Genesis Effect (1982), the first particle
+  system. The swarm lets go, a ring of fire starts at the heart of the
+  subject, eight wavefronts sweep outward, and the memory re-forms behind
+  them. Then the look it interrupted comes back. The timing lives in
+  `src/app/genesis.ts`, separate from the rendering.
+
 ## [0.10.0] - 2026-09-21
 
 The release where the engine's namesake starts working everywhere, the
