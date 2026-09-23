@@ -108,6 +108,7 @@ import { createPresenceCamera, PresenceModel, silhouetteSource, type PresenceCam
 import { Exhibition } from "@/app/exhibition";
 import { statementFor } from "@/presets/statements";
 import { createCaption } from "@/ui/caption";
+import { hasWebgl, NoWebglError, showNoWebgl } from "@/ui/noWebgl";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -671,7 +672,31 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
 
 // --- Scene -----------------------------------------------------------------
 const stage = document.getElementById("stage")!;
-const renderer3d = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+const renderer3d = createRenderer();
+
+/**
+ * The renderer, or a plain explanation. A browser can refuse WebGL outright
+ * (Lockdown Mode, privacy browsers); three.js then fails deep inside its
+ * first call. Probe first, retry once without the extras (antialiasing and
+ * the high-performance GPU hint are what a strained phone refuses first),
+ * and only then give up - calmly, with the way back.
+ */
+function createRenderer(): THREE.WebGLRenderer {
+  if (!hasWebgl()) {
+    showNoWebgl();
+    throw new NoWebglError();
+  }
+  try {
+    return new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  } catch {
+    try {
+      return new THREE.WebGLRenderer({ antialias: false });
+    } catch {
+      showNoWebgl();
+      throw new NoWebglError();
+    }
+  }
+}
 renderer3d.setPixelRatio(cappedPixelRatio(window.devicePixelRatio));
 renderer3d.setSize(window.innerWidth, window.innerHeight);
 renderer3d.setClearColor(0x000000, 1);
