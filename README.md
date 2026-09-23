@@ -128,6 +128,8 @@ itself once; after that it waits for `?`.
 | `L` | Listen to sound (music drives the look) |
 | `E` | Evolve (search for better interaction matrices) |
 | `N` | Genesis (a ring of fire re-forms the memory) |
+| `V` | Presence (the swarm remembers whoever stands at the camera) |
+| `X` | Exhibition (the piece plays itself for a room) |
 | `Y` | Ecology (predation, birth and death) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
@@ -145,16 +147,16 @@ has an icon with its name underneath.
 
 | Where | What |
 | --- | --- |
-| **Top bar** | The main gestures: SOURCE, MOON DUST, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
-| **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND. Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
+| **Top bar** | The main gestures: SOURCE, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
+| **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND, YOU. Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
 | **Properties** (right) | Every parameter, in sections that fold independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, and the LAB (backend, ghost, modulators, stats, RESET LAYOUT). |
-| **Looks dock** (bottom) | Every look as a face, plus RANDOM / UNDO / RESET. |
+| **Looks dock** (bottom) | Every look as a face (Moon Dust first), plus RANDOM / UNDO / RESET. |
 
 You can close any panel with its ×, bring it back from the top bar, and the
 browser remembers your layout. `P` (or HIDE) hides everything except the
-piece. On a phone the piece comes first: the tools and properties wait
-behind their toggles, the rail lies flat above the dock, and the properties
-open as a bottom sheet.
+piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
+GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
+MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
 
 Sixteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
 Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,
@@ -163,6 +165,32 @@ flocks folding like starlings at dusk) and **Aurora** (the memory hung in the
 sky as breathing curtains of light). Each look is a full state, so nothing
 leaks from one into the next. Several carry their own screensaver camera,
 and the whole instrument state persists and comes back on your next visit.
+
+## The piece in a room
+
+**Exhibition** (`X`, the EXHIBIT button, or `?exhibit=1`) plays an authored
+programme inside the screensaver: Moon Dust, Galaxy, Organic, Murmuration,
+then Aurora opened by GENESIS, Traces, Exhale, Witness (given the most
+time), and Void, looping for as long as the room is open. Each look's
+statement appears as a quiet caption. Any input hands the piece back. The
+programme lives in `src/app/exhibition.ts`.
+
+**Presence** (`V`, or the YOU tool) lets the swarm remember whoever stands in
+front of the camera. It learns the empty room first, then takes a
+visitor's silhouette as its memory, and lets them go a few seconds after
+they walk away. The camera is read at 96×72 in grey, a mask is derived,
+and the frame is dropped. Nothing is recorded, stored or sent.
+
+**Witness** needs no file: with no memory of your own loaded, it brings its
+own crowd of people, so a first visit shows what it's about.
+
+### The statements
+
+Every look has one line, and the piece says it quietly when the look is
+chosen. All the lines live in one file,
+[`src/presets/statements.ts`](src/presets/statements.ts): the key is the
+look's name and the value is the line. Edit a line, save, and the piece
+speaks differently. Delete a line and that look stays silent.
 
 ## Look
 
