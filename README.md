@@ -147,16 +147,16 @@ has an icon with its name underneath.
 
 | Where | What |
 | --- | --- |
-| **Top bar** | The main gestures: SOURCE, MOON DUST, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
+| **Top bar** | The main gestures: SOURCE, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
 | **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND, YOU. Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
 | **Properties** (right) | Every parameter, in sections that fold independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, and the LAB (backend, ghost, modulators, stats, RESET LAYOUT). |
-| **Looks dock** (bottom) | Every look as a face, plus RANDOM / UNDO / RESET. |
+| **Looks dock** (bottom) | Every look as a face (Moon Dust first), plus RANDOM / UNDO / RESET. |
 
 You can close any panel with its ×, bring it back from the top bar, and the
 browser remembers your layout. `P` (or HIDE) hides everything except the
-piece. On a phone the piece comes first: the tools and properties wait
-behind their toggles, the rail lies flat above the dock, and the properties
-open as a bottom sheet.
+piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
+GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
+MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
 
 Sixteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
 Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,

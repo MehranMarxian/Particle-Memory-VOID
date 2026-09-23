@@ -28,8 +28,8 @@ import "./panel.css";
  * application, so it can be read by position before it is read by word:
  *
  *   TOP BAR      the great gestures, each an icon with its name under it:
- *                SOURCE, MOON DUST, GENESIS, RECONSTRUCT, RELEASE, PAUSE,
- *                CAPTURE - then the room (screensaver, fullscreen), the
+ *                SOURCE, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE -
+ *                then the room (screensaver, exhibit, fullscreen), the
  *                window toggles, the guide and HIDE.
  *   TOOL RAIL    left edge. One icon per thing you can touch with your eyes
  *                (size, glow, colour, shape, trails, focus, hand, dots,
@@ -37,7 +37,9 @@ import "./panel.css";
  *   PROPERTIES   right edge (#panel). Every parameter, in sections that fold
  *                independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT,
  *                ECOLOGY, VISUAL, SOUND, EVOLVE, LAB.
- *   LOOKS DOCK   bottom. The looks as faces, and RANDOM / UNDO / RESET.
+ *   LOOKS DOCK   bottom. The looks as faces (Moon Dust first), and
+ *                RANDOM / UNDO / RESET.
+ *   PHONE        the panels become sheets behind a bottom bar, one at a time.
  *
  * Each panel can be closed, reopened from the top bar, and the layout is
  * remembered per browser. Built from declarative specs so a parameter is
@@ -695,19 +697,12 @@ export function createPanel(opts: {
   actions.className = "actions";
   topbar.appendChild(actions);
   iconBtn(actions, "source", "source", "SOURCE", () => callbacks.onAddSource(), "Open a photo, model or point cloud (O)");
-  const moon = iconBtn(
-    actions,
-    "moon",
-    "moon",
-    "MOON DUST",
-    () => callbacks.onPreset("moon"),
-    "Moon Dust, the signature look: ripples under your hand, luminous trails, and a swarm that comes home"
-  );
-  moon.classList.add("moon");
   const genesis = iconBtn(actions, "genesis", "genesis", "GENESIS", () => callbacks.onGenesis(), "Genesis: a ring of fire re-forms the memory (N)");
   genesis.classList.add("genesis");
-  iconBtn(actions, "reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct(), "Pull the swarm back into the memory (1)");
-  iconBtn(actions, "release", "release", "RELEASE", () => callbacks.onRelease(), "Let the memory go (4)");
+  // On a phone these two move into the MORE sheet; the bar keeps the few
+  // gestures a thumb reaches for most.
+  iconBtn(actions, "reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct(), "Pull the swarm back into the memory (1)").classList.add("secondary");
+  iconBtn(actions, "release", "release", "RELEASE", () => callbacks.onRelease(), "Let the memory go (4)").classList.add("secondary");
   // Simulation pause, distinct from the screensaver and the memory cycle:
   // steps stop, the camera and trails keep breathing.
   const pauseBtn = iconBtn(actions, "pause", "pause", "PAUSE", () => callbacks.onTogglePause(), "Hold the moment (.)");
@@ -879,7 +874,7 @@ export function createPanel(opts: {
   headClose.className = "close";
   headClose.setAttribute("aria-label", "Close properties");
   headClose.appendChild(icon("close", 14));
-  headClose.addEventListener("click", () => setPanelOpen("props", false));
+  headClose.addEventListener("click", () => closePanel("props"));
   head.append(headTitle, headClose);
   panel.appendChild(head);
 
@@ -1131,7 +1126,7 @@ export function createPanel(opts: {
   looksClose.className = "close";
   looksClose.setAttribute("aria-label", "Close looks");
   looksClose.appendChild(icon("close", 14));
-  looksClose.addEventListener("click", () => setPanelOpen("looks", false));
+  looksClose.addEventListener("click", () => closePanel("looks"));
   looksHead.append(looksTitle, looksClose);
   looks.appendChild(looksHead);
 
@@ -1208,6 +1203,66 @@ export function createPanel(opts: {
   }
   for (const k of Object.keys(layout) as StudioPanel[]) setPanelOpen(k, layout[k]);
 
+  // --- The phone: one bottom bar, one sheet at a time -------------------------
+  // On a narrow screen the panels become sheets that rise from a bottom bar
+  // (LOOKS / TOOLS / PANEL / MORE), one at a time, and the canvas stays
+  // clear until a thumb asks for something. Desktop layout is untouched.
+  const narrow = () => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+  type Sheet = "looks" | "tools" | "props" | "more";
+  let sheet: Sheet | null = null;
+
+  const more = document.createElement("div");
+  more.id = "void-more";
+  more.setAttribute("aria-label", "More actions");
+  studio.appendChild(more);
+  const moreGrid = document.createElement("div");
+  moreGrid.className = "more-grid";
+  more.appendChild(moreGrid);
+  iconBtn(moreGrid, "m-reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct());
+  iconBtn(moreGrid, "m-release", "release", "RELEASE", () => callbacks.onRelease());
+  iconBtn(moreGrid, "m-screensaver", "screensaver", "SCREENSAVER", () => callbacks.onScreensaver());
+  iconBtn(moreGrid, "m-exhibit", "exhibit", "EXHIBIT", () => callbacks.onExhibition());
+  iconBtn(moreGrid, "m-fullscreen", "fullscreen", "FULLSCREEN", () => callbacks.onFullscreen());
+  iconBtn(moreGrid, "m-help", "help", "HELP", () => callbacks.onToggleGuide());
+
+  const nav = document.createElement("nav");
+  nav.id = "void-mobile-nav";
+  nav.setAttribute("aria-label", "Studio");
+  studio.appendChild(nav);
+  const sheetBtns = new Map<Sheet, HTMLButtonElement>();
+  for (const [id, ic, label] of [
+    ["looks", "looks", "LOOKS"],
+    ["tools", "shape", "TOOLS"],
+    ["props", "motion", "PANEL"],
+    ["more", "more", "MORE"],
+  ] as const) {
+    sheetBtns.set(id, iconBtn(nav, `sheet-${id}`, ic, label, () => setSheet(sheet === id ? null : id)));
+  }
+
+  function setSheet(next: Sheet | null): void {
+    sheet = next;
+    for (const [id, b] of sheetBtns) {
+      studio.classList.toggle(`sheet-${id}`, id === next);
+      b.classList.toggle("on", id === next);
+      b.setAttribute("aria-expanded", String(id === next));
+    }
+    if (next !== "tools") setTool(null);
+  }
+
+  /** A panel's ×: closes the sheet on a phone, the panel on a desktop. */
+  function closePanel(which: StudioPanel): void {
+    if (narrow()) setSheet(null);
+    else setPanelOpen(which, false);
+  }
+
+  // A touch on the piece itself puts the sheet away.
+  window.addEventListener("pointerdown", (e) => {
+    if (sheet === null) return;
+    const t = e.target as Node | null;
+    if (t && studio.contains(t)) return;
+    setSheet(null);
+  });
+
   const showPanelBtn = document.createElement("button");
   showPanelBtn.id = "panel-toggle-btn";
   showPanelBtn.setAttribute("aria-label", "Show the studio");
@@ -1221,7 +1276,10 @@ export function createPanel(opts: {
     studioVisible = visible;
     studio.classList.toggle("stowed", !visible);
     showPanelBtn.style.display = visible ? "none" : "flex";
-    if (!visible) setTool(null);
+    if (!visible) {
+      setTool(null);
+      setSheet(null);
+    }
   }
 
   syncAll();
@@ -1242,7 +1300,6 @@ export function createPanel(opts: {
         btn.classList.toggle("on", pname === name);
         btn.setAttribute("aria-pressed", String(pname === name));
       }
-      moon.classList.toggle("on", name === "moon");
     },
     setPaused(paused) {
       const lbl = pauseBtn.querySelector(".lbl");

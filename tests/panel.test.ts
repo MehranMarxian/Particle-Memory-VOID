@@ -90,7 +90,6 @@ describe("the studio layout", () => {
   it("puts the great gestures on top, each an icon with its name", () => {
     const expected: Record<string, string> = {
       source: "addSource",
-      moon: "preset:moon",
       genesis: "genesis",
       reconstruct: "reconstruct",
       release: "release",
@@ -190,6 +189,26 @@ describe("the studio layout", () => {
     expect(p.studio.classList.contains("stowed")).toBe(false);
     p.api.toggleVisible();
     expect(p.studio.classList.contains("stowed")).toBe(true);
+  });
+
+  it("Moon Dust is a look like the others: in the dock, not the top bar", () => {
+    expect(document.querySelector('#void-topbar [data-action="moon"]')).toBeNull();
+    q<HTMLButtonElement>('#void-looks [data-preset="moon"]').click();
+    expect(p.callbacks.calls).toContain("preset:moon");
+  });
+
+  it("the phone bar opens one sheet at a time, and a second tap puts it away", () => {
+    const tab = (id: string) => q<HTMLButtonElement>(`#void-mobile-nav [data-action="sheet-${id}"]`);
+    tab("looks").click();
+    expect(p.studio.classList.contains("sheet-looks")).toBe(true);
+    tab("props").click();
+    expect(p.studio.classList.contains("sheet-looks")).toBe(false);
+    expect(p.studio.classList.contains("sheet-props")).toBe(true);
+    tab("props").click();
+    expect(p.studio.className).not.toMatch(/sheet-/);
+    tab("more").click();
+    q<HTMLButtonElement>('#void-more [data-action="m-release"]').click();
+    expect(p.callbacks.calls).toContain("release");
   });
 
   it("pause flips to play", () => {

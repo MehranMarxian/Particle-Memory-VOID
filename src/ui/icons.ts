@@ -58,6 +58,8 @@ export const ICONS = {
   witness: { d: "M12 2.5c1.6 2 1.6 3.8 0 5.4-1.6-1.6-1.6-3.4 0-5.4zM10 10h4v10.5h-4zM6 21h12" },
   presence: { d: c(12, 7, 3.5) + "M4.5 21a7.5 7.5 0 0 1 15 0M2 4V2h2M22 4V2h-2M2 20v2h2M22 20v2h-2" },
   exhibit: { d: "M3 5h18v12H3zM6 8h12v6H6zM8 21l4-4 4 4" },
+  looks: { d: "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" },
+  more: { d: "M5 12h.01M12 12h.01M19 12h.01", width: 3 },
   layout: { d: "M3 4h18v16H3zM3 9h18M9 9v11" },
 } satisfies Record<string, IconSpec>;
 
