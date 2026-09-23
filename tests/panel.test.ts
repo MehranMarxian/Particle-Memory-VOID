@@ -47,6 +47,8 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
     onEvolveToggle: noop("evolve"),
     onSoundSourceChange: noop("soundSource"),
     onSoundscapeToggle: noop("soundscape"),
+    onPresenceToggle: noop("presence"),
+    onExhibition: noop("exhibition"),
   };
 }
 
@@ -69,6 +71,7 @@ function makePanel() {
     backend: () => "gpu",
     ecology: defaultEcologyParams(),
     ecologyEvents: { births: 0, deaths: 0 },
+    presence: { enabled: false },
     callbacks,
   });
   document.body.appendChild(api.element);
@@ -95,6 +98,7 @@ describe("the studio layout", () => {
       capture: "capture",
       screensaver: "screensaver",
       fullscreen: "fullscreen",
+      exhibit: "exhibition",
     };
     for (const [action, call] of Object.entries(expected)) {
       const btn = q<HTMLButtonElement>(`#void-topbar [data-action="${action}"]`);

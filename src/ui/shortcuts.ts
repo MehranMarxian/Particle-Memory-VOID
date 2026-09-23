@@ -165,6 +165,20 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "V",
+    keys: ["V"],
+    label: "Presence",
+    hint: "The camera sees who stands here, and the swarm remembers them. Nothing leaves this device.",
+  },
+  {
+    group: "SYSTEM",
+    display: "X",
+    keys: ["X"],
+    label: "Exhibition",
+    hint: "The piece plays itself for a room: every look in turn, with its statement.",
+  },
+  {
+    group: "SYSTEM",
     display: "?",
     keys: ["?"],
     label: "This guide",
@@ -219,6 +233,10 @@ export interface ShortcutContext {
   toggleEcology(): void;
   /** GENESIS: release, a ring of fire, reconstruction. */
   genesis(): void;
+  /** PRESENCE: the swarm remembers the visitor in front of the camera. */
+  togglePresence(): void;
+  /** EXHIBITION: the authored programme, inside the screensaver. */
+  startExhibition(): void;
 }
 
 export interface KeyModifiers {
@@ -260,6 +278,12 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       return true;
     case "N":
       ctx.genesis();
+      return true;
+    case "V":
+      ctx.togglePresence();
+      return true;
+    case "X":
+      ctx.startExhibition();
       return true;
     case "Y":
       ctx.toggleEcology();

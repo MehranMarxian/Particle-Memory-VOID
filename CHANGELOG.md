@@ -2,6 +2,35 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.11.1] - 2026-09-24
+
+The piece in a room.
+
+### Added
+- **Exhibition** (`X`, EXHIBIT, `?exhibit=1`): an authored, looping programme
+  of looks inside the screensaver, each with its statement as a caption.
+  GENESIS opens the second half, and Witness is given the most time.
+- **Presence** (`V`, the YOU tool): the swarm takes the silhouette of whoever
+  stands at the camera and releases it when they leave. It uses a 96×72
+  grey background model, runs on the device, and keeps nothing
+  (`src/input/presence.ts`).
+- **Statements**: one line per look, in a single editable file
+  (`src/presets/statements.ts`).
+- **The Witness crowd**: a synthetic crowd of people that Witness brings
+  when no memory of the visitor's own is loaded (`src/sources/crowd.ts`).
+- `docs/PLAN-0.12.0.md`: the plan for bringing 3D Life Sim's mechanics
+  (WebGPU scale, the field-sensing rule, the light, modulation and MIDI,
+  discovery) into VOID.
+
+### Changed
+- Witness is tuned to hold its people crisply: stronger memory, calmer life
+  forces, finer particles in the source's own colours.
+- The panel, the exhibition and the boot now share one look path
+  (`applyLookByName`).
+- Exhibition doesn't wait for fullscreen, which can hang inside an embed.
+  During a programme the screensaver no longer turns the auto memory cycle
+  back on.
+
 ## [0.11.0] - 2026-09-24
 
 The studio, a witness and a genesis. This release gives the instrument a

@@ -51,8 +51,6 @@ export interface PresetDefinition {
    * at the measured rate of hunger deaths, for as long as someone watches.
    */
   witness?: boolean;
-  /** The one line a look says about itself when it is chosen (optional). */
-  statement?: string;
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
@@ -495,37 +493,36 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     label: "Witness",
     description:
       "Every light is a person. One goes out every four seconds - the rate at which the world loses someone to hunger",
-    statement:
-      "One light goes out every four seconds. That is the estimated rate at which people die of hunger and its causes. Nothing here is faster than the truth.",
+    // Its statement lives with the others, in statements.ts.
     witness: true,
     // The crowd holds its shape - the loss is visible because the memory is
     // strong. Nothing flies apart; each absence is a quiet hole and a wave.
-    memory: { strength: 8, decay: 0, reconstructionEase: 1.1 },
+    memory: { strength: 12, decay: 0, reconstructionEase: 1.1 },
     life: {
       kernel: "pulse",
-      interactionRadius: 0.7,
-      coreRadius: 0.3,
-      forceScale: 3,
+      interactionRadius: 0.4,
+      coreRadius: 0.15,
+      forceScale: 1.2,
       friction: 0.9,
       attraction: 1,
       repulsion: 1,
-      chaos: 0.03,
-      maxSpeed: 2.5,
+      chaos: 0.02,
+      maxSpeed: 5,
     },
-    field: { turbulence: 0.02, drift: 0, gravity: 0.06, wander: 0.02, phaseCoupling: 1.4 },
+    field: { turbulence: 0.01, drift: 0, gravity: 0.03, wander: 0.01, phaseCoupling: 1.4 },
     scent: { enabled: false },
     heat: { enabled: false },
     pointer: { ripple: 0.7 },
     visual: {
-      colorMode: "gradient",
-      gradientAxis: "depth",
-      gradientPalette: "GRAIN",
+      // The people in their own colours: warm for the crowd, and a
+      // photograph's own when the visitor brings one.
+      colorMode: "source",
       shape: "circle",
-      particleSize: 0.95,
-      glow: 0.55,
-      opacity: 0.72,
+      particleSize: 0.75,
+      glow: 0.8,
+      opacity: 0.9,
       trails: true,
-      trailDecay: 0.6,
+      trailDecay: 0.5,
       dof: 0.3,
       fogDensity: 0.04,
     },

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { SECONDS_PER_HUNGER_DEATH, Witness, WITNESS_TRACE } from "@/app/witness";
 import { Genesis, GENESIS_SCORE, GENESIS_SECONDS } from "@/app/genesis";
 import { PRESET_DEFINITIONS } from "@/presets/presets";
+import { statementFor } from "@/presets/statements";
+import { makeCrowdSource } from "@/sources/crowd";
+import { Exhibition, EXHIBITION_PROGRAMME } from "@/app/exhibition";
+import { PresenceModel, silhouetteSource } from "@/input/presence";
 
 describe("Witness", () => {
   it("loses one person per interval of wall time, never faster", () => {
@@ -46,7 +50,82 @@ describe("Witness", () => {
   it("ships as a look with a statement", () => {
     const def = PRESET_DEFINITIONS.find((d) => d.name === "witness");
     expect(def?.witness).toBe(true);
-    expect(def?.statement).toMatch(/four seconds/);
+    expect(statementFor("witness")).toMatch(/four seconds/);
+  });
+
+  it("every look has a statement", () => {
+    for (const d of PRESET_DEFINITIONS) expect(statementFor(d.name), d.name).toBeTruthy();
+  });
+});
+
+describe("the Witness crowd", () => {
+  it("is the same crowd every time, standing within the piece's frame", () => {
+    const a = makeCrowdSource(2000);
+    const b = makeCrowdSource(2000);
+    expect(a.positions).toEqual(b.positions);
+    for (let i = 0; i < 2000; i++) {
+      expect(Math.abs(a.positions[i * 3])).toBeLessThan(13);
+      expect(Math.abs(a.positions[i * 3 + 1])).toBeLessThan(4.5);
+    }
+  });
+});
+
+describe("Exhibition", () => {
+  it("walks the programme in order and loops, with no clock of its own", () => {
+    const programme = [
+      { look: "a", seconds: 2 },
+      { look: "b", seconds: 1, genesis: true },
+    ];
+    const ex = new Exhibition(programme);
+    expect(ex.tick(10)).toBeNull(); // not running
+    expect(ex.start().look).toBe("a");
+    expect(ex.tick(1.5)).toBeNull();
+    expect(ex.tick(0.6)?.look).toBe("b");
+    expect(ex.tick(1)?.look).toBe("a");
+  });
+
+  it("ships a programme made only of real looks, Witness given the most time", () => {
+    const names = new Set(PRESET_DEFINITIONS.map((d) => d.name));
+    for (const cue of EXHIBITION_PROGRAMME) expect(names.has(cue.look), cue.look).toBe(true);
+    const longest = [...EXHIBITION_PROGRAMME].sort((a, b) => b.seconds - a.seconds)[0];
+    expect(longest.look).toBe("witness");
+  });
+});
+
+describe("Presence", () => {
+  const W = 8;
+  const H = 6;
+  const opts = { threshold: 20, enterFraction: 0.1, leaveFraction: 0.05, enterSeconds: 0.5, leaveSeconds: 1, learnSeconds: 0.5 };
+  const room = () => new Uint8Array(W * H).fill(40);
+  const visitor = () => {
+    const f = room();
+    for (let y = 1; y < 5; y++) for (let x = 3; x < 5; x++) f[y * W + x] = 200;
+    return f;
+  };
+
+  it("learns the room, notices a visitor after a moment, and lets them go", () => {
+    const m = new PresenceModel(W, H, opts);
+    m.update(room(), 0.25);
+    for (let k = 0; k < 3; k++) m.update(room(), 0.25);
+    expect(m.state).toBe("absent");
+    m.update(visitor(), 0.25);
+    expect(m.state).toBe("absent"); // a glimpse is not a visit
+    m.update(visitor(), 0.3);
+    expect(m.state).toBe("present");
+    for (let k = 0; k < 3; k++) m.update(room(), 0.25);
+    expect(m.state).toBe("present"); // the silhouette holds a moment
+    m.update(room(), 0.3);
+    expect(m.state).toBe("absent");
+  });
+
+  it("turns the mask into a mirrored silhouette of exactly count points", () => {
+    const m = new PresenceModel(W, H, opts);
+    m.update(room(), 0.5);
+    m.update(room(), 0.5);
+    m.update(visitor(), 0.1);
+    const src = silhouetteSource(m.mask, W, H, 500, () => 0.5)!;
+    expect(src.count).toBe(500);
+    expect(silhouetteSource(new Uint8Array(W * H), W, H, 10, Math.random)).toBeNull();
   });
 });
 

@@ -71,6 +71,10 @@ export interface PanelCallbacks {
   onEvolveToggle(): void;
   onSoundSourceChange(): void;
   onSoundscapeToggle(): void;
+  /** PRESENCE: the camera switch (the app owns the camera). */
+  onPresenceToggle(): void;
+  /** EXHIBITION: the authored programme, inside the screensaver. */
+  onExhibition(): void;
 }
 
 export interface PanelApi {
@@ -196,10 +200,12 @@ export function createPanel(opts: {
     audioReactive: boolean;
   };
   ecologyEvents: { births: number; deaths: number };
+  /** The visitor's camera switch (PRESENCE); the app turns it on and off. */
+  presence: { enabled: boolean };
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros, presence } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -711,6 +717,7 @@ export function createPanel(opts: {
   room.className = "actions room";
   topbar.appendChild(room);
   iconBtn(room, "screensaver", "screensaver", "SCREENSAVER", () => callbacks.onScreensaver(), "Hands off; any input returns (S)");
+  iconBtn(room, "exhibit", "exhibit", "EXHIBIT", () => callbacks.onExhibition(), "The piece plays itself for a room: every look, with its statement (X)");
   iconBtn(room, "fullscreen", "fullscreen", "FULLSCREEN", () => callbacks.onFullscreen(), "Fill the screen (F)");
 
   const windows = document.createElement("div");
@@ -780,6 +787,25 @@ export function createPanel(opts: {
       },
     },
     { id: "sound", icon: "sound", label: "SOUND", tip: "Listen, and let the swarm sing", build: soundControls, active: () => sound.enabled || soundscape.enabled },
+    {
+      id: "presence",
+      icon: "presence",
+      label: "YOU",
+      tip: "Stand in front of the camera and the swarm remembers you",
+      build: (b) => {
+        addToggle(
+          b,
+          "Presence",
+          () => presence.enabled,
+          () => callbacks.onPresenceToggle(),
+          "ON",
+          "OFF",
+          "The camera sees who stands here, and the swarm takes their shape. Walk away and it lets you go."
+        );
+        addNote(b, "STAND STILL FOR A MOMENT WHEN IT STARTS - IT LEARNS THE EMPTY ROOM FIRST.\nTHE CAMERA IS READ AT 96 X 72, IN GREY, AND NOTHING IS KEPT OR SENT.");
+      },
+      active: () => presence.enabled,
+    },
   ];
 
   const toolButtons = new Map<string, HTMLButtonElement>();

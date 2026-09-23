@@ -103,6 +103,11 @@ import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcu
 import { Witness } from "@/app/witness";
 import { Genesis } from "@/app/genesis";
 import { createWitnessOverlay } from "@/ui/witnessOverlay";
+import { makeCrowdSource } from "@/sources/crowd";
+import { createPresenceCamera, PresenceModel, silhouetteSource, type PresenceCamera } from "@/input/presence";
+import { Exhibition } from "@/app/exhibition";
+import { statementFor } from "@/presets/statements";
+import { createCaption } from "@/ui/caption";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -129,6 +134,8 @@ interface SimEngine {
   meanTargetDistance(): number;
   /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
   spawnRipple(x: number, y: number, z: number): void;
+  /** GPU only: push `targets` to the target texture after a live retarget. */
+  uploadTargets?(): void;
 }
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
@@ -242,6 +249,10 @@ let witnessLastNow = performance.now();
 // Genesis borrows the look for its fire and gives it back when it settles.
 const genesis = new Genesis();
 let genesisSaved: { visual: VisualSettings; ripple: number } | null = null;
+// A look's statement, shown quietly when it is chosen.
+const caption = createCaption();
+// The visitor's camera switch (PRESENCE, below).
+const presence = { enabled: false };
 
 // --- Ecology state ---------------------------------------------------------
 // Predation, population and mortality. CPU backend only, on purpose: death and
@@ -438,6 +449,24 @@ function makeTorusSource(count: number): FlatSource {
   return { count, positions, colors, normals: new Float32Array(count * 3), weights: new Float32Array(count) };
 }
 
+/**
+ * Which synthetic memory plays when no source is loaded: the torus, or the
+ * Witness crowd (chosen by the Witness look so a first visit shows people).
+ */
+let syntheticKind: "torus" | "crowd" = "torus";
+
+function makeSyntheticSource(count: number): FlatSource {
+  return syntheticKind === "crowd" ? makeCrowdSource(count) : makeTorusSource(count);
+}
+
+/** Swap the synthetic memory (only while no source of the visitor's own plays). */
+function setSyntheticKind(kind: "torus" | "crowd"): void {
+  if (pendingHandle || syntheticKind === kind) return;
+  syntheticKind = kind;
+  currentSourceName = kind === "crowd" ? "synthetic crowd" : "synthetic torus";
+  buildFromSource(makeSyntheticSource(currentCount));
+}
+
 // --- Engine construction ---------------------------------------------------
 function createCpuEngine(sample: FlatSource, count: number, seed: number, rng: () => number): ParticleEngine {
   const next = new ParticleEngine(count, speciesCount, seed);
@@ -552,7 +581,7 @@ function buildFromSource(sample: FlatSource): void {
 }
 
 function sourceKindLabel(): string {
-  return currentSourceName === "synthetic torus" ? "synthetic" : guessKindLabel();
+  return currentSourceName.startsWith("synthetic") ? "synthetic" : guessKindLabel();
 }
 
 function guessKindLabel(): string {
@@ -840,7 +869,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     );
   }
 }
-buildFromSource(makeTorusSource(currentCount));
+buildFromSource(makeSyntheticSource(currentCount));
 
 // --- HUD / UI elements ------------------------------------------------------
 // Overlay elements were folded into the panel (Phase 5.5).
@@ -1081,7 +1110,7 @@ function setDensity(index: number): void {
   if (pendingHandle) {
     void adoptHandle(pendingHandle);
   } else {
-    buildFromSource(makeTorusSource(currentCount));
+    buildFromSource(makeSyntheticSource(currentCount));
   }
   flashHint(
     currentCount < requested
@@ -1426,6 +1455,8 @@ const shortcutCtx: ShortcutContext = {
   },
   isGuideOpen: () => guide.isOpen(),
   genesis: () => startGenesis(),
+  togglePresence: () => void togglePresence(),
+  startExhibition: () => startExhibition(),
 };
 
 window.addEventListener("keydown", (e) => {
@@ -1506,6 +1537,7 @@ if (!demoMode) {
     evolve,
     pointer,
     backend: () => activeBackend,
+    presence,
     callbacks: {
       onTogglePause() {
         togglePause();
@@ -1533,7 +1565,7 @@ if (!demoMode) {
         const capped = effectiveDensity(count, backendForCount(count));
         currentCount = capped;
         if (pendingHandle) void adoptHandle(pendingHandle);
-        else buildFromSource(makeTorusSource(currentCount));
+        else buildFromSource(makeSyntheticSource(currentCount));
         panelApi?.setCount(currentCount);
         flashHint(
           capped < count
@@ -1546,37 +1578,7 @@ if (!demoMode) {
         fileInput.click();
       },
       onPreset(name) {
-        const def = PRESET_DEFINITIONS.find((d) => d.name === name);
-        if (!def) return;
-        pushHistory();
-        abandonEvolution();
-        cancelGenesis();
-        activePreset = name;
-        // Presets own the parameters directly — the authored cycle yields.
-        memory.active = memory.auto = false;
-        panelApi?.setState("MANUAL");
-        if (applyPreset(def, params, visual, matrix, ecologyParams, activeCamera)) {
-          matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
-        }
-        // A preset that resizes the matrix owns the species count; without
-        // this sync, species past the matrix read out of range and the NaN
-        // spreads through the neighbour pass until the whole swarm dies.
-        const n = presetSpeciesCount(def);
-        if (n !== speciesCount) applySpeciesCount(n);
-        // A preset owns the matrix: an alternate (H) yields.
-        activeMatrix = matrix;
-        engine.configureGrid(params);
-        if (def.witness) beginWitness(def.statement ?? def.description);
-        else endWitness();
-        applyLook();
-        if (ecologyParams.enabled) {
-          installEcology();
-          if (activeBackend !== "cpu") flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
-        }
-        panelApi?.refresh();
-        panelApi?.setActivePreset(name);
-        panelApi?.setCount(currentCount);
-        flashHint(`PRESET: ${def.label.toUpperCase()}`, 3);
+        applyLookByName(name);
       },
       onRandomize() {
         pushHistory();
@@ -1650,7 +1652,7 @@ if (!demoMode) {
         currentCount = DENSITY_LEVELS[densityIndex];
         engine.configureGrid(params);
         if (pendingHandle) void adoptHandle(pendingHandle);
-        else buildFromSource(makeTorusSource(currentCount));
+        else buildFromSource(makeSyntheticSource(currentCount));
         panelApi?.refresh();
         panelApi?.setActivePreset(null);
         flashHint("RESET TO DEFAULTS", 3);
@@ -1663,6 +1665,12 @@ if (!demoMode) {
       },
       onGenesis() {
         startGenesis();
+      },
+      onPresenceToggle() {
+        void togglePresence();
+      },
+      onExhibition() {
+        startExhibition();
       },
       onRelease() {
         memory.setState("VOID");
@@ -1716,10 +1724,12 @@ if (!demoMode) {
 }
 if (!demoMode) {
   document.body.appendChild(witnessOverlay.element);
+  document.body.appendChild(caption.element);
   // Witness survives a reload: its count starts again, because the watching does.
   const witnessDef = PRESET_DEFINITIONS.find((d) => d.name === activePreset && d.witness);
   if (witnessDef) {
-    beginWitness(witnessDef.statement ?? witnessDef.description);
+    setSyntheticKind("crowd");
+    beginWitness(statementFor("witness") ?? witnessDef.description);
     applyLook();
   }
 }
@@ -1771,7 +1781,9 @@ saver.onEnter = () => {
   pendingPan.x = 0;
   pendingPan.y = 0;
   guide.close();
-  memory.active = memory.auto = true;
+  // The programme owns the looks during an exhibition; otherwise the
+  // screensaver is the authored cycle.
+  if (!exhibition.running) memory.active = memory.auto = true;
   persistNow();
 };
 saver.onExit = () => {
@@ -1889,6 +1901,176 @@ function stepGenesis(dt: number): void {
   }
 }
 
+// --- Looks by name: the panel, the exhibition and the boot all come here ----------
+
+function applyLookByName(name: string, captionSeconds = 9): void {
+  const def = PRESET_DEFINITIONS.find((d) => d.name === name);
+  if (!def) return;
+  pushHistory();
+  abandonEvolution();
+  cancelGenesis();
+  // Witness brings its crowd when the visitor has no memory of their own;
+  // any other look gives the torus back.
+  setSyntheticKind(def.witness ? "crowd" : "torus");
+  activePreset = name;
+  // Presets own the parameters directly - the authored cycle yields.
+  memory.active = memory.auto = false;
+  panelApi?.setState("MANUAL");
+  if (applyPreset(def, params, visual, matrix, ecologyParams, activeCamera)) {
+    matrix.randomize(mulberry32((Math.random() * 1e9) | 0));
+  }
+  // A preset that resizes the matrix owns the species count; without
+  // this sync, species past the matrix read out of range and the NaN
+  // spreads through the neighbour pass until the whole swarm dies.
+  const n = presetSpeciesCount(def);
+  if (n !== speciesCount) applySpeciesCount(n);
+  // A preset owns the matrix: an alternate (H) yields.
+  activeMatrix = matrix;
+  engine.configureGrid(params);
+  if (def.witness) beginWitness(statementFor("witness") ?? def.description);
+  else endWitness();
+  applyLook();
+  if (ecologyParams.enabled) {
+    installEcology();
+    if (activeBackend !== "cpu") flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
+  }
+  panelApi?.refresh();
+  panelApi?.setActivePreset(name);
+  panelApi?.setCount(currentCount);
+  flashHint(`LOOK: ${def.label.toUpperCase()}`, 3);
+  // Witness speaks through its own counter; every other look says its line.
+  const line = statementFor(name);
+  if (line && !def.witness) caption.show(line, captionSeconds);
+  else caption.hide();
+}
+
+// --- Presence: the swarm remembers whoever stands in front of it ---------------
+const presenceModel = new PresenceModel();
+let presenceCam: PresenceCamera | null = null;
+/** The memory's own targets, kept while a visitor borrows the swarm. */
+let presenceHome: Float32Array | null = null;
+let presenceWas = presenceModel.state;
+let presenceFrameClock = 0;
+let presenceShapeClock = 0;
+const PRESENCE_FRAME_SECONDS = 1 / 12;
+const PRESENCE_SHAPE_SECONDS = 0.4;
+
+async function togglePresence(): Promise<void> {
+  if (presence.enabled) {
+    stopPresence();
+    flashHint("PRESENCE: OFF - THE CAMERA IS CLOSED", 3);
+    return;
+  }
+  presence.enabled = true;
+  panelApi?.refresh();
+  try {
+    presenceCam = await createPresenceCamera();
+    presenceModel.reset();
+    presenceWas = presenceModel.state;
+    flashHint("PRESENCE: LEARNING THE EMPTY ROOM - STEP ASIDE FOR A MOMENT", 5);
+  } catch (err) {
+    presence.enabled = false;
+    presenceCam = null;
+    panelApi?.refresh();
+    const denied = (err as Error)?.name === "NotAllowedError";
+    flashHint(denied ? "PRESENCE NEEDS THE CAMERA - PERMISSION WAS NOT GIVEN" : "NO CAMERA AVAILABLE FOR PRESENCE", 6);
+  }
+}
+
+function stopPresence(): void {
+  presenceCam?.stop();
+  presenceCam = null;
+  presence.enabled = false;
+  releaseVisitor();
+  panelApi?.refresh();
+}
+
+/** Give the swarm back its own memory. */
+function releaseVisitor(): void {
+  if (!presenceHome) return;
+  engine.targets.set(presenceHome.subarray(0, engine.count * 3));
+  engine.uploadTargets?.();
+  presenceHome = null;
+}
+
+/** The engine the kept home belongs to: a rebuild makes the old home stale. */
+let presenceEngine: SimEngine | null = null;
+
+function stepPresence(dt: number): void {
+  if (!presenceCam) return;
+  if (presenceEngine !== engine) {
+    presenceHome = null;
+    presenceEngine = engine;
+  }
+  presenceFrameClock += dt;
+  if (presenceFrameClock < PRESENCE_FRAME_SECONDS) return;
+  const frameDt = presenceFrameClock;
+  presenceFrameClock = 0;
+  const grey = presenceCam.grab();
+  if (!grey) return;
+  const state = presenceModel.update(grey, frameDt);
+  if (state === "present") {
+    if (presenceWas !== "present") {
+      // Someone arrived: the swarm turns toward them at once.
+      presenceShapeClock = PRESENCE_SHAPE_SECONDS;
+      memory.setState("RECONSTRUCT");
+      panelApi?.setState(memory.state);
+      const line = statementFor("presence");
+      if (line) caption.show(line, 8);
+    }
+    presenceShapeClock += frameDt;
+    if (presenceShapeClock >= PRESENCE_SHAPE_SECONDS) {
+      presenceShapeClock = 0;
+      // A fixed seed keeps each particle's place in the silhouette steady
+      // from one frame to the next, so the visitor breathes, not flickers.
+      const shape = silhouetteSource(presenceModel.mask, presenceModel.w, presenceModel.h, engine.count, mulberry32(77));
+      if (shape) {
+        if (!presenceHome) presenceHome = engine.targets.slice(0, engine.count * 3);
+        engine.targets.set(shape.positions);
+        engine.uploadTargets?.();
+      }
+    }
+  } else if (presenceWas === "present") {
+    // They walked away: the swarm lets them go and finds its own memory.
+    releaseVisitor();
+    memory.setState("REMEMBER");
+    panelApi?.setState(memory.state);
+  }
+  presenceWas = state;
+}
+
+// --- Exhibition: the piece plays itself for a room ------------------------------
+const exhibition = new Exhibition();
+let exhibitionLastNow = 0;
+
+function startExhibition(): void {
+  if (exhibition.running) return;
+  // Not awaited: the screensaver is active at once, and fullscreen may
+  // take its time (or never answer, inside an embed).
+  if (!saver.active) void toggleScreensaver();
+  exhibitionLastNow = performance.now();
+  playExhibitionCue(exhibition.start());
+}
+
+function playExhibitionCue(cue: { look: string; seconds: number; genesis?: boolean }): void {
+  applyLookByName(cue.look, Math.max(6, cue.seconds - 3));
+  if (cue.genesis) startGenesis();
+}
+
+function stepExhibition(now: number): void {
+  if (!exhibition.running) return;
+  if (!saver.active) {
+    // Any input ended the screensaver, and with it the programme.
+    exhibition.stop();
+    caption.hide();
+    return;
+  }
+  const dt = (now - exhibitionLastNow) / 1000;
+  exhibitionLastNow = now;
+  const cue = exhibition.tick(dt);
+  if (cue) playExhibitionCue(cue);
+}
+
 // --- Witness -------------------------------------------------------------------
 function beginWitness(statement: string): void {
   witness.enabled = true;
@@ -2002,6 +2184,8 @@ function frameInner(now: number): void {
   if (!simPaused) evolver.tick(dt);
   if (!simPaused) stepGenesis(dt);
   stepWitness(now);
+  stepPresence(dt);
+  stepExhibition(now);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
     : demoMode
@@ -2139,6 +2323,10 @@ requestAnimationFrame(frame);
   const saverParam = new URLSearchParams(location.search).get("saver");
   if (saverParam === "1" || saverParam === "true") {
     void toggleScreensaver();
+  }
+  // ?exhibit=1 opens straight into the programme (for installations).
+  if (new URLSearchParams(location.search).get("exhibit") === "1" && !demoMode) {
+    startExhibition();
   }
 }
 
