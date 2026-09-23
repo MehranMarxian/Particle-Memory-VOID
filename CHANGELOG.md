@@ -2,6 +2,22 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [Unreleased]
+
+### Changed
+- `main.ts` split, with no change in behaviour (2,339 → 1,843 lines). The
+  running piece is exposed to its parts through a narrow `AppHost`
+  (`src/app/host.ts`): live getters, so a rebuilt engine or a late panel is
+  seen everywhere. New modules:
+  - `app/moments.ts`: the Genesis, Witness, Presence and Exhibition
+    directors.
+  - `app/lookBaker.ts`: colour and shape baking, and the source's pristine
+    colours.
+  - `app/ecologyHost.ts`: predation, birth and death, hosted on the CPU
+    engine.
+  - `app/stage.ts`: the orbit rig and the hand (gestures, pointer force,
+    ripples, the screensaver's ghost).
+
 ## [0.11.1] - 2026-09-24
 
 The piece in a room.

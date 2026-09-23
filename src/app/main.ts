@@ -17,24 +17,15 @@ import {
   type ParticleShape,
   type VisualSettings,
 } from "@/rendering/VisualSettings";
-import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
-import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { nextColorMode } from "@/rendering/palette";
+import { fieldTintRefreshFrames } from "@/rendering/fieldTint";
 import {
   DEFAULT_CAMERA_CHOREOGRAPHY,
-  breatheOffset,
-  cameraPose,
   clampCameraChoreography,
   type CameraChoreography,
 } from "@/rendering/cameraChoreography";
-import { nextShape, writeSpeciesShapes, writeUniformShape } from "@/rendering/shapes";
-import { clampPhenotype, type Phenotype } from "@/presets/phenotype";
-import {
-  EcologySystem,
-  defaultEcologyParams,
-  type EcologyParams,
-  type EcologyView,
-} from "@/ecology/ecologySystem";
-import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
+import { nextShape } from "@/rendering/shapes";
+import { clampPhenotype } from "@/presets/phenotype";
 import { applyEcologyGenes } from "@/presets/ecologyGenes";
 import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
@@ -70,8 +61,6 @@ import {
 import { randomizeParams } from "@/presets/randomize";
 import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
 import { Evolver } from "@/presets/evolver";
-import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
-import { GestureTracker } from "@/input/touchGestures";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
@@ -100,43 +89,14 @@ import {
   type AudioSource,
 } from "@/audio/audioReactive";
 import { handleKey, isTextEntryTarget, type ShortcutContext } from "@/ui/shortcuts";
-import { Witness } from "@/app/witness";
-import { Genesis } from "@/app/genesis";
-import { createWitnessOverlay } from "@/ui/witnessOverlay";
 import { makeCrowdSource } from "@/sources/crowd";
-import { createPresenceCamera, PresenceModel, silhouetteSource, type PresenceCamera } from "@/input/presence";
-import { Exhibition } from "@/app/exhibition";
 import { statementFor } from "@/presets/statements";
 import { createCaption } from "@/ui/caption";
-
-/** The subset of engine behavior the app layer needs (CPU or GPU backend). */
-interface SimEngine {
-  /** The two stigmergic fields, which the field ramp axis samples on the CPU. */
-  readonly scent: { sample(x: number, y: number, z: number): number; peak(): number };
-  readonly heat: { sample(x: number, y: number, z: number): number; peak(): number };
-  count: number;
-  positions: Float32Array;
-  velocities: Float32Array;
-  colors: Float32Array;
-  targets: Float32Array;
-  species: Uint8Array;
-  memoryPerParticle: Float32Array;
-  renderState: Float32Array;
-  lastStepTime: number;
-  simTime: number;
-  /** Sync GPU readbacks the last step performed (the budget tripwire). */
-  readonly lastReadbacks: { count: number; bytes: number };
-  configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
-  step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
-  regainMemory(dt: number, rate: number): void;
-  restoreMemory(): void;
-  setSpeciesCount(matrix: InteractionMatrix, n: number): void;
-  meanTargetDistance(): number;
-  /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
-  spawnRipple(x: number, y: number, z: number): void;
-  /** GPU only: push `targets` to the target texture after a live retarget. */
-  uploadTargets?(): void;
-}
+import type { AppHost, SimEngine } from "@/app/host";
+import { ExhibitionDirector, GenesisDirector, PresenceDirector, WitnessDirector } from "@/app/moments";
+import { EcologyHost } from "@/app/ecologyHost";
+import { LookBaker } from "@/app/lookBaker";
+import { Hand, OrbitRig } from "@/app/stage";
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
 const coarsePointer =
@@ -227,199 +187,105 @@ params.turbulence = 0.02;
 const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 815 });
 
 // --- Look state ------------------------------------------------------------
-// The source's own baked colours are kept aside so switching back from
-// SPECIES/RANDOM to MONOCHROME/SOURCE restores them exactly.
-let sourceColors: Float32Array | null = null;
-let lookSeed = 1;
-let lastLookMode = "";
 /** The source's own radius, measured once per source (RADIAL ramp only). */
 let subjectRadius = 1;
 /** Frames since a field ramp was last re-baked (see the tick in the render). */
 let fieldTintTick = 0;
-/** Appearance genes of the current champion, once the search has found one. */
-let phenotypeLook: Phenotype | null = null;
 
-// --- Witness and Genesis (v0.11.0) -------------------------------------------
-// Witness keeps a real count (see app/witness.ts); its seed is fixed so the
-// same particles are the same people across a density change.
-const WITNESS_SEED = 0x5eed;
-const witness = new Witness();
-const witnessOverlay = createWitnessOverlay();
-let witnessLastNow = performance.now();
-// Genesis borrows the look for its fire and gives it back when it settles.
-const genesis = new Genesis();
-let genesisSaved: { visual: VisualSettings; ripple: number } | null = null;
+// --- The host and the moments (v0.11) ------------------------------------------
 // A look's statement, shown quietly when it is chosen.
 const caption = createCaption();
-// The visitor's camera switch (PRESENCE, below).
-const presence = { enabled: false };
+// The running piece as its parts see it: live getters over this file's
+// state (see app/host.ts), so a rebuilt engine or a late panel is seen by all.
+const host: AppHost = {
+  get engine() {
+    return engine;
+  },
+  get panel() {
+    return panelApi;
+  },
+  get params() {
+    return params;
+  },
+  get visual() {
+    return visual;
+  },
+  get memory() {
+    return memory;
+  },
+  caption,
+  flashHint: (text, seconds, sticky) => flashHint(text, seconds, sticky),
+  applyLook: () => applyLook(),
+  applyLookColors: () => applyLookColors(),
+};
+const genesisD = new GenesisDirector(host);
+const witnessD = new WitnessDirector(host);
+const presenceD = new PresenceDirector(host);
+const exhibitionD = new ExhibitionDirector(host, {
+  saverActive: () => saver.active,
+  enterSaver: () => void toggleScreensaver(),
+  applyLookByName: (name, seconds) => applyLookByName(name, seconds),
+  startGenesis: () => genesisD.start(),
+});
 
-// --- Ecology state ---------------------------------------------------------
-// Predation, population and mortality. CPU backend only, on purpose: death and
-// birth need allocation and scatter, which is the kind of bookkeeping the CPU
-// already owns for the grid. The GPU path keeps its behaviour and says so.
-const ecologyParams: EcologyParams = defaultEcologyParams();
-let ecologyDrive = { aggression: 1, satiationBias: 0, panic: 0 };
-let ecologyOnset = initialOnset();
-let ecologySystem: EcologySystem | null = null;
-let ecologyView: EcologyView | null = null;
-const ecologyEvents = { births: 0, deaths: 0 };
+// --- Ecology and the look (hosted in their own modules) -------------------------
+const ecology = new EcologyHost({
+  get engine() {
+    return engine;
+  },
+  get renderer() {
+    return particleRenderer;
+  },
+  get params() {
+    return params;
+  },
+  get speciesCount() {
+    return speciesCount;
+  },
+  get matrix() {
+    return activeMatrix;
+  },
+  get backend() {
+    return activeBackend;
+  },
+  applyLook: () => applyLook(),
+});
+const ecologyParams = ecology.params;
 
-/** Swap `stride` elements of two slots in a flat per-particle array. */
-function swapSlots(array: Float32Array, a: number, b: number, stride: number): void {
-  for (let k = 0; k < stride; k++) {
-    const ia = a * stride + k;
-    const ib = b * stride + k;
-    const tmp = array[ia];
-    array[ia] = array[ib];
-    array[ib] = tmp;
-  }
-}
-
-/** Point the ecology at the current engine's buffers. Called on every build. */
-function installEcology(): void {
-  // The union type does not promise mass or a grid query: those belong to the
-  // CPU engine, which is the only backend the ecology runs on.
-  const cpu = engine as ParticleEngine;
-  ecologySystem = new EcologySystem(cpu.capacity);
-  ecologySystem.reset(cpu.count);
-  ecologyView = {
-    count: cpu.count,
-    capacity: cpu.capacity,
-    speciesCount,
-    species: cpu.species,
-    positions: cpu.positions,
-    velocities: cpu.velocities,
-    mass: cpu.mass,
-  };
-  ecologyEvents.births = 0;
-  ecologyEvents.deaths = 0;
-}
-
-/** One ecology step. Does nothing unless it is switched on. */
-function stepEcology(dt: number): void {
-  if (!ecologyParams.enabled || !ecologySystem || !ecologyView) return;
-  if (activeBackend !== "cpu") return;
-  const view = ecologyView;
-  view.count = engine.count;
-  view.speciesCount = speciesCount;
-  ecologySystem.step({
-    dt,
-    matrix: activeMatrix,
-    params: ecologyParams,
-    view,
-    hooks: {
-      swap(a, b) {
-        // The system swaps species/position/velocity/mass itself. This covers
-        // the per-particle state that lives outside the engine.
-        swapSlots(engine.renderState, a, b, 4);
-        swapSlots(engine.memoryPerParticle, a, b, 1);
-        swapSlots(engine.targets, a, b, 3);
-        if (particleRenderer) {
-          swapSlots(particleRenderer.lifeBuffer, a, b, 1);
-          swapSlots(particleRenderer.shapeBuffer, a, b, 1);
-        }
-      },
-      onBirth() {
-        ecologyEvents.births++;
-      },
-      onDeath() {
-        ecologyEvents.deaths++;
-      },
-    },
-    neighbors: (i, radius, visit) => (engine as ParticleEngine).forEachNeighbor(i, radius, visit),
-    // Age as the life cycle defines it: 0 at birth, 1 spent. This used to
-    // read the renderer's life buffer, which tied an ecology concept to a
-    // rendering buffer: all 1s whenever the life cycle is off (so nothing
-    // ever died of age) and above 1 for newborns (so ageOf went negative).
-    ageOf: (i) =>
-      params.lifecycle.enabled
-        ? Math.min(
-            1,
-            sampleLife(i, engine.simTime, params.lifecycle, FIXED_DT).age /
-              Math.max(1, params.lifecycle.lifespan)
-          )
-        : 0,
-    rng: Math.random,
-    drive: ecologyDrive,
-  });
-  engine.count = view.count;
-  particleRenderer?.setCount(view.count);
-  particleRenderer?.markLifeDirty();
-  applyLook();
-}
+const looks = new LookBaker({
+  get engine() {
+    return engine;
+  },
+  get renderer() {
+    return particleRenderer;
+  },
+  get visual() {
+    return visual;
+  },
+  get speciesCount() {
+    return speciesCount;
+  },
+  // Witness: the people already lost stay lost through every re-bake.
+  decorateColors: (colors, count) => witnessD.applyTo(colors, count),
+});
 
 /** One code path for changing the species count: engine, look, phenotype. */
 function applySpeciesCount(n: number): void {
   abandonEvolution();
   speciesCount = n;
   engine.setSpeciesCount(matrix, n);
-  phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
+  looks.clampPhenotype(n);
   applyLook();
 }
 
-/**
- * Bake the per-particle colours for the current look settings.
- *
- * Split from the shape bake so the field-tint refresh (a low-rate tick) can
- * re-bake colours alone: the shapes did not change since the last look
- * change, and a full-buffer rewrite per tick is ms the weak machines do not
- * have.
- */
-function applyLookColors(): void {
-  if (!particleRenderer) return;
-  const mode = visual.colorMode;
-  if (mode === "species") {
-    writeSpeciesColors(engine.colors, engine.count, speciesCount, undefined, phenotypeLook?.hue);
-  } else if (mode === "random") {
-    if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
-    writeRandomColors(engine.colors, engine.count, lookSeed);
-  } else if (mode === "gradient" && isFieldAxis(visual.gradientAxis)) {
-    // Field tints are baked from the CPU-side fields, so both backends look the
-    // same and no new texture has to reach the shader.
-    const field = visual.gradientAxis === "heat" ? engine.heat : engine.scent;
-    writeFieldTintColors(
-      engine.colors,
-      engine.positions,
-      engine.count,
-      field,
-      paletteStops(visual.gradientPalette),
-      fieldTintScale(field.peak())
-    );
-  } else if (sourceColors) {
-    // Count-scoped, deliberately: the GPU engine's colour buffer is
-    // texture-padded (texW*texH >= count) while the CPU engine's is exactly
-    // count, so a full-buffer set threw RangeError on the first look bake
-    // after every backend switch - and left the new renderer's points out
-    // of the scene, a black canvas.
-    engine.colors.set(sourceColors.subarray(0, Math.min(sourceColors.length, engine.count * 3)));
-  }
-  lastLookMode = mode;
-  // Witness: the people already lost stay lost through every re-bake.
-  witness.applyTo(engine.colors, engine.count);
-  particleRenderer.markColorsDirty();
-}
-
-/** Bake the per-particle sprite shapes (uniform, or one per species). */
-function applyLookShapes(): void {
-  if (!particleRenderer) return;
-  if (visual.shapeBySpecies) {
-    writeSpeciesShapes(particleRenderer.shapeBuffer, engine.count, speciesCount, undefined, phenotypeLook?.shape);
-  }
-  else writeUniformShape(particleRenderer.shapeBuffer, engine.count, visual.shape);
-  particleRenderer.markShapesDirty();
-}
-
-/**
- * Re-bake per-particle colour and shape for the current look settings.
- *
- * Called when the engine is rebuilt and whenever the look changes — not per
- * frame: colours and shapes are baked values, exactly like the source's own
- * colours, so nothing here costs anything at render time.
- */
+/** Re-bake per-particle colour and shape for the current look (see app/lookBaker). */
 function applyLook(): void {
-  applyLookColors();
-  applyLookShapes();
+  looks.apply();
+}
+
+/** Re-bake colour alone: the field-tint tick and Witness use this. */
+function applyLookColors(): void {
+  looks.applyColors();
 }
 
 // --- Default source: tilted torus (the synthetic "memory") ---------------
@@ -571,9 +437,9 @@ function buildFromSource(sample: FlatSource): void {
   // Count-scoped like every consumer: a backend switch builds the new engine
   // at the live count with a different capacity, and the pristine copy must
   // follow the count, not the buffer it was captured from.
-  sourceColors = engine.colors.slice(0, engine.count * 3);
-  witness.resize(engine.count, WITNESS_SEED);
-  installEcology();
+  looks.sourceColors = engine.colors.slice(0, engine.count * 3);
+  witnessD.resize(engine.count);
+  ecology.install();
   applyLook();
   scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
@@ -598,7 +464,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   // from the source's own colours: engine.colors holds the last *baked*
   // look, so sampling from it would turn COLOR SOURCE into whatever mode
   // was active. sourceColors is the pristine copy buildFromSource kept.
-  const pristine = sourceColors ?? engine.colors;
+  const pristine = looks.sourceColors ?? engine.colors;
   const sample: FlatSource = {
     count: engine.count,
     positions: engine.targets.slice(),
@@ -653,7 +519,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   // sourceColors stays untouched: it still describes this source, and
   // re-deriving it from engine.colors would capture whatever look
   // applyLook baked last.
-  installEcology();
+  ecology.install();
   applyLook();
   scene.add(particleRenderer.points);
   // The backend toggle is an explicit override, so the count is kept rather
@@ -732,42 +598,21 @@ function trailSize(): { w: number; h: number } {
 
 const trailPass = new TrailPass(renderer3d, trailSize().w, trailSize().h);
 
-let azimuth = 0;
-let elevation = 0.5;
-let radius = 17;
 // The screensaver camera, as data: the active preset's choreography merged
 // over today's default motion (see cameraChoreography). The editor keeps
 // its own slow orbit and the user's radius.
 const activeCamera: CameraChoreography = { ...DEFAULT_CAMERA_CHOREOGRAPHY };
-// Where the ghost hand is while the screensaver plays, for the recorded path.
-let ghostNdc: { x: number; y: number } | null = null;
-// The camera orbits a target; two-finger pan moves the target in the
-// camera's own plane. The screensaver resets it to the subject.
-const cameraTarget = new THREE.Vector3();
-const pendingPan = { x: 0, y: 0 };
-// The gesture layer: one finger orbits, two pinch and pan, a touch-and-hold
-// becomes the pointer force, and the mouse keeps every behaviour it had.
-const gestures = new GestureTracker();
-
-renderer3d.domElement.addEventListener("pointerdown", (e) => {
-  gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.pointerType, performance.now());
-});
-window.addEventListener("pointermove", (e) => {
-  gestures.pointerMove(e.pointerId, e.clientX, e.clientY, performance.now());
-  if (e.pointerType !== "mouse") return;
-  // The mouse's hover is the touch: recorded for the screensaver's ghost,
-  // and mapped into the scene for the pointer force.
-  const rect = renderer3d.domElement.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
-  pointerNdc = { x, y };
-  pointerInfluence.touch();
-  pointerTrack.record(performance.now() / 1000, x, y);
-});
-window.addEventListener("pointerup", (e) => gestures.pointerUp(e.pointerId));
-window.addEventListener("pointercancel", (e) => gestures.pointerUp(e.pointerId));
-renderer3d.domElement.addEventListener("wheel", (e) => {
-  radius = Math.max(3, Math.min(40, radius * (1 + Math.sign(e.deltaY) * 0.1)));
+// The orbit rig and the hand (gestures, pointer force, ripples, the ghost):
+// see app/stage.ts.
+const rig = new OrbitRig(camera);
+const hand = new Hand(renderer3d.domElement, camera, rig, {
+  get engine() {
+    return engine;
+  },
+  get params() {
+    return params;
+  },
+  saverActive: () => saver.active,
 });
 
 // Build the initial torus memory.
@@ -849,7 +694,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     memory.active = memory.auto = true;
     // Half the usual camera distance: the cloud is a big subject and the
     // particles must read at card size.
-    radius = 8.5;
+    rig.radius = 8.5;
     document.body.classList.add("demo");
     // Embedded and interactive, the card must not trap the host page's
     // scroll: wheel events over the iframe are relayed to the parent, whose
@@ -1120,110 +965,8 @@ function setDensity(index: number): void {
   );
 }
 
-// --- The touch: pointer force, and the hand VOID remembers ---------------------
-// A screensaver cannot be nudged by a real mouse (any movement exits it), so the
-// pointer path is recorded while you work and replayed as a ghost in the saver.
-const pointer = { strength: 0, mode: 1, ghost: true };
-const pointerTrack = new PointerTrack();
-const pointerInfluence = new PointerInfluence();
-const pointerRay = new THREE.Raycaster();
-const pointerNdcVec = new THREE.Vector2();
-const pointerPlane = new THREE.Plane();
-const pointerHit = new THREE.Vector3();
-const pointerNormal = new THREE.Vector3();
-const pointerOrigin = new THREE.Vector3(0, 0, 0);
-let pointerNdc: { x: number; y: number } | null = null;
-let ghostClock = 0;
+// The life cycle's render buffer was last written with live values.
 let lifeApplied = false;
-pointerTrack.begin(performance.now() / 1000);
-
-renderer3d.domElement.addEventListener("pointermove", (e) => {
-  const rect = renderer3d.domElement.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-  const y = -(((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
-  pointerNdc = { x, y };
-  pointerInfluence.touch();
-  pointerTrack.record(performance.now() / 1000, x, y);
-});
-
-function pointerWorldPosition(ndc: { x: number; y: number }): { x: number; y: number; z: number } {
-  pointerNdcVec.set(ndc.x, ndc.y);
-  pointerRay.setFromCamera(pointerNdcVec, camera);
-  camera.getWorldDirection(pointerNormal);
-  pointerPlane.setFromNormalAndCoplanarPoint(pointerNormal, pointerOrigin);
-  const hit = pointerRay.ray.intersectPlane(pointerPlane, pointerHit);
-  if (!hit) return { x: 0, y: 0, z: 0 };
-  return { x: hit.x, y: hit.y, z: hit.z };
-}
-
-// Where the last ripple was born, in NDC: ripples answer movement, so a
-// wavefront drops whenever the hand has travelled a meaningful distance.
-const lastRippleNdc = { x: 0, y: 0 };
-
-function updateTouch(dt: number): void {
-  // Consume the gesture layer first: orbit, pinch zoom, two-finger pan,
-  // and the touch-hold that becomes the pointer force.
-  const g = gestures.take(performance.now());
-  if (g.orbitDx !== 0 || g.orbitDy !== 0) {
-    azimuth -= g.orbitDx * 0.005;
-    elevation = Math.max(-1.4, Math.min(1.4, elevation + g.orbitDy * 0.005));
-  }
-  if (g.zoom !== 1) {
-    radius = Math.max(3, Math.min(40, radius / g.zoom));
-  }
-  if (g.panDx !== 0 || g.panDy !== 0) {
-    pendingPan.x += g.panDx;
-    pendingPan.y += g.panDy;
-  }
-  pointerInfluence.tick(dt);
-  let ndc = pointerNdc;
-  if (g.hold && !saver.active) {
-    // A finger held still is the touch: the swarm leans toward it, and the
-    // hold joins the recorded hand the screensaver's ghost replays.
-    const rect = renderer3d.domElement.getBoundingClientRect();
-    ndc = {
-      x: ((g.hold.x - rect.left) / Math.max(1, rect.width)) * 2 - 1,
-      y: -(((g.hold.y - rect.top) / Math.max(1, rect.height)) * 2 - 1),
-    };
-    pointerInfluence.touch();
-    pointerTrack.record(performance.now() / 1000, ndc.x, ndc.y);
-  }
-  if (saver.active) {
-    // Real input would end the screensaver, so play back the recorded hand.
-    if (!pointer.ghost) {
-      params.pointer.strength = 0;
-      return;
-    }
-    ghostClock += dt;
-    ndc = pointerTrack.at(ghostClock) ?? ghostLissajous(ghostClock);
-    pointerInfluence.touch();
-    ghostNdc = ndc; // the recorded path leans the camera toward the hand
-  }
-  // The hand rings the swarm even when the attractor rests: a look that
-  // arms ripples gets wavefronts wherever the pointer travels. The field
-  // throttles its own gap.
-  if (params.pointer.ripple > 0 && ndc && pointerInfluence.current > 0.4) {
-    const rdx = ndc.x - lastRippleNdc.x;
-    const rdy = ndc.y - lastRippleNdc.y;
-    if (rdx * rdx + rdy * rdy > 0.0016) {
-      lastRippleNdc.x = ndc.x;
-      lastRippleNdc.y = ndc.y;
-      const rippleWorld = pointerWorldPosition(ndc);
-      engine.spawnRipple(rippleWorld.x, rippleWorld.y, rippleWorld.z);
-    }
-  }
-  const strength = pointer.strength * pointerInfluence.current;
-  if (!ndc || strength <= 0.0001) {
-    params.pointer.strength = 0;
-    return;
-  }
-  const world = pointerWorldPosition(ndc);
-  params.pointer.x = world.x;
-  params.pointer.y = world.y;
-  params.pointer.z = world.z;
-  params.pointer.mode = pointer.mode;
-  params.pointer.strength = strength;
-}
 
 // --- Evolution (VOID searches its own behaviour) -------------------------------
 // A genome is the species interaction matrix itself; fitness rewards both
@@ -1255,7 +998,7 @@ const evolver = new Evolver(
       activeMatrix = matrix;
     },
     applyPhenotype(phenotype) {
-      phenotypeLook = clampPhenotype(phenotype, speciesCount);
+      looks.phenotype = clampPhenotype(phenotype, speciesCount);
       applyLook();
     },
     applyEcology(genes) {
@@ -1454,9 +1197,9 @@ const shortcutCtx: ShortcutContext = {
     applyEvolveToggle();
   },
   isGuideOpen: () => guide.isOpen(),
-  genesis: () => startGenesis(),
-  togglePresence: () => void togglePresence(),
-  startExhibition: () => startExhibition(),
+  genesis: () => genesisD.start(),
+  togglePresence: () => void presenceD.toggle(),
+  startExhibition: () => exhibitionD.start(),
 };
 
 window.addEventListener("keydown", (e) => {
@@ -1527,7 +1270,7 @@ if (!demoMode) {
     onLookChange: applyLook,
     macros,
     ecology: ecologyParams,
-    ecologyEvents,
+    ecologyEvents: ecology.events,
     memory,
     matrix,
     speciesCount,
@@ -1535,9 +1278,9 @@ if (!demoMode) {
     sound,
     soundscape,
     evolve,
-    pointer,
+    pointer: hand.pointer,
     backend: () => activeBackend,
-    presence,
+    presence: presenceD.state,
     callbacks: {
       onTogglePause() {
         togglePause();
@@ -1583,8 +1326,8 @@ if (!demoMode) {
       onRandomize() {
         pushHistory();
         abandonEvolution();
-        cancelGenesis();
-        endWitness();
+        genesisD.cancel();
+        witnessD.end();
         activePreset = null;
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
@@ -1597,8 +1340,8 @@ if (!demoMode) {
       },
       onUndo() {
         abandonEvolution();
-        cancelGenesis();
-        endWitness();
+        genesisD.cancel();
+        witnessD.end();
         const snap = history.pop();
         if (!snap) {
           flashHint("NOTHING TO UNDO", 2);
@@ -1617,8 +1360,8 @@ if (!demoMode) {
       onReset() {
         pushHistory();
         abandonEvolution();
-        cancelGenesis();
-        endWitness();
+        genesisD.cancel();
+        witnessD.end();
         Object.assign(params.memory, {
           strength: 0,
           decay: 0,
@@ -1664,13 +1407,13 @@ if (!demoMode) {
         flashHint("RECONSTRUCT", 2);
       },
       onGenesis() {
-        startGenesis();
+        genesisD.start();
       },
       onPresenceToggle() {
-        void togglePresence();
+        void presenceD.toggle();
       },
       onExhibition() {
-        startExhibition();
+        exhibitionD.start();
       },
       onRelease() {
         memory.setState("VOID");
@@ -1723,13 +1466,13 @@ if (!demoMode) {
   panelApi.setActivePreset(activePreset);
 }
 if (!demoMode) {
-  document.body.appendChild(witnessOverlay.element);
+  document.body.appendChild(witnessD.overlay.element);
   document.body.appendChild(caption.element);
   // Witness survives a reload: its count starts again, because the watching does.
   const witnessDef = PRESET_DEFINITIONS.find((d) => d.name === activePreset && d.witness);
   if (witnessDef) {
     setSyntheticKind("crowd");
-    beginWitness(statementFor("witness") ?? witnessDef.description);
+    witnessD.begin(statementFor("witness") ?? witnessDef.description);
     applyLook();
   }
 }
@@ -1777,13 +1520,11 @@ let splashGone = false;
 const saver = new ScreensaverMode();
 saver.onEnter = () => {
   // The screensaver is always the authored experience.
-  cameraTarget.set(0, 0, 0);
-  pendingPan.x = 0;
-  pendingPan.y = 0;
+  rig.recentre();
   guide.close();
   // The programme owns the looks during an exhibition; otherwise the
   // screensaver is the authored cycle.
-  if (!exhibition.running) memory.active = memory.auto = true;
+  if (!exhibitionD.running) memory.active = memory.auto = true;
   persistNow();
 };
 saver.onExit = () => {
@@ -1853,54 +1594,6 @@ function togglePause(): void {
   flashHint(simPaused ? "PAUSED - THE MOMENT HOLDS" : "RESUMED", 3);
 }
 
-// --- Genesis: the score's cues, performed ------------------------------------
-function startGenesis(): void {
-  if (genesis.active) return;
-  genesis.start();
-  flashHint("GENESIS - THE MEMORY BURNS AND IS REBORN", 5);
-}
-
-/** A look change mid-Genesis wins: the fire is not allowed to restore over it. */
-function cancelGenesis(): void {
-  genesis.active = false;
-  genesisSaved = null;
-}
-
-function stepGenesis(dt: number): void {
-  for (const cue of genesis.tick(dt)) {
-    if (cue === "release") {
-      memory.setState("VOID");
-      panelApi?.setState(memory.state);
-    } else if (cue === "ignite") {
-      genesisSaved = { visual: { ...visual }, ripple: params.pointer.ripple };
-      Object.assign(visual, {
-        colorMode: "gradient",
-        gradientPalette: "EMBER",
-        gradientAxis: "radial",
-        trails: true,
-        trailDecay: Math.max(visual.trailDecay, 0.86),
-        glow: Math.max(visual.glow, 0.8),
-      });
-      params.pointer.ripple = Math.max(params.pointer.ripple, 1.8);
-      applyLook();
-      panelApi?.refresh();
-    } else if (cue === "ring") {
-      // Every wavefront is born at the heart of the subject.
-      engine.spawnRipple(0, 0, 0);
-    } else if (cue === "reconstruct") {
-      memory.setState("RECONSTRUCT");
-      engine.restoreMemory();
-      panelApi?.setState(memory.state);
-    } else if (cue === "settle" && genesisSaved) {
-      Object.assign(visual, genesisSaved.visual);
-      params.pointer.ripple = genesisSaved.ripple;
-      genesisSaved = null;
-      applyLook();
-      panelApi?.refresh();
-    }
-  }
-}
-
 // --- Looks by name: the panel, the exhibition and the boot all come here ----------
 
 function applyLookByName(name: string, captionSeconds = 9): void {
@@ -1908,7 +1601,7 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   if (!def) return;
   pushHistory();
   abandonEvolution();
-  cancelGenesis();
+  genesisD.cancel();
   // Witness brings its crowd when the visitor has no memory of their own;
   // any other look gives the torus back.
   setSyntheticKind(def.witness ? "crowd" : "torus");
@@ -1927,11 +1620,11 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   // A preset owns the matrix: an alternate (H) yields.
   activeMatrix = matrix;
   engine.configureGrid(params);
-  if (def.witness) beginWitness(statementFor("witness") ?? def.description);
-  else endWitness();
+  if (def.witness) witnessD.begin(statementFor("witness") ?? def.description);
+  else witnessD.end();
   applyLook();
   if (ecologyParams.enabled) {
-    installEcology();
+    ecology.install();
     if (activeBackend !== "cpu") flashHint("ECOLOGY RUNS ON THE CPU BACKEND - PRESS G", 5);
   }
   panelApi?.refresh();
@@ -1942,163 +1635,6 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   const line = statementFor(name);
   if (line && !def.witness) caption.show(line, captionSeconds);
   else caption.hide();
-}
-
-// --- Presence: the swarm remembers whoever stands in front of it ---------------
-const presenceModel = new PresenceModel();
-let presenceCam: PresenceCamera | null = null;
-/** The memory's own targets, kept while a visitor borrows the swarm. */
-let presenceHome: Float32Array | null = null;
-let presenceWas = presenceModel.state;
-let presenceFrameClock = 0;
-let presenceShapeClock = 0;
-const PRESENCE_FRAME_SECONDS = 1 / 12;
-const PRESENCE_SHAPE_SECONDS = 0.4;
-
-async function togglePresence(): Promise<void> {
-  if (presence.enabled) {
-    stopPresence();
-    flashHint("PRESENCE: OFF - THE CAMERA IS CLOSED", 3);
-    return;
-  }
-  presence.enabled = true;
-  panelApi?.refresh();
-  try {
-    presenceCam = await createPresenceCamera();
-    presenceModel.reset();
-    presenceWas = presenceModel.state;
-    flashHint("PRESENCE: LEARNING THE EMPTY ROOM - STEP ASIDE FOR A MOMENT", 5);
-  } catch (err) {
-    presence.enabled = false;
-    presenceCam = null;
-    panelApi?.refresh();
-    const denied = (err as Error)?.name === "NotAllowedError";
-    flashHint(denied ? "PRESENCE NEEDS THE CAMERA - PERMISSION WAS NOT GIVEN" : "NO CAMERA AVAILABLE FOR PRESENCE", 6);
-  }
-}
-
-function stopPresence(): void {
-  presenceCam?.stop();
-  presenceCam = null;
-  presence.enabled = false;
-  releaseVisitor();
-  panelApi?.refresh();
-}
-
-/** Give the swarm back its own memory. */
-function releaseVisitor(): void {
-  if (!presenceHome) return;
-  engine.targets.set(presenceHome.subarray(0, engine.count * 3));
-  engine.uploadTargets?.();
-  presenceHome = null;
-}
-
-/** The engine the kept home belongs to: a rebuild makes the old home stale. */
-let presenceEngine: SimEngine | null = null;
-
-function stepPresence(dt: number): void {
-  if (!presenceCam) return;
-  if (presenceEngine !== engine) {
-    presenceHome = null;
-    presenceEngine = engine;
-  }
-  presenceFrameClock += dt;
-  if (presenceFrameClock < PRESENCE_FRAME_SECONDS) return;
-  const frameDt = presenceFrameClock;
-  presenceFrameClock = 0;
-  const grey = presenceCam.grab();
-  if (!grey) return;
-  const state = presenceModel.update(grey, frameDt);
-  if (state === "present") {
-    if (presenceWas !== "present") {
-      // Someone arrived: the swarm turns toward them at once.
-      presenceShapeClock = PRESENCE_SHAPE_SECONDS;
-      memory.setState("RECONSTRUCT");
-      panelApi?.setState(memory.state);
-      const line = statementFor("presence");
-      if (line) caption.show(line, 8);
-    }
-    presenceShapeClock += frameDt;
-    if (presenceShapeClock >= PRESENCE_SHAPE_SECONDS) {
-      presenceShapeClock = 0;
-      // A fixed seed keeps each particle's place in the silhouette steady
-      // from one frame to the next, so the visitor breathes, not flickers.
-      const shape = silhouetteSource(presenceModel.mask, presenceModel.w, presenceModel.h, engine.count, mulberry32(77));
-      if (shape) {
-        if (!presenceHome) presenceHome = engine.targets.slice(0, engine.count * 3);
-        engine.targets.set(shape.positions);
-        engine.uploadTargets?.();
-      }
-    }
-  } else if (presenceWas === "present") {
-    // They walked away: the swarm lets them go and finds its own memory.
-    releaseVisitor();
-    memory.setState("REMEMBER");
-    panelApi?.setState(memory.state);
-  }
-  presenceWas = state;
-}
-
-// --- Exhibition: the piece plays itself for a room ------------------------------
-const exhibition = new Exhibition();
-let exhibitionLastNow = 0;
-
-function startExhibition(): void {
-  if (exhibition.running) return;
-  // Not awaited: the screensaver is active at once, and fullscreen may
-  // take its time (or never answer, inside an embed).
-  if (!saver.active) void toggleScreensaver();
-  exhibitionLastNow = performance.now();
-  playExhibitionCue(exhibition.start());
-}
-
-function playExhibitionCue(cue: { look: string; seconds: number; genesis?: boolean }): void {
-  applyLookByName(cue.look, Math.max(6, cue.seconds - 3));
-  if (cue.genesis) startGenesis();
-}
-
-function stepExhibition(now: number): void {
-  if (!exhibition.running) return;
-  if (!saver.active) {
-    // Any input ended the screensaver, and with it the programme.
-    exhibition.stop();
-    caption.hide();
-    return;
-  }
-  const dt = (now - exhibitionLastNow) / 1000;
-  exhibitionLastNow = now;
-  const cue = exhibition.tick(dt);
-  if (cue) playExhibitionCue(cue);
-}
-
-// --- Witness -------------------------------------------------------------------
-function beginWitness(statement: string): void {
-  witness.enabled = true;
-  witness.begin(engine.count, WITNESS_SEED);
-  witnessLastNow = performance.now();
-  witnessOverlay.setCount(0);
-  witnessOverlay.show(statement);
-}
-
-function endWitness(): void {
-  if (!witness.enabled) return;
-  witness.enabled = false;
-  witnessOverlay.hide();
-}
-
-/** Wall time, not sim time: the world does not pause when the piece does. */
-function stepWitness(now: number): void {
-  if (!witness.enabled) return;
-  const dt = Math.max(0, (now - witnessLastNow) / 1000);
-  witnessLastNow = now;
-  const lost = witness.tick(dt);
-  if (lost.length === 0) return;
-  // Each absence sends one quiet wave through the crowd.
-  const i = lost[lost.length - 1];
-  const p = engine.positions;
-  if (i < engine.count) engine.spawnRipple(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
-  applyLookColors();
-  witnessOverlay.setCount(witness.lost);
 }
 
 /** Save the current frame: flagged here, taken right after the next render. */
@@ -2159,11 +1695,11 @@ function frameInner(now: number): void {
     if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
-    stepEcology(FIXED_DT);
+    ecology.step(FIXED_DT);
   }
   accumulator = residual;
 
-  updateTouch(dt);
+  hand.update(dt);
   // Life cycle: derive the per-particle life the renderer uses, from the same
   // clock the engines run on, so the spark and the rebirth stay in step.
   if (particleRenderer) {
@@ -2182,49 +1718,21 @@ function frameInner(now: number): void {
   }
 
   if (!simPaused) evolver.tick(dt);
-  if (!simPaused) stepGenesis(dt);
-  stepWitness(now);
-  stepPresence(dt);
-  stepExhibition(now);
-  azimuth += dt * (saver.active
-    ? activeCamera.orbitSpeed * activeCamera.orbitDirection
-    : demoMode
+  if (!simPaused) genesisD.step(dt);
+  witnessD.step(now);
+  presenceD.step(dt);
+  exhibitionD.step(now);
+  rig.place(
+    now / 1000,
+    dt,
+    activeCamera,
+    saver.active,
+    demoMode
       ? 0.03 // a card must look alive without being touched
       : reducedMotion
         ? 0.008 // the reduced-motion answer: drift, not sway
-        : 0.02);
-  let radiusNow = radius;
-  let elevationNow = elevation + breatheOffset(activeCamera, now / 1000);
-  let azimuthNow = azimuth;
-  if (saver.active) {
-    // In screensaver the camera follows the active preset's choreography:
-    // the dolly breath, and (by path) the figure8 weave or the lean toward
-    // the recorded hand. Defaults reproduce the authored motion exactly.
-    const pose = cameraPose(activeCamera, now / 1000, azimuth, elevation, ghostNdc);
-    azimuthNow = pose.azimuth;
-    elevationNow = pose.elevation;
-    radius = pose.radius;
-    radiusNow = pose.radius;
-  }
-  camera.position.set(
-    cameraTarget.x + radiusNow * Math.cos(elevationNow) * Math.sin(azimuthNow),
-    cameraTarget.y + radiusNow * Math.sin(elevationNow),
-    cameraTarget.z + radiusNow * Math.cos(elevationNow) * Math.cos(azimuthNow)
+        : 0.02
   );
-  camera.lookAt(cameraTarget);
-  // Two-finger pan moves the target in the camera's own plane, applied here
-  // so the basis is the frame's fresh orientation.
-  if (pendingPan.x !== 0 || pendingPan.y !== 0) {
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-    const worldPerPx =
-      (2 * radius * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, window.innerHeight);
-    cameraTarget
-      .addScaledVector(right, -pendingPan.x * worldPerPx)
-      .addScaledVector(up, pendingPan.y * worldPerPx);
-    pendingPan.x = 0;
-    pendingPan.y = 0;
-  }
 
   particleRenderer?.update();
   particleRenderer?.markStateDirty();
@@ -2254,25 +1762,21 @@ function frameInner(now: number): void {
     const bands = audio.read();
     soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
-    if (ecologyParams.audioReactive) {
-      const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity, dt);
-      ecologyDrive = mapped.drive;
-      ecologyOnset = mapped.state;
-    }
+    ecology.listen(bands, sound.sensitivity, dt);
     effective.particleSize = visual.particleSize * soundDrive.size;
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
   }
-  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius, subjectRadius);
+  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), rig.radius, subjectRadius);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
   // A fast orbit (or a pinch zoom) clears the afterimage instead of
   // smearing the whole image across itself.
-  const angular = Math.abs(azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);
-  const zoomJump = Math.abs(radiusNow - prevFrameRadius) / Math.max(dt, 1e-3) / Math.max(1, radiusNow);
-  prevFrameAzimuth = azimuthNow;
-  prevFrameRadius = radiusNow;
+  const angular = Math.abs(rig.azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);
+  const zoomJump = Math.abs(rig.radiusNow - prevFrameRadius) / Math.max(dt, 1e-3) / Math.max(1, rig.radiusNow);
+  prevFrameAzimuth = rig.azimuthNow;
+  prevFrameRadius = rig.radiusNow;
   trailPass.decay = cameraTrailDecay(visual.trailDecay, angular + zoomJump * 2);
   trailPass.render(scene, camera, dt);
   // Capture takes the present-pass pixels in the same task as the render:
@@ -2326,7 +1830,7 @@ requestAnimationFrame(frame);
   }
   // ?exhibit=1 opens straight into the programme (for installations).
   if (new URLSearchParams(location.search).get("exhibit") === "1" && !demoMode) {
-    startExhibition();
+    exhibitionD.start();
   }
 }
 
