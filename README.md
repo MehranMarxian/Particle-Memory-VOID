@@ -23,6 +23,26 @@ The piece lives in the tension between three forces:
 Nothing is a pre-rendered video. The artwork is a simulation you can steer:
 every source, state and parameter is yours to change.
 
+## Why it exists
+
+Every memory is held by a crowd of small, living things that do not know
+what they are holding. VOID makes that visible. It's a piece about what it
+takes to keep something — a face, a place, a person — and what's left when
+you stop.
+
+That's also why it can bear witness. **Witness** is a look in which every
+particle is a person, and one light goes out every four seconds. That's
+the rate at which, by humanitarian estimates, people die of hunger and its
+causes. The count runs on wall-clock time, so pausing the piece doesn't
+pause it. Nothing in it is faster than the truth.
+
+The piece belongs to the lineage it's built on: William Reeves' *Genesis
+Effect* (1982), which gave us the words "particle system"; Craig Reynolds'
+boids (1987); Karl Sims' *Particle Dreams* (1988); Jeffrey Ventrella's
+*Clusters*; and the particle-life simulations of the 2020s. **GENESIS** (press
+`N`) is VOID's tribute to the first of them: a ring of fire spreads out from
+the heart of the memory, and the memory re-forms behind it.
+
 ## Quick Start
 
 ```bash
@@ -107,6 +127,7 @@ itself once; after that it waits for `?`.
 | `S` | Screensaver mode |
 | `L` | Listen to sound (music drives the look) |
 | `E` | Evolve (search for better interaction matrices) |
+| `N` | Genesis (a ring of fire re-forms the memory) |
 | `Y` | Ecology (predation, birth and death) |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
@@ -116,21 +137,32 @@ to zoom and drag to pan, and a touch-and-hold is the touch itself — touch has
 no hover, so the swarm leans on an explicit hold. On a touch device the guide
 is the keyboard: every key chip in it is tappable and runs its shortcut.
 
-The panel folds by consequence. **THE PIECE** is always visible: the source
-chip, the density, RECONSTRUCT / RELEASE, screensaver and fullscreen, and the
-doors. **THE INSTRUMENT** is an accordion behind its door — SOURCE, MEMORY,
-LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, PRESETS, ACTIONS —
-closed by default, one section open at a time, with press-and-hold
-explanations for touch. **THE LAB** holds the backend switch, the ghost
-replay, the quiet modulators and the stats. On phones the panel docks as a
-bottom sheet and the source card collapses to a chip.
+### The studio
 
-Twelve authored presets ship with the piece: Portrait, Organic, Scan,
-Architecture, Void, Chaos, Predator, and five subject-first looks — Galaxy,
-Fireworks, Hearth, Traces and Exhale. Each preset is a full state (nothing
-leaks from one look into the next), several carry their own screensaver
-camera, and the whole instrument state persists to localStorage and restores
-on the next visit.
+The instrument is laid out like a painter's application, so you can find
+things by where they are before you read what they're called. Every action
+has an icon with its name underneath.
+
+| Where | What |
+| --- | --- |
+| **Top bar** | The main gestures: SOURCE, MOON DUST, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
+| **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND. Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
+| **Properties** (right) | Every parameter, in sections that fold independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, and the LAB (backend, ghost, modulators, stats, RESET LAYOUT). |
+| **Looks dock** (bottom) | Every look as a face, plus RANDOM / UNDO / RESET. |
+
+You can close any panel with its ×, bring it back from the top bar, and the
+browser remembers your layout. `P` (or HIDE) hides everything except the
+piece. On a phone the piece comes first: the tools and properties wait
+behind their toggles, the rail lies flat above the dock, and the properties
+open as a bottom sheet.
+
+Sixteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
+Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,
+Exhale, and three new in 0.11: **Witness**, **Murmuration** (two courting
+flocks folding like starlings at dusk) and **Aurora** (the memory hung in the
+sky as breathing curtains of light). Each look is a full state, so nothing
+leaks from one into the next. Several carry their own screensaver camera,
+and the whole instrument state persists and comes back on your next visit.
 
 ## Look
 
@@ -143,7 +175,7 @@ choose it: the artwork is unchanged unless you ask for more.
 | SOURCE | The source's own colours: an image's pixels, a cool white for models and clouds. |
 | SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
 | RANDOM | One seeded hue per particle, stable for the whole run. |
-| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera), RADIAL (its distance from the subject's centre), or the two stigmergic fields: SCENT (where the swarm has been) and HEAT (where it is working hardest right now). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL. |
+| GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera), RADIAL (its distance from the subject's centre), or the two stigmergic fields: SCENT (where the swarm has been) and HEAT (where it is working hardest right now). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL, GRAIN, AURORA, TIDE. |
 
 Shapes are drawn analytically in the fragment shader: circle, box, triangle,
 ring, star. No textures, no extra geometry, no simulation change. With **By
