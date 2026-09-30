@@ -600,6 +600,83 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     },
     camera: { orbitSpeed: 0.008, zoomAmplitude: 2, zoomPeriodSeconds: 100, elevationWander: 0.06, path: "orbit" },
   },
+  {
+    name: "sketch",
+    label: "Sketch",
+    description:
+      "The photograph remembered as a drawing: only its contours, a pen line that breathes, dissolves and redraws itself",
+    // LINE: Canny contours with a soft pen width (src/sources/vision.ts).
+    memory: { strength: 8, decay: 0, reconstructionEase: 1.1, form: "line" },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.45,
+      coreRadius: 0.3,
+      forceScale: 3,
+      friction: 0.88,
+      attraction: 0.9,
+      repulsion: 1,
+      chaos: 0.04,
+      maxSpeed: 3,
+    },
+    field: { turbulence: 0.015, drift: 0, gravity: 0, wander: 0.02 },
+    scent: { enabled: false },
+    visual: {
+      colorMode: "monochrome",
+      shape: "circle",
+      particleSize: 0.7,
+      glow: 0.35,
+      opacity: 0.85,
+      trails: true,
+      trailDecay: 0.45,
+      dof: 0.1,
+      fogDensity: 0.01,
+    },
+    camera: { orbitSpeed: 0.01, zoomAmplitude: 1.5, zoomPeriodSeconds: 90, elevationWander: 0.04, path: "orbit" },
+  },
+  {
+    name: "kin",
+    label: "Kin",
+    description:
+      "Each colour of the memory is a species that only wants to be near its own. Slowly, the picture sorts itself apart",
+    memory: { strength: 2.4, decay: 0.02, reconstructionEase: 1 },
+    // Species by colour: the shadows, the mid-tones and the lights of the
+    // source are four kinds (src/particles/colourSpecies.ts).
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.9,
+      coreRadius: 0.3,
+      forceScale: 6,
+      friction: 0.86,
+      attraction: 1,
+      repulsion: 1,
+      chaos: 0.06,
+      maxSpeed: 4,
+      species: "colour",
+    },
+    // A mild preference, no hostility: each kind likes its own a little and
+    // is merely cool toward the others. Schelling (1971) showed that this
+    // is already enough.
+    matrix: [
+      0.8, -0.15, -0.15, -0.15,
+      -0.15, 0.8, -0.15, -0.15,
+      -0.15, -0.15, 0.8, -0.15,
+      -0.15, -0.15, -0.15, 0.8,
+    ],
+    speciesCount: 4,
+    field: { turbulence: 0.04, drift: 0, gravity: 0, wander: 0.05 },
+    scent: { enabled: false },
+    visual: {
+      colorMode: "source",
+      shape: "circle",
+      shapeBySpecies: false,
+      particleSize: 1,
+      glow: 0.3,
+      opacity: 0.75,
+      trails: false,
+      dof: 0.15,
+    },
+    camera: { orbitSpeed: 0.012, zoomAmplitude: 2, zoomPeriodSeconds: 80, elevationWander: 0.05, path: "orbit" },
+  },
 ];
 
 /** Snapshot of everything a preset / randomize / undo round-trip touches. */
@@ -633,8 +710,10 @@ export function applySnapshot(
   camera?: CameraChoreography
 ): void {
   const fresh = defaultEngineParams();
-  assignSubset(params, fresh, Object.keys(fresh) as (keyof EngineParams)[]);
-  assignSubset(params, snap.params as unknown as EngineParams, Object.keys(snap.params) as (keyof EngineParams)[]);
+  // The wind is the room's, not the look's: undo never restores an old push.
+  const live = (k: keyof EngineParams) => k !== "wind";
+  assignSubset(params, fresh, (Object.keys(fresh) as (keyof EngineParams)[]).filter(live));
+  assignSubset(params, snap.params as unknown as EngineParams, (Object.keys(snap.params) as (keyof EngineParams)[]).filter(live));
   Object.assign(visual, clampVisualSettings(snap.visual));
   const n = Math.round(Math.sqrt(snap.matrix.length));
   matrix.resize(n);
@@ -664,7 +743,7 @@ export function applyPreset(
   // state. The one exception is the ripple amplitude, which is a look's
   // character: zeroed here (so Moon Dust's ripples cannot leak into
   // another look) and re-armed from the definition below.
-  assignDefaultsInPlace(params, defaultEngineParams(), ["pointer"]);
+  assignDefaultsInPlace(params, defaultEngineParams(), ["pointer", "wind"]);
   params.pointer.ripple = 0;
   assignDefaultsInPlace(visual, defaultVisualSettings());
   if (ecology) assignDefaultsInPlace(ecology, defaultEcologyParams());

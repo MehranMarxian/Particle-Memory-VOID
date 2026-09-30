@@ -152,6 +152,9 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uTurbulence;
   uniform float uDrift;
   uniform float uGravity;
+  // The room's push (Wind): x, y acceleration. Agitation arrives folded into
+  // uTurbulence and uMemoryStrength by the engine (input/wind.ts).
+  uniform vec2 uWind;
   uniform vec3 uPointer;
   uniform float uPointerStrength;
   uniform float uPointerMode;
@@ -397,6 +400,7 @@ export const gpuVelocityShader = /* glsl */ `
     }
     accel.x += uDrift * uDt;
     accel.y -= uGravity * uDt;
+    accel.xy += uWind; // a true acceleration, like the pointer: the integrator applies dt
 
     // The touch: soft attractor or repulsor at the pointer (mirrors the CPU engine).
     if (uPointerStrength > 0.0) {

@@ -27,9 +27,12 @@ export const LOOK_STATEMENTS: Readonly<Record<string, string>> = {
     "One light goes out every four seconds. That is the estimated rate at which people die of hunger and its causes. Nothing here is faster than the truth.",
   murmuration: "Thousands of bodies, one decision, made again every moment.",
   aurora: "Light that never lands. A memory kept in the sky.",
+  sketch: "What we keep of a face is not its light. It is the lines.",
+  kin: "No one told them to part. Each only wanted to be a little nearer its own.",
   // Not looks, but moments the piece names.
   genesis: "The first particle system was a wall of fire that left a living world behind it.",
   presence: "For as long as you stay, you are what it remembers.",
+  wind: "It can only remember you when you stand still.",
 };
 
 export function statementFor(name: string): string | null {

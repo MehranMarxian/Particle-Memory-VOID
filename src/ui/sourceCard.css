@@ -5,7 +5,7 @@
 #source-card {
   position: fixed;
   left: 16px;
-  bottom: 14px;
+  bottom: calc(14px + var(--foot, 0px));
   width: 236px;
   z-index: 20;
   font: 10px ui-monospace, monospace;
@@ -72,6 +72,15 @@
 }
 #source-card .sc-cta:active {
   transform: translateY(1px);
+}
+#source-card .sc-cta.sc-cut {
+  margin-bottom: 6px;
+}
+#source-card .sc-cta:disabled {
+  color: #6a6a6a;
+  border-color: #2a2a2a;
+  cursor: progress;
+  transform: none;
 }
 #source-card .sc-drop {
   margin: 8px 0 0;

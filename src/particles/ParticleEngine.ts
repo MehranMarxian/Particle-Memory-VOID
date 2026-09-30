@@ -1,4 +1,5 @@
 import { SpatialGrid } from "./SpatialGrid";
+import { windMemory, windPush, windTurbulence } from "@/input/wind";
 import { ScentField } from "./scent/ScentField";
 import { RippleField } from "@/input/ripples";
 import type { InteractionMatrix } from "./InteractionMatrix";
@@ -122,11 +123,15 @@ export class ParticleEngine {
     }
   }
 
-  setSpeciesCount(matrix: InteractionMatrix, speciesCount: number): void {
+  /**
+   * Resize the ecosystem. Species are dealt round-robin unless an
+   * `assignment` says who belongs where (species from colour, v0.11.2).
+   */
+  setSpeciesCount(matrix: InteractionMatrix, speciesCount: number, assignment?: Uint8Array): void {
     matrix.resize(speciesCount);
     this.speciesCount = speciesCount;
     for (let i = 0; i < this.count; i++) {
-      this.species[i] = i % speciesCount;
+      this.species[i] = (assignment ? assignment[i] ?? i : i) % speciesCount;
     }
   }
 
@@ -285,10 +290,13 @@ export class ParticleEngine {
     }
 
     // --- FIELD + MEMORY + integration ----------------------------------
-    const memoryStrength = params.memory.strength;
+    // The room's wind (off unless the camera is on): a push, and agitation
+    // that stirs the swarm and loosens its memory (input/wind.ts).
+    const push = windPush(params.wind);
+    const memoryStrength = windMemory(params.memory.strength, params.wind);
     const ease = params.memory.reconstructionEase;
     const invEase = 1 / Math.max(0.05, ease);
-    const turb = params.turbulence;
+    const turb = windTurbulence(params.turbulence, params.wind);
     const drift = params.drift;
     const grav = params.gravity;
     const pointerStrength = params.pointer.strength;
@@ -414,6 +422,9 @@ export class ParticleEngine {
       if (drift > 0) {
         ax[i] += drift * dt;
       }
+      // A true acceleration, like the pointer: the integrator applies dt.
+      ax[i] += push.x;
+      ay[i] += push.y;
       if (grav !== 0) {
         ay[i] -= grav * dt;
       }

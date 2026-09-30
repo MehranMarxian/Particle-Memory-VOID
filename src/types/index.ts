@@ -1,3 +1,5 @@
+import { defaultWindParams, type WindParams } from "@/input/wind";
+
 /**
  * Neighbor force kernels.
  *
@@ -27,7 +29,24 @@ export interface LifeParams {
   /** Core radius as a fraction of interactionRadius (0..1). Used by pulse/linear. */
   coreRadius: number;
   kernel: ForceKernel;
+  /**
+   * Who belongs to which species (v0.11.2). MIXED deals them round-robin,
+   * so every species is spread over the whole memory. COLOUR clusters the
+   * source's own colours, so each species is one colour of the memory.
+   * The engines never read this; the app assigns species from it.
+   */
+  species: SpeciesFrom;
 }
+
+export type SpeciesFrom = "mixed" | "colour";
+export const SPECIES_FROM: readonly SpeciesFrom[] = ["mixed", "colour"];
+
+/**
+ * How an image is remembered (v0.11.2): TONE by its light, LINE by its
+ * contours. Sources that are not images ignore it.
+ */
+export type MemoryForm = "tone" | "line";
+export const MEMORY_FORMS: readonly MemoryForm[] = ["tone", "line"];
 
 export interface MemoryParams {
   /** Spring strength pulling particles toward targetPosition. */
@@ -36,6 +55,8 @@ export interface MemoryParams {
   decay: number;
   /** Eases the pull for far particles: force ~ dist^reconstructionEase (1 = linear). */
   reconstructionEase: number;
+  /** How an image source is sampled into targets. The engines never read it. */
+  form: MemoryForm;
 }
 
 /** Physarum-style stigmergic trail field (memory as a scent). */
@@ -134,6 +155,12 @@ export const defaultEnvironmentParams = (): EnvironmentParams => ({
 });
 
 export interface EngineParams {
+  /**
+   * The room's push (v0.11.2). Live input like the pointer: written by the
+   * camera every frame, never preset data, never restored by undo. The
+   * engines read it through input/wind.ts so CPU and GPU agree.
+   */
+  wind: WindParams;
   life: LifeParams;
   memory: MemoryParams;
   /** Ornstein-Uhlenbeck wander noise (smooth, organic jitter). */
@@ -167,15 +194,18 @@ export const defaultLifeParams = (): LifeParams => ({
   forceScale: 6.0,
   coreRadius: 0.3,
   kernel: "pulse",
+  species: "mixed",
 });
 
 export const defaultMemoryParams = (): MemoryParams => ({
   strength: 0.0,
   decay: 0.0,
   reconstructionEase: 1.0,
+  form: "tone",
 });
 
 export const defaultEngineParams = (): EngineParams => ({
+  wind: defaultWindParams(),
   life: defaultLifeParams(),
   memory: defaultMemoryParams(),
   wander: 0.06,

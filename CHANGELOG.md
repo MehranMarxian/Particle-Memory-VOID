@@ -2,6 +2,84 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.11.2] - 2026-10-01
+
+What the piece learned from OpenCV. It uses the ideas, not the library:
+VOID's own small versions of classic image operations, written for its
+sizes, with no OpenCV code and no binary (`docs/PLAN-NEXT.md`, item 1). The
+eager bundle grows by about 3 kB gzip; the cut-out code loads on demand.
+
+### Added: Wind (`W`)
+- **Wind**: the camera feels how the room moves. Two consecutive 96×72 grey
+  frames are compared in 8×8 blocks (block matching, brightness-invariant),
+  the coherent motion becomes a push on the swarm, and the amount of motion
+  becomes agitation: waving stirs the swarm and loosens its pull on the
+  memory, standing still lets it re-form within a couple of seconds. The
+  push is mirrored, like the silhouette, so a hand moving right pushes the
+  reflection left.
+  - It is a true acceleration on both engines (one `uWind` uniform; the CPU
+    and GPU read agitation through the same helpers in `src/input/wind.ts`).
+  - Presence and Wind share one camera, opened when either is on and
+    closed when both are off; toggling quickly can never leave it running.
+  - Safe by construction: every value is clamped and NaN-proof, a stalled
+    camera or hidden tab releases the swarm, reduced motion softens it, and
+    undo and looks never set or restore the wind.
+  - Privacy: the only thing kept is the previous 96×72 grey frame, for a
+    twelfth of a second. Nothing is recorded, stored or sent.
+  - *"It can only remember you when you stand still."*
+
+### Added: CUTOUT
+- **CUTOUT** (the YOUR MEMORY card, and MEMORY > Background): forget
+  everything behind the subject of a photograph. A GrabCut-style
+  segmentation: colour models for subject and background, refined by an
+  exact minimum graph cut (Dinic), at a reduced size and upsampled. It takes
+  about half a second, yields to the page between rounds, and answers "no
+  clear subject" rather than guessing when a picture is flat, noise, a
+  subject the colour of its ground, or a subject that fills the frame.
+  RESTORE BACKGROUND brings the original back.
+  - A subject cropped by the frame is handled: the margin is a soft lean
+    toward background, not a hard rule (a hard rule welded the part of a
+    portrait that leaves the picture to the background, and dragged the
+    rest of it along).
+  - Not remembered across a reload: the stored source is the original.
+
+### Added: the footer
+- A page footer at the bottom: **© 2026 Mehran Ahmadi · v0.11.2**. The name
+  links to the artist. It stays when every panel is closed and leaves for the
+  screensaver, the exhibition and demo cards. On a phone the same line sits
+  under the bottom bar. It replaces the credit that lived in the properties
+  panel.
+
+### Added: form and kin
+- **LINE form** (MEMORY > Form): a photograph remembered as a drawing.
+  Canny contours, thinned and given a soft pen width by a distance
+  transform. Switching form retargets the living swarm in place. An image
+  with no contours falls back to its tone.
+- **Kin** (LIFE > Kin, and the KINDS tool): species from colour. The
+  source's colours are clustered with k-means into as many kinds as there
+  are species, ordered dark to light, and each particle belongs to the
+  colour it came from. Carried across rebuilds, density changes and
+  backend switches.
+- **Sketch**, a look built on LINE: *"What we keep of a face is not its
+  light. It is the lines."*
+- **Kin**, a look built on species from colour, after Schelling's
+  segregation model (1971). Each kind likes its own a little and is merely
+  cool to the others, and the picture still sorts itself apart: *"No one
+  told them to part. Each only wanted to be a little nearer its own."*
+- `src/sources/vision.ts`: Canny, an exact Euclidean distance transform,
+  a 3x3 binary median, connected components and k-means++. Pure functions
+  with tests.
+
+### Changed
+- **Presence** sees more steadily. Every pixel learns its own noise, so a
+  flickering lamp doesn't count as a visitor. A change in the whole room's
+  light is measured as one gain (a median ratio) and taken out. The mask
+  is cleaned: a median filter removes speckle, and only the main bodies are
+  kept. The silhouette's particles lean toward the body's outline. It's
+  still 96×72 grey, and the frame is still dropped.
+- `SourceHandle.resample` takes the form; the engines' `setSpeciesCount`
+  takes an optional assignment.
+
 ## [0.11.1] - 2026-09-24
 
 The piece in a room.

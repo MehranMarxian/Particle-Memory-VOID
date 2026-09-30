@@ -34,6 +34,7 @@ function recordingContext(guideOpen = false) {
     toggleEcology: () => calls.push("toggleEcology"),
     genesis: () => calls.push("genesis"),
     togglePresence: () => calls.push("presence"),
+    toggleWind: () => calls.push("wind"),
     startExhibition: () => calls.push("exhibition"),
     togglePause: () => calls.push("togglePause"),
     captureMoment: () => calls.push("captureMoment"),

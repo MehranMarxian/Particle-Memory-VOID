@@ -21,6 +21,7 @@ import {
   type MacroValues,
 } from "@/presets/macros";
 import { icon, type IconName } from "./icons";
+import { createCredit } from "./footer";
 import "./panel.css";
 
 /**
@@ -75,8 +76,14 @@ export interface PanelCallbacks {
   onSoundscapeToggle(): void;
   /** PRESENCE: the camera switch (the app owns the camera). */
   onPresenceToggle(): void;
+  /** WIND: the camera switch for the room's movement (the app owns the camera). */
+  onWindToggle(): void;
   /** EXHIBITION: the authored programme, inside the screensaver. */
   onExhibition(): void;
+  /** FORM or KIN changed: the app redraws the memory or re-deals the species. */
+  onFormChange?(): void;
+  /** CUTOUT: forget the picture's background, or bring it back. */
+  onCutoutToggle?(): void;
 }
 
 export interface PanelApi {
@@ -204,10 +211,14 @@ export function createPanel(opts: {
   ecologyEvents: { births: number; deaths: number };
   /** The visitor's camera switch (PRESENCE); the app turns it on and off. */
   presence: { enabled: boolean };
+  /** The room's movement (WIND); strength is 0..2. */
+  wind: { enabled: boolean; strength: number };
+  /** CUTOUT's live state: a picture that can be cut, is cut, or is being cut. */
+  cutout?: () => { available: boolean; active: boolean; busy: boolean };
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
 }): PanelApi {
-  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros, presence } = opts;
+  const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros, presence, wind } = opts;
   let speciesCount = opts.speciesCount;
   let currentCount = opts.currentCount;
 
@@ -614,6 +625,34 @@ export function createPanel(opts: {
     });
   }
 
+  function kinControls(body: HTMLElement): void {
+    addChoiceRow(
+      body,
+      "Kin",
+      ["mixed", "colour"],
+      () => params.life.species,
+      (v) => {
+        params.life.species = v as typeof params.life.species;
+        callbacks.onFormChange?.();
+      },
+      "MIXED spreads every species over the whole memory. COLOUR makes each species one of the memory's own colours."
+    );
+  }
+
+  function formControls(body: HTMLElement): void {
+    addChoiceRow(
+      body,
+      "Form",
+      ["tone", "line"],
+      () => params.memory.form,
+      (v) => {
+        params.memory.form = v as typeof params.memory.form;
+        callbacks.onFormChange?.();
+      },
+      "How a photograph is remembered: TONE by its light, LINE by its contours, like a drawing of itself."
+    );
+  }
+
   function kernelControls(body: HTMLElement): void {
     addChoiceRow(
       body,
@@ -778,6 +817,7 @@ export function createPanel(opts: {
       tip: "How many species, and how they touch",
       build: (b) => {
         speciesControls(b);
+        kinControls(b);
         kernelControls(b);
       },
     },
@@ -786,7 +826,7 @@ export function createPanel(opts: {
       id: "presence",
       icon: "presence",
       label: "YOU",
-      tip: "Stand in front of the camera and the swarm remembers you",
+      tip: "Stand in front of the camera: the swarm remembers you, and feels you move",
       build: (b) => {
         addToggle(
           b,
@@ -798,8 +838,19 @@ export function createPanel(opts: {
           "The camera sees who stands here, and the swarm takes their shape. Walk away and it lets you go."
         );
         addNote(b, "STAND STILL FOR A MOMENT WHEN IT STARTS - IT LEARNS THE EMPTY ROOM FIRST.\nTHE CAMERA IS READ AT 96 X 72, IN GREY, AND NOTHING IS KEPT OR SENT.");
+        addToggle(
+          b,
+          "Wind",
+          () => wind.enabled,
+          () => callbacks.onWindToggle(),
+          "ON",
+          "OFF",
+          "The camera feels how the room moves. Wave and the swarm scatters; stand still and it re-forms."
+        );
+        addObjSlider(b, "Wind strength", wind, "strength", 0, 2, 0.05, num, "How hard your movement pushes the swarm.");
+        addNote(b, "WIND COMPARES EACH FRAME WITH THE ONE BEFORE, A TWELFTH OF A SECOND APART.\nONLY THE DIRECTION AND AMOUNT OF MOVEMENT SURVIVE. NOTHING IS KEPT OR SENT.");
       },
-      active: () => presence.enabled,
+      active: () => presence.enabled || wind.enabled,
     },
   ];
 
@@ -946,6 +997,16 @@ export function createPanel(opts: {
   addObjSlider(memBody, "Memory", params.memory, "strength", 0, 20, 0.1, (v) => v.toFixed(1), "How strongly particles try to return to their source.");
   addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
   addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
+  formControls(memBody);
+  addChoiceRow(
+    memBody,
+    "Background",
+    ["kept", "cut out"],
+    () => (opts.cutout?.().active ? "cut out" : "kept"),
+    () => callbacks.onCutoutToggle?.(),
+    "CUTOUT: forget everything behind the subject of a photograph, so the swarm remembers only the subject.",
+    () => opts.cutout?.().available === true
+  );
   densityControls(memBody);
 
   const lifeBody = section("LIFE", "life");
@@ -960,6 +1021,7 @@ export function createPanel(opts: {
   addObjSlider(lifeBody, "Lifespan", params.lifecycle, "lifespan", 8, 180, 1, (v) => `${v.toFixed(0)}s`, "How long one particle lives before it returns to the source.");
   addObjSlider(lifeBody, "Spread", params.lifecycle, "spread", 0, 1, 0.05, num, "How far births are staggered, so the swarm never dies at once.");
   speciesControls(lifeBody);
+  kinControls(lifeBody);
   kernelControls(lifeBody);
 
   const fieldBody = section("FIELD", "field");
@@ -1102,15 +1164,8 @@ export function createPanel(opts: {
   stats.textContent = "-";
   labBody.appendChild(stats);
 
-  const footer = document.createElement("div");
-  footer.id = "panel-footer";
-  const credit = document.createElement("div");
-  credit.className = "credit";
-  credit.innerHTML =
-    '<a href="https://mehran-ahmadi.com/" target="_blank" rel="noopener">DEVELOPED BY MEHRAN AHMADI © 2026</a>';
-  credit.append(` · v${__APP_VERSION__}`);
-  footer.append(credit);
-  panel.appendChild(footer);
+  // The credit lives in the page footer (ui/footer.ts); the phone keeps its
+  // own copy under the bottom bar, below.
 
   // --- LOOKS DOCK --------------------------------------------------------------
   const looks = document.createElement("div");
@@ -1239,9 +1294,7 @@ export function createPanel(opts: {
     sheetBtns.set(id, iconBtn(nav, `sheet-${id}`, ic, label, () => setSheet(sheet === id ? null : id)));
   }
   // The credit the desktop keeps in the properties footer, under the bar.
-  const navCredit = credit.cloneNode(true) as HTMLElement;
-  navCredit.className = "credit nav-credit";
-  nav.appendChild(navCredit);
+  nav.appendChild(createCredit("credit nav-credit"));
 
   function setSheet(next: Sheet | null): void {
     sheet = next;

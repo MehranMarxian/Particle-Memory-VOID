@@ -13,11 +13,20 @@ export interface SourceCardApi {
   readonly element: HTMLElement;
   update(state: SourceUiState): void;
   setThumbnail(bmp: ImageBitmap | null): void;
+  /** CUTOUT: whether the picture can be cut, whether it is, and whether a cut is under way. */
+  setCutout(state: CutoutUiState): void;
+}
+
+export interface CutoutUiState {
+  available: boolean;
+  active: boolean;
+  busy: boolean;
 }
 
 export function createSourceCard(callbacks: {
   onUpload(): void;
   onSample(url: string): void;
+  onCutout(): void;
 }): SourceCardApi {
   const root = document.createElement("div");
   root.id = "source-card";
@@ -28,6 +37,8 @@ export function createSourceCard(callbacks: {
   // Once a memory is loaded the card collapses to a chip; tapping it
   // unfolds the details and the CHANGE SOURCE door.
   let chipExpanded = false;
+  let cut: CutoutUiState = { available: false, active: false, busy: false };
+  let lastState: SourceUiState = { phase: "empty" };
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
     const n = document.createElement(tag);
@@ -35,11 +46,11 @@ export function createSourceCard(callbacks: {
     return n;
   };
 
-  function makeCta(label: string): HTMLButtonElement {
+  function makeCta(label: string, onClick: () => void = callbacks.onUpload): HTMLButtonElement {
     const b = el("button", "sc-cta");
     b.type = "button";
     b.textContent = label;
-    b.addEventListener("click", callbacks.onUpload);
+    b.addEventListener("click", onClick);
     return b;
   }
 
@@ -55,6 +66,7 @@ export function createSourceCard(callbacks: {
   }
 
   function render(state: SourceUiState): void {
+    lastState = state;
     root.textContent = "";
     // The chip is a ready-state shape only; any new load unfolds again.
     if (state.phase !== "ready") chipExpanded = false;
@@ -131,6 +143,15 @@ export function createSourceCard(callbacks: {
       meta.append(canvas, info);
       if (chipExpanded) {
         inner.appendChild(meta);
+        if (cut.available) {
+          const b = makeCta(cut.busy ? "CUTTING..." : cut.active ? "RESTORE BACKGROUND" : "CUTOUT", callbacks.onCutout);
+          b.classList.add("sc-cut");
+          b.disabled = cut.busy;
+          b.title = cut.active
+            ? "Bring back the background the cutout forgot"
+            : "Forget everything behind the subject, so the swarm remembers only the subject";
+          inner.appendChild(b);
+        }
         inner.appendChild(makeCta("CHANGE SOURCE"));
       } else {
         // The chip: the memory's face and name. Tapping it unfolds.
@@ -154,6 +175,12 @@ export function createSourceCard(callbacks: {
     element: root,
     update(state) {
       render(state);
+    },
+    setCutout(state) {
+      if (state.available === cut.available && state.active === cut.active && state.busy === cut.busy) return;
+      cut = state;
+      // Only the open card shows the button; a chip has nothing to redraw.
+      if (lastState.phase === "ready" && chipExpanded) render(lastState);
     },
     setThumbnail(bmp) {
       thumbnail = bmp;

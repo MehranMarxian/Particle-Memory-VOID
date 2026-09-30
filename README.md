@@ -129,6 +129,7 @@ itself once; after that it waits for `?`.
 | `E` | Evolve (search for better interaction matrices) |
 | `N` | Genesis (a ring of fire re-forms the memory) |
 | `V` | Presence (the swarm remembers whoever stands at the camera) |
+| `W` | Wind (the swarm feels how the room moves) |
 | `X` | Exhibition (the piece plays itself for a room) |
 | `Y` | Ecology (predation, birth and death) |
 | `?` | Controls guide |
@@ -148,7 +149,7 @@ has an icon with its name underneath.
 | Where | What |
 | --- | --- |
 | **Top bar** | The main gestures: SOURCE, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
-| **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND, YOU. Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
+| **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND, YOU (Presence and Wind). Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
 | **Properties** (right) | Every parameter, in sections that fold independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, and the LAB (backend, ghost, modulators, stats, RESET LAYOUT). |
 | **Looks dock** (bottom) | Every look as a face (Moon Dust first), plus RANDOM / UNDO / RESET. |
 
@@ -158,11 +159,14 @@ piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
 GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
 MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
 
-Sixteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
+Eighteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
 Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,
 Exhale, and three new in 0.11: **Witness**, **Murmuration** (two courting
 flocks folding like starlings at dusk) and **Aurora** (the memory hung in the
-sky as breathing curtains of light). Each look is a full state, so nothing
+sky as breathing curtains of light). Two more arrived in 0.11.2: **Sketch**
+(a photograph remembered only by its lines) and **Kin** (each colour of the
+memory becomes a species that only wants to be near its own, and the picture
+slowly sorts itself apart). Each look is a full state, so nothing
 leaks from one into the next. Several carry their own screensaver camera,
 and the whole instrument state persists and comes back on your next visit.
 
@@ -181,6 +185,29 @@ visitor's silhouette as its memory, and lets them go a few seconds after
 they walk away. The camera is read at 96×72 in grey, a mask is derived,
 and the frame is dropped. Nothing is recorded, stored or sent.
 
+The eye is steadier than it sounds. Every pixel learns how much it
+flickers on its own, so a lamp or a screen in the room isn't mistaken for
+a person. When the whole room gets lighter or darker, whether from a cloud
+or the camera's own exposure, that's measured as one change and taken out.
+Speckle is filtered away, and only the main bodies in the frame count, so
+a stray patch in a corner never becomes a visitor. The particles lean
+toward the edge of the body, so a visitor reads as a figure with an
+outline rather than a flat shape.
+
+**Wind** (`W`, or the YOU tool) lets the swarm feel how the room moves. It
+reads the same camera as Presence. Wave a hand and the swarm is pushed the
+way it moves and scattered, its grip on the memory loosened; stand still and
+the memory re-forms. *"It can only remember you when you stand still."*
+
+It compares each 96×72 grey frame with the one before it, a twelfth of a
+second earlier, in 8×8 blocks (block matching, unaffected by the room getting
+lighter or darker). A flat wall, camera noise and a flickering lamp add
+nothing, and a stalled camera releases the swarm. The previous frame is the
+only thing held, and only for that twelfth of a second: nothing is recorded,
+stored or sent. **Wind strength** (0 to 2) sits in the YOU tool, and a
+visitor who asks for reduced motion gets a gentler wind. Presence and Wind
+share one camera, which closes when both are off.
+
 **Witness** needs no file: with no memory of your own loaded, it brings its
 own crowd of people, so a first visit shows what it's about.
 
@@ -191,6 +218,40 @@ chosen. All the lines live in one file,
 [`src/presets/statements.ts`](src/presets/statements.ts): the key is the
 look's name and the value is the line. Edit a line, save, and the piece
 speaks differently. Delete a line and that look stays silent.
+
+## Form and kin
+
+Two choices change what the memory *is* rather than how it looks:
+
+| Choice | Where | Options |
+| --- | --- | --- |
+| **Form** | MEMORY section | **TONE** (the default) remembers a photograph by its light. **LINE** keeps only its contours: edges are traced, thinned to a single line, and given a soft pen width, and the particles live on the drawing. It applies to images; a model or a point cloud has one form. |
+| **Kin** | LIFE section, KINDS tool | **MIXED** (the default) spreads every species over the whole memory. **COLOUR** groups the source's own colours into as many clusters as there are species, dark to light, and each particle belongs to the colour it came from. |
+
+A change of form retargets the living swarm, so the particles travel from
+the photograph to its drawing instead of being reborn. Both choices are
+part of a look, so undo and your saved state carry them.
+
+**CUTOUT** forgets everything behind the subject of a photograph, so the
+swarm remembers only the subject. It's on the YOUR MEMORY card (tap the card
+for details) and in MEMORY > Background, and works for images only. Under the
+hood it's a GrabCut-style segmentation: the subject and the background each
+get a colour model, and an exact minimum graph cut decides every pixel,
+refined over a few rounds. It takes about half a second and loads on demand,
+so the first page load doesn't pay for it. If a picture has no clear subject
+(a flat colour, noise, a subject the colour of its ground) it says so
+instead of guessing. RESTORE BACKGROUND brings the original back. A reload
+returns to the original picture: the stored source is the file you gave it.
+
+These are VOID's own versions of classic image operations that
+[OpenCV](https://github.com/opencv/opencv) also offers: Canny edges, the
+distance transform, a median filter, connected components and k-means
+([`src/sources/vision.ts`](src/sources/vision.ts)), block-matching optical
+flow for Wind ([`src/input/wind.ts`](src/input/wind.ts)) and a GrabCut-style
+cut for CUTOUT ([`src/sources/cutout.ts`](src/sources/cutout.ts)). They're
+written for the piece's sizes and use no OpenCV code or binary. The bulk of
+the page's first download is unchanged: the cut-out code loads on demand.
+[`docs/PLAN-NEXT.md`](docs/PLAN-NEXT.md) has the plan they came from.
 
 ## Look
 
