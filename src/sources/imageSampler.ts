@@ -1,4 +1,5 @@
-import { emptyFlat, type FlatSource } from "./types";
+import { emptyFlat, type FlatSource, type SampleMode } from "./types";
+import { canny, distanceTransform } from "./vision";
 
 /**
  * Image → particle target sampling.
@@ -8,7 +9,15 @@ import { emptyFlat, type FlatSource } from "./types";
  * weighting, then draws `count` samples through stratified inverse-CDF
  * lookup — never one particle per pixel, and the distribution is stable
  * when the density changes (superset-like behavior).
+ *
+ * Two ways of remembering an image:
+ * - TONE (the default): light draws the particles, edges sharpen it.
+ * - LINE (v0.11.2): only the drawing. Canny finds the contours, a distance
+ *   transform gives them a soft pen width, and the particles live on the
+ *   lines - the photograph remembered as a sketch of itself.
  */
+export type ImageSampleMode = SampleMode;
+
 export interface ImageDataLike {
   width: number;
   height: number;
@@ -31,6 +40,10 @@ export interface ImageSampleOptions {
   /** Pixels with alpha below this are excluded. */
   minAlpha?: number;
   seed?: number;
+  /** TONE (luminance) or LINE (contours). Default tone. */
+  mode?: ImageSampleMode;
+  /** LINE only: the pen's half-width in source pixels. Default 1.2. */
+  lineWidth?: number;
 }
 
 export function sampleImage(
@@ -46,6 +59,8 @@ export function sampleImage(
     planeSize = 9,
     minAlpha = 0.05,
     seed = 17,
+    mode = "tone",
+    lineWidth = 1.2,
   } = opts;
 
   const W = img.width;
@@ -87,19 +102,26 @@ export function sampleImage(
   // Per-pixel sampling weight.
   const weight = new Float32Array(n);
   let wSum = 0;
-  for (let i = 0; i < n; i++) {
-    if (alpha[i] < minAlpha) {
-      weight[i] = 0;
-      continue;
+  if (mode === "line") {
+    wSum = lineWeights(lum, alpha, W, H, minAlpha, lineWidth, weight);
+  }
+  // A picture with no contours at all (a flat colour) has no drawing to
+  // remember: it falls back to its tone rather than to nothing.
+  if (wSum === 0) {
+    for (let i = 0; i < n; i++) {
+      if (alpha[i] < minAlpha) {
+        weight[i] = 0;
+        continue;
+      }
+      // Contrast curve around mid gray.
+      const c = Math.min(1, Math.max(0, (lum[i] - 0.5) * contrast + 0.5));
+      let w =
+        0.03 +
+        0.97 * (1 - luminanceWeight + luminanceWeight * c);
+      if (edgeWeight > 0) w *= 1 + edgeWeight * edge[i] * 4;
+      weight[i] = w;
+      wSum += w;
     }
-    // Contrast curve around mid gray.
-    const c = Math.min(1, Math.max(0, (lum[i] - 0.5) * contrast + 0.5));
-    let w =
-      0.03 +
-      0.97 * (1 - luminanceWeight + luminanceWeight * c);
-    if (edgeWeight > 0) w *= 1 + edgeWeight * edge[i] * 4;
-    weight[i] = w;
-    wSum += w;
   }
 
   // CDF for inverse-CDF sampling.
@@ -163,4 +185,47 @@ function nearestPositive(w: Float32Array, from: number): number {
     if (from + d < w.length && w[from + d] > 0) return from + d;
   }
   return from;
+}
+
+/**
+ * LINE weights: Canny contours, then a Gaussian pen profile over the
+ * distance to the nearest contour, so a line has a soft body instead of a
+ * one-pixel staircase. Fills `weight` and returns its sum (0 when the image
+ * has no contours).
+ */
+function lineWeights(
+  lum: Float32Array,
+  alpha: Float32Array,
+  w: number,
+  h: number,
+  minAlpha: number,
+  lineWidth: number,
+  weight: Float32Array
+): number {
+  const edges = canny(lum, w, h);
+  // An alpha cut-out is a drawing too: its outline joins the contours.
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (alpha[i] < minAlpha) continue;
+      const out =
+        (x > 0 && alpha[i - 1] < minAlpha) ||
+        (x < w - 1 && alpha[i + 1] < minAlpha) ||
+        (y > 0 && alpha[i - w] < minAlpha) ||
+        (y < h - 1 && alpha[i + w] < minAlpha);
+      if (out) edges[i] = 1;
+    }
+  }
+  const dist = distanceTransform(edges, w, h);
+  const pen = Math.max(0.3, lineWidth);
+  const reach = pen * 3;
+  let sum = 0;
+  for (let i = 0; i < w * h; i++) {
+    const d = dist[i];
+    if (alpha[i] < minAlpha || d > reach) continue;
+    const v = Math.exp(-(d * d) / (pen * pen));
+    weight[i] = v;
+    sum += v;
+  }
+  return sum;
 }

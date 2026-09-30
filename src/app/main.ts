@@ -105,10 +105,14 @@ import { Genesis } from "@/app/genesis";
 import { createWitnessOverlay } from "@/ui/witnessOverlay";
 import { makeCrowdSource } from "@/sources/crowd";
 import { createPresenceCamera, PresenceModel, silhouetteSource, type PresenceCamera } from "@/input/presence";
+import { WindModel } from "@/input/wind";
 import { Exhibition } from "@/app/exhibition";
 import { statementFor } from "@/presets/statements";
 import { createCaption } from "@/ui/caption";
 import { hasWebgl, NoWebglError, showNoWebgl } from "@/ui/noWebgl";
+import { colourSpecies } from "@/particles/colourSpecies";
+import { installFooter } from "@/ui/footer";
+import { MEMORY_FORMS, SPECIES_FROM, type MemoryForm, type SpeciesFrom } from "@/types";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -131,7 +135,7 @@ interface SimEngine {
   step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
   regainMemory(dt: number, rate: number): void;
   restoreMemory(): void;
-  setSpeciesCount(matrix: InteractionMatrix, n: number): void;
+  setSpeciesCount(matrix: InteractionMatrix, n: number, assignment?: Uint8Array): void;
   meanTargetDistance(): number;
   /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
   spawnRipple(x: number, y: number, z: number): void;
@@ -252,8 +256,10 @@ const genesis = new Genesis();
 let genesisSaved: { visual: VisualSettings; ripple: number } | null = null;
 // A look's statement, shown quietly when it is chosen.
 const caption = createCaption();
-// The visitor's camera switch (PRESENCE, below).
+// The room's camera switches: PRESENCE (who is here) and WIND (how the room
+// moves) read the same eye, below.
 const presence = { enabled: false };
+const wind = { enabled: false, strength: 1 };
 
 // --- Ecology state ---------------------------------------------------------
 // Predation, population and mortality. CPU backend only, on purpose: death and
@@ -354,9 +360,57 @@ function stepEcology(dt: number): void {
 function applySpeciesCount(n: number): void {
   abandonEvolution();
   speciesCount = n;
-  engine.setSpeciesCount(matrix, n);
+  assignSpecies();
   phenotypeLook = phenotypeLook ? clampPhenotype(phenotypeLook, n) : null;
   applyLook();
+}
+
+// --- Form and kin (v0.11.2) ---------------------------------------------------
+// Two ways of holding a memory that live outside the engines: how an image is
+// drawn (TONE or LINE) and who belongs to which species (MIXED or COLOUR).
+// Both are parameters, so looks, undo and the saved state carry them; these
+// two remember what the swarm was last given, so a change is applied once.
+let appliedForm: MemoryForm = "tone";
+let appliedSpecies: SpeciesFrom = "mixed";
+
+/** Deal the species: round-robin, or by the colour each particle came from. */
+function assignSpecies(): void {
+  const byColour = params.life.species === "colour" && sourceColors !== null;
+  engine.setSpeciesCount(
+    matrix,
+    speciesCount,
+    byColour ? colourSpecies(sourceColors!, engine.count, speciesCount) : undefined
+  );
+  appliedSpecies = params.life.species;
+}
+
+/**
+ * Bring the swarm in line with the form and kin parameters. A new form
+ * resamples the image and retargets the living swarm in place, so the
+ * particles travel from the photograph to its drawing instead of being
+ * reborn. Anything that is not an image has one form and ignores it.
+ */
+function syncFormAndKin(): void {
+  if (params.memory.form !== appliedForm) {
+    appliedForm = params.memory.form;
+    if (pendingHandle?.kind === "image") {
+      const sample = pendingHandle.resample(engine.count, undefined, appliedForm);
+      const n = Math.min(sample.count, engine.count) * 3;
+      if (presenceHome) presenceHome = sample.positions.slice(0, n);
+      else {
+        engine.targets.set(sample.positions.subarray(0, n));
+        engine.uploadTargets?.();
+      }
+      sourceColors = sample.colors.slice(0, n);
+      if (params.life.species === "colour") assignSpecies();
+      applyLook();
+      scheduleSave();
+    }
+  }
+  if (params.life.species !== appliedSpecies) {
+    assignSpecies();
+    applyLook();
+  }
 }
 
 /**
@@ -573,6 +627,9 @@ function buildFromSource(sample: FlatSource): void {
   // at the live count with a different capacity, and the pristine copy must
   // follow the count, not the buffer it was captured from.
   sourceColors = engine.colors.slice(0, engine.count * 3);
+  // A new engine deals its species round-robin; colour kin is dealt again.
+  appliedSpecies = "mixed";
+  if (params.life.species === "colour") assignSpecies();
   witness.resize(engine.count, WITNESS_SEED);
   installEcology();
   applyLook();
@@ -654,6 +711,7 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   // sourceColors stays untouched: it still describes this source, and
   // re-deriving it from engine.colors would capture whatever look
   // applyLook baked last.
+  if (params.life.species === "colour") assignSpecies();
   installEcology();
   applyLook();
   scene.add(particleRenderer.points);
@@ -803,6 +861,9 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   if (cfg) {
     Object.assign(params.memory, cfg.params.memory);
     Object.assign(params.life, cfg.params.life);
+    // Configs from before 0.11.2 carry neither; a hand-edited one may carry nonsense.
+    if (!MEMORY_FORMS.includes(params.memory.form)) params.memory.form = "tone";
+    if (!SPECIES_FROM.includes(params.life.species)) params.life.species = "mixed";
     params.turbulence = cfg.params.turbulence;
     params.drift = cfg.params.drift;
     params.gravity = cfg.params.gravity;
@@ -906,13 +967,64 @@ let sourceUi: SourceUiState = { phase: "empty" };
 function setSourceUi(next: SourceUiState): void {
   sourceUi = next;
   sourceCard.update(next);
+  refreshCutoutUi();
 }
 const sourceCard = createSourceCard({
   onUpload: () => fileInput.click(),
   onSample: (url) => void openUrlSource(url),
+  onCutout: () => void toggleCutout(),
 });
-// The demo card is the piece alone: no cards, no panel, no guide.
+
+// --- CUTOUT: forget the background of a photograph ---------------------------------
+let cutBusy = false;
+
+function cutoutState(): { available: boolean; active: boolean; busy: boolean } {
+  const h = pendingHandle;
+  return {
+    available: h?.kind === "image" && (h.cutOut !== undefined || h.original !== undefined),
+    active: h?.original !== undefined,
+    busy: cutBusy,
+  };
+}
+
+function refreshCutoutUi(): void {
+  sourceCard.setCutout(cutoutState());
+  panelApi?.refresh();
+}
+
+async function toggleCutout(): Promise<void> {
+  const handle = pendingHandle;
+  if (!handle || cutBusy) return;
+  if (handle.original) {
+    await adoptHandle(handle.original);
+    flashHint("BACKGROUND RESTORED", 3);
+    return;
+  }
+  if (!handle.cutOut) return;
+  // A newer drop supersedes this cut, like any load.
+  const mySeq = ++sourceLoadSeq;
+  cutBusy = true;
+  refreshCutoutUi();
+  flashHint("CUTTING OUT THE SUBJECT...", 10);
+  try {
+    const cut = await handle.cutOut();
+    if (sourceLoadSuperseded(mySeq)) return;
+    if (!cut) {
+      flashHint("NOTHING TO CUT OUT - THIS PICTURE HAS NO CLEAR SUBJECT", 6);
+      return;
+    }
+    await adoptHandle(cut);
+    flashHint("CUTOUT: THE BACKGROUND IS FORGOTTEN - PRESS AGAIN TO BRING IT BACK", 6);
+  } catch (err) {
+    if (!sourceLoadSuperseded(mySeq)) flashHint(`CUTOUT FAILED: ${(err as Error).message}`.slice(0, 120), 6);
+  } finally {
+    cutBusy = false;
+    refreshCutoutUi();
+  }
+}
+// The demo card is the piece alone: no cards, no panel, no guide, no footer.
 if (!demoMode) document.body.appendChild(sourceCard.element);
+if (!demoMode) installFooter();
 
 // --- Source persistence: the last memory survives a reload --------------------
 const sourceStore = openSourceStore();
@@ -970,7 +1082,8 @@ function sourceLoadSuperseded(mySeq: number): boolean {
 async function adoptHandle(handle: SourceHandle): Promise<void> {
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
-    const sample = handle.resample(currentCount);
+    const sample = handle.resample(currentCount, undefined, params.memory.form);
+    appliedForm = params.memory.form;
     pendingHandle = handle;
     currentSourceName = handle.name;
     currentSourceDetail = handle.detail;
@@ -1481,6 +1594,7 @@ const shortcutCtx: ShortcutContext = {
   isGuideOpen: () => guide.isOpen(),
   genesis: () => startGenesis(),
   togglePresence: () => void togglePresence(),
+  toggleWind: () => void toggleWind(),
   startExhibition: () => startExhibition(),
 };
 
@@ -1563,6 +1677,8 @@ if (!demoMode) {
     pointer,
     backend: () => activeBackend,
     presence,
+    wind,
+    cutout: cutoutState,
     callbacks: {
       onTogglePause() {
         togglePause();
@@ -1630,6 +1746,7 @@ if (!demoMode) {
           return;
         }
         applySnapshot(snap, params, visual, matrix, activeCamera);
+        syncFormAndKin();
         applyLook();
         engine.configureGrid(params);
         activePreset = null;
@@ -1648,6 +1765,7 @@ if (!demoMode) {
           strength: 0,
           decay: 0,
           reconstructionEase: 1,
+          form: "tone",
         });
         Object.assign(params.life, {
           attraction: 1,
@@ -1659,6 +1777,7 @@ if (!demoMode) {
           forceScale: 6,
           coreRadius: 0.3,
           kernel: "pulse",
+          species: "mixed",
         });
         params.turbulence = 0.02;
         params.drift = 0;
@@ -1694,8 +1813,18 @@ if (!demoMode) {
       onPresenceToggle() {
         void togglePresence();
       },
+      onWindToggle() {
+        void toggleWind();
+      },
       onExhibition() {
         startExhibition();
+      },
+      onFormChange() {
+        syncFormAndKin();
+        scheduleSave();
+      },
+      onCutoutToggle() {
+        void toggleCutout();
       },
       onRelease() {
         memory.setState("VOID");
@@ -1949,6 +2078,7 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   // spreads through the neighbour pass until the whole swarm dies.
   const n = presetSpeciesCount(def);
   if (n !== speciesCount) applySpeciesCount(n);
+  syncFormAndKin();
   // A preset owns the matrix: an alternate (H) yields.
   activeMatrix = matrix;
   engine.configureGrid(params);
@@ -1962,16 +2092,51 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   panelApi?.refresh();
   panelApi?.setActivePreset(name);
   panelApi?.setCount(currentCount);
-  flashHint(`LOOK: ${def.label.toUpperCase()}`, 3);
+  // LINE draws photographs; say so rather than look broken on a model.
+  const drawsNothing = params.memory.form === "line" && pendingHandle?.kind !== "image";
+  if (drawsNothing) flashHint(`LOOK: ${def.label.toUpperCase()} - IT DRAWS PHOTOGRAPHS: GIVE IT AN IMAGE`, 6);
+  else flashHint(`LOOK: ${def.label.toUpperCase()}`, 3);
   // Witness speaks through its own counter; every other look says its line.
   const line = statementFor(name);
   if (line && !def.witness) caption.show(line, captionSeconds);
   else caption.hide();
 }
 
+// --- The room's camera: one eye, two readers -------------------------------------
+// PRESENCE asks who is here; WIND asks how the room moves. They share one
+// 96x72 grey camera, opened when either is on and closed when both are off.
+let roomCam: PresenceCamera | null = null;
+let roomCamOpening: Promise<PresenceCamera> | null = null;
+
+/** The camera, opening it if need be. Null when everyone turned away while it opened. */
+async function openRoomCamera(): Promise<PresenceCamera | null> {
+  if (roomCam) return roomCam;
+  roomCamOpening ??= createPresenceCamera().finally(() => {
+    roomCamOpening = null;
+  });
+  const cam = await roomCamOpening;
+  if (roomCam) return roomCam;
+  if (!presence.enabled && !wind.enabled) {
+    cam.stop();
+    return null;
+  }
+  roomCam = cam;
+  return cam;
+}
+
+function closeRoomCameraIfUnused(): void {
+  if (presence.enabled || wind.enabled) return;
+  roomCam?.stop();
+  roomCam = null;
+}
+
+function cameraFailure(feature: string, err: unknown): string {
+  const denied = (err as Error)?.name === "NotAllowedError";
+  return denied ? `${feature} NEEDS THE CAMERA - PERMISSION WAS NOT GIVEN` : `NO CAMERA AVAILABLE FOR ${feature}`;
+}
+
 // --- Presence: the swarm remembers whoever stands in front of it ---------------
 const presenceModel = new PresenceModel();
-let presenceCam: PresenceCamera | null = null;
 /** The memory's own targets, kept while a visitor borrows the swarm. */
 let presenceHome: Float32Array | null = null;
 let presenceWas = presenceModel.state;
@@ -1983,31 +2148,70 @@ const PRESENCE_SHAPE_SECONDS = 0.4;
 async function togglePresence(): Promise<void> {
   if (presence.enabled) {
     stopPresence();
-    flashHint("PRESENCE: OFF - THE CAMERA IS CLOSED", 3);
+    flashHint("PRESENCE: OFF", 3);
     return;
   }
   presence.enabled = true;
   panelApi?.refresh();
   try {
-    presenceCam = await createPresenceCamera();
+    if (!(await openRoomCamera())) return;
     presenceModel.reset();
     presenceWas = presenceModel.state;
     flashHint("PRESENCE: LEARNING THE EMPTY ROOM - STEP ASIDE FOR A MOMENT", 5);
   } catch (err) {
     presence.enabled = false;
-    presenceCam = null;
+    closeRoomCameraIfUnused();
     panelApi?.refresh();
-    const denied = (err as Error)?.name === "NotAllowedError";
-    flashHint(denied ? "PRESENCE NEEDS THE CAMERA - PERMISSION WAS NOT GIVEN" : "NO CAMERA AVAILABLE FOR PRESENCE", 6);
+    flashHint(cameraFailure("PRESENCE", err), 6);
   }
 }
 
 function stopPresence(): void {
-  presenceCam?.stop();
-  presenceCam = null;
   presence.enabled = false;
   releaseVisitor();
+  closeRoomCameraIfUnused();
   panelApi?.refresh();
+}
+
+// --- Wind: the swarm feels how the room moves ------------------------------------
+const windModel = new WindModel();
+
+async function toggleWind(): Promise<void> {
+  if (wind.enabled) {
+    stopWind();
+    flashHint("WIND: OFF", 3);
+    return;
+  }
+  wind.enabled = true;
+  panelApi?.refresh();
+  try {
+    if (!(await openRoomCamera())) return;
+    windModel.reset();
+    flashHint("WIND: WAVE AND THE SWARM SCATTERS - STAND STILL AND IT RE-FORMS", 6);
+    const line = statementFor("wind");
+    if (line) caption.show(line, 8);
+  } catch (err) {
+    wind.enabled = false;
+    closeRoomCameraIfUnused();
+    panelApi?.refresh();
+    flashHint(cameraFailure("WIND", err), 6);
+  }
+}
+
+function stopWind(): void {
+  wind.enabled = false;
+  windModel.reset();
+  pushWind();
+  closeRoomCameraIfUnused();
+  panelApi?.refresh();
+}
+
+/** The push the engines read: the room's when Wind is on, exactly nothing when it is off. */
+function pushWind(): void {
+  const w = wind.enabled ? windModel.out : { x: 0, y: 0, agitation: 0 };
+  params.wind.x = w.x;
+  params.wind.y = w.y;
+  params.wind.agitation = w.agitation;
 }
 
 /** Give the swarm back its own memory. */
@@ -2021,8 +2225,11 @@ function releaseVisitor(): void {
 /** The engine the kept home belongs to: a rebuild makes the old home stale. */
 let presenceEngine: SimEngine | null = null;
 
-function stepPresence(dt: number): void {
-  if (!presenceCam) return;
+function stepRoom(dt: number): void {
+  if (!roomCam) {
+    if (params.wind.x !== 0 || params.wind.y !== 0 || params.wind.agitation !== 0) pushWind();
+    return;
+  }
   if (presenceEngine !== engine) {
     presenceHome = null;
     presenceEngine = engine;
@@ -2031,8 +2238,19 @@ function stepPresence(dt: number): void {
   if (presenceFrameClock < PRESENCE_FRAME_SECONDS) return;
   const frameDt = presenceFrameClock;
   presenceFrameClock = 0;
-  const grey = presenceCam.grab();
-  if (!grey) return;
+  const grey = roomCam.grab();
+  if (wind.enabled) {
+    // Reduced motion asks for drift, not sway: the room pushes gently.
+    windModel.options.strength = wind.strength * (reducedMotion ? 0.4 : 1);
+    if (grey) windModel.frame(grey, frameDt);
+    else windModel.idle(frameDt);
+  }
+  pushWind();
+  if (grey && presence.enabled) readPresence(grey, frameDt);
+}
+
+/** One camera frame's worth of Presence: the visitor comes, stays, goes. */
+function readPresence(grey: Uint8Array, frameDt: number): void {
   const state = presenceModel.update(grey, frameDt);
   if (state === "present") {
     if (presenceWas !== "present") {
@@ -2209,7 +2427,7 @@ function frameInner(now: number): void {
   if (!simPaused) evolver.tick(dt);
   if (!simPaused) stepGenesis(dt);
   stepWitness(now);
-  stepPresence(dt);
+  stepRoom(dt);
   stepExhibition(now);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection

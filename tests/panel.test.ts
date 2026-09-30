@@ -48,11 +48,15 @@ function makeCallbacks(): PanelCallbacks & { calls: string[] } {
     onSoundSourceChange: noop("soundSource"),
     onSoundscapeToggle: noop("soundscape"),
     onPresenceToggle: noop("presence"),
+    onWindToggle: noop("wind"),
+    onCutoutToggle: noop("cutout"),
     onExhibition: noop("exhibition"),
   };
 }
 
-function makePanel() {
+function makePanel(
+  overrides: { cutout?: () => { available: boolean; active: boolean; busy: boolean }; wind?: { enabled: boolean; strength: number } } = {}
+) {
   document.body.innerHTML = ""; // isolate: createPanel appends to the body
   const callbacks = makeCallbacks();
   const visual = defaultVisualSettings();
@@ -72,6 +76,8 @@ function makePanel() {
     ecology: defaultEcologyParams(),
     ecologyEvents: { births: 0, deaths: 0 },
     presence: { enabled: false },
+    wind: overrides.wind ?? { enabled: false, strength: 1 },
+    cutout: overrides.cutout ?? (() => ({ available: false, active: false, busy: false })),
     callbacks,
   });
   document.body.appendChild(api.element);
@@ -228,5 +234,63 @@ describe("the studio layout", () => {
     expect(q("#void-tools").hidden).toBe(true);
     expect(q("#panel").hidden).toBe(true);
     expect(q("#void-looks").hidden).toBe(false);
+  });
+});
+
+describe("the room and the picture (v0.11.2)", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("YOU carries Presence and Wind, each with its switch and its promise", () => {
+    const p = makePanel();
+    q<HTMLButtonElement>('[data-action="tool-presence"]').click();
+    const body = [...q("#void-flyout").querySelectorAll<HTMLElement>(".flyout-body")].find((b) => !b.hidden)!;
+    const text = body.textContent ?? "";
+    expect(text).toContain("Wind");
+    expect(text).toContain("Wind strength");
+    // The privacy statement is said where the camera is switched on.
+    expect(text).toContain("NOTHING IS KEPT OR SENT");
+    const rows = [...body.querySelectorAll<HTMLElement>(".row")];
+    const windRow = rows.find((r) => r.querySelector("label")?.textContent === "Wind")!;
+    expect(windRow).toBeTruthy();
+    (windRow.querySelector("button") as HTMLButtonElement).click();
+    expect(p.callbacks.calls).toContain("wind");
+  });
+
+  it("the YOU tool lights when either camera feature is on", () => {
+    makePanel({ wind: { enabled: true, strength: 1 } });
+    expect(q('[data-action="tool-presence"]').classList.contains("lit")).toBe(true);
+    makePanel();
+    expect(q('[data-action="tool-presence"]').classList.contains("lit")).toBe(false);
+  });
+
+  it("the Background row shows only for a picture that can be cut, and cuts once", () => {
+    let state = { available: false, active: false, busy: false };
+    const p = makePanel({ cutout: () => state });
+    const row = () =>
+      [...document.querySelectorAll<HTMLElement>("#panel .row")].find((r) => r.querySelector("label")?.textContent === "Background")!;
+    expect(row()).toBeTruthy();
+    expect(row().style.display).toBe("none");
+    state = { available: true, active: false, busy: false };
+    p.api.refresh();
+    expect(row().style.display).toBe("");
+    const chips = [...row().querySelectorAll<HTMLButtonElement>("button")];
+    expect(chips.map((b) => b.textContent)).toEqual(["KEPT", "CUT OUT"]);
+    expect(chips[0].classList.contains("on")).toBe(true);
+    chips[1].click();
+    expect(p.callbacks.calls.filter((c) => c === "cutout")).toHaveLength(1);
+    // Already cut: the button for the state it is in does nothing.
+    state = { available: true, active: true, busy: false };
+    p.api.refresh();
+    const after = [...row().querySelectorAll<HTMLButtonElement>("button")];
+    expect(after[1].classList.contains("on")).toBe(true);
+    after[1].click();
+    expect(p.callbacks.calls.filter((c) => c === "cutout")).toHaveLength(1);
+  });
+
+  it("FORM and KIN are there, and say what they do", () => {
+    makePanel();
+    const labels = [...document.querySelectorAll<HTMLElement>("#panel .row label")].map((l) => l.textContent);
+    expect(labels).toContain("Form");
+    expect(labels).toContain("Kin");
   });
 });

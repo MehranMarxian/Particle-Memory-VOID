@@ -71,6 +71,31 @@ export const IMAGE_SAMPLE_DEFAULTS = {
 };
 
 /**
+ * A picture as a source. It can offer its own CUTOUT: a second handle over
+ * the same pixels with the background made transparent, which keeps a link
+ * back to this one so the background can be brought back.
+ */
+export function imageHandle(name: string, img: ImageDataLike, original?: SourceHandle): SourceHandle {
+  const handle: SourceHandle = {
+    name,
+    kind: "image",
+    detail: `${img.width}×${img.height} image${original ? " · cut out" : ""}`,
+    resample: (count, _seed, mode = "tone") =>
+      sampleImage(img, { count, planeSize: TARGET_WORLD_SIZE, ...IMAGE_SAMPLE_DEFAULTS, mode }),
+    original,
+  };
+  if (!original) {
+    handle.cutOut = async () => {
+      // Loaded on demand: the graph-cut is not part of the page's first load.
+      const { cutout, applyCutout } = await import("./cutout");
+      const result = await cutout(img);
+      return result ? imageHandle(name, applyCutout(img, result.mask), handle) : null;
+    };
+  }
+  return handle;
+}
+
+/**
  * Load any supported file into a resamplable source handle.
  * Heavy loader modules (GLTF/OBJ/STL) are imported lazily.
  */
@@ -96,14 +121,7 @@ export async function loadSource(
   }
 
   if (detected === "image") {
-    const img = await imageToData(data);
-    return {
-      name,
-      kind: detected,
-      detail: `${img.width}×${img.height} image`,
-      resample: (count) =>
-        sampleImage(img, { count, planeSize: TARGET_WORLD_SIZE, ...IMAGE_SAMPLE_DEFAULTS }),
-    };
+    return imageHandle(name, await imageToData(data));
   }
 
   if (detected === "pointcloud") {

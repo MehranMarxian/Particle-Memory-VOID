@@ -1,3 +1,5 @@
+import type { MemoryForm as SampleMode } from "@/types";
+
 /**
  * Common source representation.
  *
@@ -15,13 +17,27 @@ export interface FlatSource {
   weights: Float32Array;
 }
 
+export type { SampleMode };
+
 export type SourceKind = "image" | "mesh" | "pointcloud" | "synthetic";
 
 export interface SourceHandle {
   name: string;
   kind: SourceKind;
   detail: string;
-  resample(count: number, seed?: number): FlatSource;
+  /**
+   * `mode` is how an image is remembered (TONE or LINE, v0.11.2). Sources
+   * that are not images ignore it: a mesh has no drawing to find.
+   */
+  resample(count: number, seed?: number, mode?: SampleMode): FlatSource;
+  /**
+   * Images only (CUTOUT, v0.11.2): the same picture with its background
+   * forgotten, or null when there is no clear subject to keep. Absent on
+   * a handle that is already cut out, and on everything that is not a picture.
+   */
+  cutOut?(): Promise<SourceHandle | null>;
+  /** On a cut-out handle: the picture as it was, to bring the background back. */
+  original?: SourceHandle;
 }
 
 export const TARGET_WORLD_SIZE = 9;

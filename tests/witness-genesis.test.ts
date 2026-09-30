@@ -1,3 +1,4 @@
+import { mulberry32 } from "@/utils/math";
 import { describe, expect, it } from "vitest";
 import { SECONDS_PER_HUNGER_DEATH, Witness, WITNESS_TRACE } from "@/app/witness";
 import { Genesis, GENESIS_SCORE, GENESIS_SECONDS } from "@/app/genesis";
@@ -97,9 +98,11 @@ describe("Presence", () => {
   const H = 6;
   const opts = { threshold: 20, enterFraction: 0.1, leaveFraction: 0.05, enterSeconds: 0.5, leaveSeconds: 1, learnSeconds: 0.5 };
   const room = () => new Uint8Array(W * H).fill(40);
+  // A visitor is at least three pixels wide: since v0.11.2 the mask's
+  // median takes anything thinner for noise.
   const visitor = () => {
     const f = room();
-    for (let y = 1; y < 5; y++) for (let x = 3; x < 5; x++) f[y * W + x] = 200;
+    for (let y = 1; y < 5; y++) for (let x = 3; x < 6; x++) f[y * W + x] = 200;
     return f;
   };
 
@@ -126,6 +129,81 @@ describe("Presence", () => {
     const src = silhouetteSource(m.mask, W, H, 500, () => 0.5)!;
     expect(src.count).toBe(500);
     expect(silhouetteSource(new Uint8Array(W * H), W, H, 10, Math.random)).toBeNull();
+  });
+});
+
+describe("Presence, the steadier eye (v0.11.2)", () => {
+  const W = 24;
+  const H = 18;
+  const opts = { threshold: 20, enterFraction: 0.05, leaveFraction: 0.02, enterSeconds: 0.2, leaveSeconds: 1, learnSeconds: 1 };
+  const room = (level = 60) => new Uint8Array(W * H).fill(level);
+  const learn = (m: PresenceModel, frame: (t: number) => Uint8Array) => {
+    for (let t = 0; m.state === "learning"; t++) m.update(frame(t), 0.1);
+  };
+
+  it("does not take a flickering lamp for a visitor", () => {
+    const lamp = (t: number) => {
+      const f = room();
+      const v = t % 2 ? 95 : 25; // +-35 around the wall
+      for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) f[y * W + x] = v;
+      return f;
+    };
+    const m = new PresenceModel(W, H, opts);
+    learn(m, lamp);
+    for (let t = 0; t < 20; t++) m.update(lamp(t), 0.1);
+    expect(m.state).toBe("absent");
+    expect(m.fraction).toBe(0);
+  });
+
+  it("does not take the lights coming up for a visitor", () => {
+    const m = new PresenceModel(W, H, opts);
+    learn(m, () => room(60));
+    m.update(room(96), 0.1);
+    expect(m.gain).toBeCloseTo(1.6, 2);
+    // The room goes on learning its new light, and nobody arrives.
+    for (let t = 0; t < 30; t++) m.update(room(96), 0.1);
+    expect(m.state).toBe("absent");
+    expect(m.gain).toBeLessThan(1.6);
+  });
+
+  it("still sees a visitor in a room whose light has changed", () => {
+    const m = new PresenceModel(W, H, opts);
+    learn(m, () => room(60));
+    const brighter = () => {
+      const f = room(90);
+      for (let y = 3; y < 16; y++) for (let x = 9; x < 15; x++) f[y * W + x] = 10;
+      return f;
+    };
+    for (let t = 0; t < 5; t++) m.update(brighter(), 0.1);
+    expect(m.state).toBe("present");
+  });
+
+  it("keeps the visitor and drops a stray patch in the corner", () => {
+    const m = new PresenceModel(W, H, opts);
+    learn(m, () => room());
+    const f = room();
+    for (let y = 3; y < 16; y++) for (let x = 9; x < 15; x++) f[y * W + x] = 200; // 78 px
+    for (let y = 0; y < 3; y++) for (let x = 21; x < 24; x++) f[y * W + x] = 200; // 9 px
+    m.update(f, 0.1);
+    expect(m.mask[1 * W + 22]).toBe(0);
+    expect(m.mask[9 * W + 12]).toBe(1);
+  });
+
+  it("leans the silhouette's particles toward its outline", () => {
+    const mask = new Uint8Array(W * H);
+    for (let y = 2; y < 16; y++) for (let x = 5; x < 19; x++) mask[y * W + x] = 1;
+    const edgeShare = (outline: number) => {
+      const src = silhouetteSource(mask, W, H, 4000, mulberry32(5), H, outline)!;
+      let edge = 0;
+      for (let k = 0; k < src.count; k++) {
+        const px = W / 2 - src.positions[k * 3];
+        const py = H / 2 - src.positions[k * 3 + 1];
+        const inner = px > 7 && px < 17 && py > 4 && py < 14;
+        if (!inner) edge++;
+      }
+      return edge / src.count;
+    };
+    expect(edgeShare(2)).toBeGreaterThan(edgeShare(0) + 0.1);
   });
 });
 

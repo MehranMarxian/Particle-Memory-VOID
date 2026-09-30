@@ -36,6 +36,7 @@ function makeCtx(isGuideOpen: () => boolean = () => false) {
     toggleEcology: () => calls.push("ecology"),
     genesis: () => calls.push("genesis"),
     togglePresence: () => calls.push("presence"),
+    toggleWind: () => calls.push("wind"),
     startExhibition: () => calls.push("exhibition"),
     togglePause: () => calls.push("pause"),
     captureMoment: () => calls.push("capture"),

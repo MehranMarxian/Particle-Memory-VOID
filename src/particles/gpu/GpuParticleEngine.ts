@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { windMemory, windPush, windTurbulence } from "@/input/wind";
 import { GPUComputationRenderer } from "three/examples/jsm/misc/GPUComputationRenderer.js";
 import { SpatialGrid } from "../SpatialGrid";
 import type { InteractionMatrix } from "../InteractionMatrix";
@@ -205,6 +206,7 @@ export class GpuParticleEngine {
       vu[name] = { value: 0 };
     }
     vu["uPointer"] = { value: new THREE.Vector3() };
+    vu["uWind"] = { value: new THREE.Vector2() };
     vu["uRipples"] = {
       value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, -1000)),
     };
@@ -396,10 +398,12 @@ export class GpuParticleEngine {
     this.stateVar.material.uniforms["uCellSize"].value = cell;
   }
 
-  setSpeciesCount(matrix: InteractionMatrix, speciesCount: number): void {
+  setSpeciesCount(matrix: InteractionMatrix, speciesCount: number, assignment?: Uint8Array): void {
     matrix.resize(speciesCount);
     this.speciesCount = speciesCount;
-    for (let i = 0; i < this.count; i++) this.species[i] = i % speciesCount;
+    for (let i = 0; i < this.count; i++) {
+      this.species[i] = (assignment ? assignment[i] ?? i : i) % speciesCount;
+    }
     // Species is baked into the position texture's w channel, so a change is
     // a re-upload - and the organism state goes in with it. Sync the
     // throttled state mirror first, so the re-upload carries the live
@@ -569,10 +573,14 @@ export class GpuParticleEngine {
     u["uCoreRadius"].value = L.coreRadius;
     u["uMaxSpeed"].value = L.maxSpeed;
     u["uFriction"].value = L.friction;
-    u["uMemoryStrength"].value = M.strength;
+    u["uMemoryStrength"].value = windMemory(M.strength, params.wind);
     u["uMemoryDecay"].value = M.decay;
     u["uEase"].value = M.reconstructionEase;
-    u["uTurbulence"].value = params.turbulence;
+    u["uTurbulence"].value = windTurbulence(params.turbulence, params.wind);
+    {
+      const push = windPush(params.wind);
+      u["uWind"].value.set(push.x, push.y);
+    }
     u["uDrift"].value = params.drift;
     u["uGravity"].value = params.gravity;
     u["uPointer"].value.set(params.pointer.x, params.pointer.y, params.pointer.z);

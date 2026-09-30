@@ -172,6 +172,13 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "W",
+    keys: ["W"],
+    label: "Wind",
+    hint: "The camera feels how the room moves: wave and the swarm scatters, stand still and it re-forms.",
+  },
+  {
+    group: "SYSTEM",
     display: "X",
     keys: ["X"],
     label: "Exhibition",
@@ -235,6 +242,8 @@ export interface ShortcutContext {
   genesis(): void;
   /** PRESENCE: the swarm remembers the visitor in front of the camera. */
   togglePresence(): void;
+  /** WIND: the camera feels how the room moves, and the swarm answers. */
+  toggleWind(): void;
   /** EXHIBITION: the authored programme, inside the screensaver. */
   startExhibition(): void;
 }
@@ -281,6 +290,9 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       return true;
     case "V":
       ctx.togglePresence();
+      return true;
+    case "W":
+      ctx.toggleWind();
       return true;
     case "X":
       ctx.startExhibition();
