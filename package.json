@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src tests vite.config.ts"
+    "lint": "eslint src tests spike vite.config.ts"
   },
   "dependencies": {
     "three": "^0.171.0"

@@ -14,6 +14,33 @@ gives the engine something to remember.
 
 ---
 
+## 0. Scope after the Next Build Plan (7 Oct 2026)
+
+The *VOID: Next Build Plan* (2 Oct 2026) keeps this plan's spine and splits
+the work into **two releases**:
+
+- **0.12 "The Cathedral"**: slices 1–5 below. Engine, medium, light and
+  instrument.
+  - Slice 3 also carries **the medium**: the brush grid gets a pressure
+    projection (an incompressible fluid after Pavel Dobryakov's MIT
+    WebGL-Fluid-Simulation, with vorticity mapped to memory state). The
+    scent field gets **scar tissue** (Gray-Scott reaction-diffusion,
+    reimplemented from the papers, not from GPL code). Gate: the swarm's
+    wakes and scars visibly outlive it, and a portrait still reads in
+    RECONSTRUCT with the medium on. The WebGL2 path runs a 64³ grid.
+  - Slice 4 also carries **HISTORY colour**: orbit-trap style per-particle
+    history (nearest approach, peak speed, time in a cluster).
+  - Slice 5 also carries **OSC as a mapping source**, beside audio and MIDI,
+    in the same mapping UI.
+- **0.13 "The Studio"**: the Studio Link (OSC relay, `void.tox`, state
+  channels), AI perception (DEPTH lift, splat memories, tap CUTOUT),
+  **discovery** (slice 6 below moves here), and the structure pass out to
+  Scope and StreamDiffusionTD.
+
+**Slice 1 is done:** see `docs/ADR-0001-webgpu-engine.md`. The engine is raw
+WebGPU/WGSL in a lazy chunk, beside the unchanged WebGL2 stack. 500k costs
+0.44 ms per frame on the reference GPU.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise
