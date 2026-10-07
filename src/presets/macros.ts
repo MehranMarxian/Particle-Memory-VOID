@@ -114,6 +114,48 @@ export function applyMacros(m: MacroValues, params: EngineParams, visual: Visual
   }
 }
 
+/**
+ * Apply one macro only. Moving a slider must not re-apply the other four
+ * from their stored positions: those go stale the moment a look, the
+ * cycle or a section slider changes the params underneath (0.12: Memory
+ * read 0.00 while the strength was 10, and nudging Energy would have
+ * snapped the strength back to 0).
+ */
+export function applyMacro(name: MacroName, value: number, params: EngineParams, visual: VisualSettings): void {
+  const t = clamp01(value);
+  const spec = MACRO_SPEC[name];
+  for (const target of spec.engine) target.apply(params, lerp(target.min, target.max, t));
+  for (const target of spec.visual) target.apply(visual, lerp(target.min, target.max, t));
+}
+
+/**
+ * Where each macro sits for the live params, read back through one of its
+ * own targets - one the memory cycle does not overwrite (Energy reads
+ * wander, not the turbulence the cycle raises), so the MOTION sliders show
+ * the piece as it is.
+ */
+const READ_TARGET: Record<MacroName, (p: EngineParams, v: VisualSettings) => number> = {
+  memory: (p) => p.memory.strength,
+  energy: (p) => p.wander,
+  cohesion: (p) => p.life.attraction,
+  dissolution: (p) => p.memory.decay,
+  atmosphere: (_p, v) => v.glow,
+};
+const READ_INDEX: Record<MacroName, number> = { memory: 0, energy: 1, cohesion: 0, dissolution: 0, atmosphere: 0 };
+
+export function readMacro(name: MacroName, params: EngineParams, visual: VisualSettings): number {
+  const spec = MACRO_SPEC[name];
+  const target = [...spec.engine, ...spec.visual][READ_INDEX[name]];
+  const value = READ_TARGET[name](params, visual);
+  return clamp01((value - target.min) / (target.max - target.min));
+}
+
+export function readMacros(params: EngineParams, visual: VisualSettings): MacroValues {
+  const out = {} as MacroValues;
+  for (const name of MACRO_ORDER) out[name] = readMacro(name, params, visual);
+  return out;
+}
+
 /** Where the sliders start: calm defaults, nothing held, nothing fading. */
 export function defaultMacros(): MacroValues {
   return { memory: 0, energy: 0.4, cohesion: 0.5, dissolution: 0, atmosphere: 0.2 };

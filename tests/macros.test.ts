@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyMacro,
   applyMacros,
+  readMacro,
+  readMacros,
   defaultMacros,
   ENGINE_MACROS,
   MACRO_ORDER,
@@ -111,5 +114,40 @@ describe("the motion macros", () => {
   it("the engine macros are exactly the non-visual ones", () => {
     expect(ENGINE_MACROS).toEqual(["memory", "energy", "cohesion", "dissolution"]);
     for (const name of MACRO_ORDER) expect(MACRO_TIPS[name].length).toBeGreaterThan(20);
+  });
+
+  it("each slider reads the live params back", () => {
+    for (const name of MACRO_ORDER) {
+      for (const t of [0, 0.3, 1]) {
+        const params = defaultEngineParams();
+        const visual = defaultVisualSettings();
+        applyMacro(name, t, params, visual);
+        expect(readMacro(name, params, visual), `${name} at ${t}`).toBeCloseTo(t, 5);
+      }
+    }
+  });
+
+  it("Memory shows the real strength: 10 reads as 1, not a stale 0", () => {
+    // 0.12 smoke check: MOTION read 0.00 while the strength was 10.
+    const params = defaultEngineParams();
+    params.memory.strength = 10;
+    expect(readMacros(params, defaultVisualSettings()).memory).toBe(1);
+  });
+
+  it("moving one slider leaves the others' targets alone", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    params.memory.strength = 10; // set by a look, not by the macro
+    applyMacro("energy", 0.9, params, visual);
+    expect(params.memory.strength).toBe(10);
+    expect(readMacro("energy", params, visual)).toBeCloseTo(0.9, 5);
+  });
+
+  it("Energy reads a target the memory cycle does not overwrite", () => {
+    const params = defaultEngineParams();
+    const visual = defaultVisualSettings();
+    applyMacro("energy", 0.25, params, visual);
+    params.turbulence = 0.3; // the cycle's chaos raises turbulence every step
+    expect(readMacro("energy", params, visual)).toBeCloseTo(0.25, 5);
   });
 });

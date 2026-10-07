@@ -17,6 +17,7 @@ import {
   MACRO_LABELS,
   MACRO_ORDER,
   MACRO_TIPS,
+  readMacro,
   type MacroName,
   type MacroValues,
 } from "@/presets/macros";
@@ -969,7 +970,9 @@ export function createPanel(opts: {
       motionBody,
       MACRO_LABELS[macroName],
       { min: 0, max: 1, step: 0.01 },
-      () => opts.macros[macroName],
+      // The live params, not a stored position: a look, the cycle or a
+      // section slider may have moved them (readMacro).
+      () => readMacro(macroName, params, visual),
       (v) => {
         macros[macroName] = v;
         callbacks.onMacro(macroName);

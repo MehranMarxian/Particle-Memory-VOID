@@ -67,7 +67,7 @@ import {
   type BackendMode,
 } from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
-import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
+import { applyMacro, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
@@ -1590,7 +1590,8 @@ if (!demoMode) {
         // after refresh. An engine macro takes the wheel from the authored
         // cycle (which would otherwise overwrite these every step);
         // ATMOSPHERE shapes the visual alone and composes with the cycle.
-        applyMacros(macros, params, visual);
+        // This macro only: the others' stored positions may be stale.
+        applyMacro(name, macros[name], params, visual);
         if (ENGINE_MACROS.includes(name) && memory.active) {
           memory.active = false;
           panelApi?.setState("MANUAL");
