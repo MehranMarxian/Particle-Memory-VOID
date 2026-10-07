@@ -161,6 +161,11 @@ export const defaultEnvironmentParams = (): EnvironmentParams => ({
  */
 export interface MediumParams {
   enabled: boolean;
+  /**
+   * The medium's own eddies (acceleration at full agitation): what makes it
+   * visibly carry the swarm as the memory goes. The panel's Swirl.
+   */
+  stir: number;
   /** How strongly the swarm drags the medium toward its own motion, 0..1. */
   brush: number;
   /** Swirl the medium keeps and sharpens (scaled by agitation). */
@@ -178,6 +183,7 @@ export interface MediumParams {
 
 export const defaultMediumParams = (): MediumParams => ({
   enabled: false,
+  stir: 2,
   brush: 0.6,
   vorticity: 2.5,
   dissipation: 0.5,

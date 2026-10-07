@@ -703,7 +703,7 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     field: { turbulence: 0.02, drift: 0, gravity: 0, wander: 0.03 },
     scent: { enabled: false },
     heat: { enabled: false },
-    medium: { enabled: true, vorticity: 3, drag: 1.4 },
+    medium: { enabled: true, stir: 2.5, vorticity: 3, drag: 1.4 },
     scar: { enabled: true, steer: 1.4 },
     visual: {
       colorMode: "monochrome",

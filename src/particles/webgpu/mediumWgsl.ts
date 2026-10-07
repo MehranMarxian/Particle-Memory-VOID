@@ -10,7 +10,7 @@
  *   fluid velocity in xyz and the scar's V in w. One binding instead of
  *   two keeps the velocity kernel at 8 storage buffers, the portable limit.
  */
-import { SEED_REACH, SEED_SPREAD, SEED_V } from "../medium/mediumReference";
+import { HAND_REACH, SEED_REACH, SEED_SPREAD, SEED_V, STIR_K, STIR_RATE } from "../medium/mediumReference";
 
 export const BRUSH_FIXED = 1024;
 export const SEED_FIXED = 65536;
@@ -34,7 +34,12 @@ export const MED = {
   dv: 15,
   fade: 16,
   seedRate: 17,
-  size: 20,
+  time: 18,
+  stir: 19,
+  hand: 20,
+  handOn: 23,
+  handVel: 24,
+  size: 28,
 } as const;
 
 export const MEDIUM_STRUCT = /* wgsl */ `
@@ -43,7 +48,9 @@ struct Med {
   extent: f32, h: f32, dt: f32, brush: f32,
   vorticity: f32, keep: f32, windX: f32, windY: f32,
   feed: f32, kill: f32, du: f32, dv: f32,
-  fade: f32, seedRate: f32, _b: f32, _c: f32,
+  fade: f32, seedRate: f32, time: f32, stir: f32,
+  hand: vec3f, handOn: f32,
+  handVel: vec3f, _d: f32,
 }
 @group(0) @binding(0) var<uniform> med: Med;
 
@@ -90,16 +97,32 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 }
 `;
 
-/** Per cell: the swarm's drag and the wind (MediumReference.splat). */
+/** Per cell: the stir, the hand, the swarm's drag and the wind (MediumReference.splat). */
 export const MEDIUM_SPLAT_WGSL = /* wgsl */ `${MEDIUM_STRUCT}
 @group(0) @binding(1) var<storage, read> brush: array<i32>;
 @group(0) @binding(2) var<storage, read_write> velA: array<vec4f>;
+
+// The stir (mediumReference.ts stirField), term for term.
+fn stirField(p: vec3f, time: f32) -> vec3f {
+  let t = ${STIR_RATE} * time;
+  let k = ${STIR_K};
+  return vec3f(sin(k * p.y + 1.3 * t) + sin(0.7 * k * p.z - t),
+               sin(k * p.z + 1.1 * t) + sin(0.8 * k * p.x + 0.6 * t),
+               sin(k * p.x + 0.9 * t) + sin(1.2 * k * p.y - 0.7 * t));
+}
 
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) g: vec3u) {
   let c = g.x;
   if (c >= med.cells) { return; }
   var v = velA[c].xyz;
+  let wp = (vec3f(cellCoord(c)) + 0.5) * med.h - vec3f(med.extent);
+  if (med.stir != 0.0) { v = v + stirField(wp, med.time) * med.stir * med.dt; }
+  if (med.handOn > 0.5) {
+    let d = wp - med.hand;
+    let a = exp(-dot(d, d) / (${HAND_REACH} * ${HAND_REACH})) * (1.0 - exp(-10.0 * med.dt));
+    v = v + (med.handVel - v) * a;
+  }
   let w = f32(brush[c * 4u + 3u]) / ${BRUSH_FIXED}.0;
   if (w > 0.0) {
     let goal = vec3f(f32(brush[c * 4u]), f32(brush[c * 4u + 1u]), f32(brush[c * 4u + 2u])) / ${BRUSH_FIXED}.0 / w;

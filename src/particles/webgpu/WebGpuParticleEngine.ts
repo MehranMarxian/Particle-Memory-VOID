@@ -6,7 +6,7 @@ import { ScentField } from "../scent/ScentField";
 import { estimateVelocities } from "../gpu/computeHelpers";
 import { cellBudget, gridTableSize, SCAN_BLOCK } from "./hashGrid";
 import { MEDIUM_EXTENT, MEDIUM_N, WebGpuMedium } from "./WebGpuMedium";
-import { DEFAULT_SCAR } from "../medium/mediumReference";
+import { DEFAULT_SCAR, HandTracker } from "../medium/mediumReference";
 import {
   FIELD_DEPOSIT_WGSL,
   FIELD_UPDATE_WGSL,
@@ -140,6 +140,7 @@ export class WebGpuParticleEngine {
 
   /** The medium, created the first time a step asks for it (slice 3). */
   private medium: WebGpuMedium | null = null;
+  private readonly hand = new HandTracker();
   private readonly mediumStandIn: GPUBuffer;
   private readonly velocityGroups: (medium: GPUBuffer) => [GPUBindGroup, GPUBindGroup];
 
@@ -509,8 +510,11 @@ export class WebGpuParticleEngine {
     this.medium.encode(enc, {
       dt,
       agitation: m.agitation,
+      time: this.simTime,
+      hand: this.hand.update(params.pointer, dt),
       fluid: m.enabled
         ? {
+            stir: m.stir,
             brush: m.brush,
             vorticity: m.vorticity,
             dissipation: m.dissipation,

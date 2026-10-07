@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { packComputeRefs } from "./computeHelpers";
 import {
+  HAND_REACH,
+  STIR_K,
+  STIR_RATE,
+  type MediumHand,
   scarSchedule,
   SEED_REACH,
   SEED_SPREAD,
@@ -46,6 +50,8 @@ export interface GlMediumStep {
   fluid: MediumSettings | null;
   scar: (ScarSettings & { speed: number; deposit: number; erase: number }) | null;
   agitation: number;
+  time: number;
+  hand: MediumHand | null;
 }
 
 /**
@@ -120,9 +126,30 @@ const SPLAT_FS = /* glsl */ `${HEAD}
   uniform sampler2D texBrush;
   uniform float uBrush;
   uniform vec2 uWind;
+  uniform float uTime;
+  uniform float uStir;
+  uniform vec3 uHand;
+  uniform float uHandOn;
+  uniform vec3 uHandVel;
+  uniform float uExtent;
+  // The stir (mediumReference.ts stirField), term for term.
+  vec3 stirField(vec3 p, float time) {
+    float t = ${STIR_RATE} * time;
+    float k = ${STIR_K};
+    return vec3(sin(k * p.y + 1.3 * t) + sin(0.7 * k * p.z - t),
+                sin(k * p.z + 1.1 * t) + sin(0.8 * k * p.x + 0.6 * t),
+                sin(k * p.x + 0.9 * t) + sin(1.2 * k * p.y - 0.7 * t));
+  }
   void main() {
     ivec3 c = fragCell();
     vec3 v = at(texVel, c).xyz;
+    vec3 wp = (vec3(c) + 0.5) * uH - vec3(uExtent);
+    if (uStir != 0.0) v += stirField(wp, uTime) * uStir * uDt;
+    if (uHandOn > 0.5) {
+      vec3 d = wp - uHand;
+      float a = exp(-dot(d, d) / (${HAND_REACH} * ${HAND_REACH})) * (1.0 - exp(-10.0 * uDt));
+      v += (uHandVel - v) * a;
+    }
     vec4 b = at(texBrush, c);
     if (b.w > 0.0) {
       vec3 goal = b.xyz / b.w;
@@ -323,7 +350,18 @@ export class GlMedium {
       });
     };
     const tex = () => ({ value: null as THREE.Texture | null });
-    make("splat", SPLAT_FS, { texVel: tex(), texBrush: tex(), uBrush: { value: 0 }, uWind: { value: new THREE.Vector2() } });
+    make("splat", SPLAT_FS, {
+      texVel: tex(),
+      texBrush: tex(),
+      uBrush: { value: 0 },
+      uWind: { value: new THREE.Vector2() },
+      uTime: { value: 0 },
+      uStir: { value: 0 },
+      uHand: { value: new THREE.Vector3() },
+      uHandOn: { value: 0 },
+      uHandVel: { value: new THREE.Vector3() },
+      uExtent: { value: GL_MEDIUM_EXTENT },
+    });
     make("curl", CURL_FS, { texVel: tex() });
     make("confine", CONFINE_FS, { texVel: tex(), texCurl: tex(), uVorticity: { value: 0 } });
     make("advect", ADVECT_FS, { texVel: tex(), uKeep: { value: 1 } });
@@ -458,6 +496,11 @@ export class GlMedium {
         texBrush: T.brush.texture,
         uBrush: fluid.brush,
         uWind: new THREE.Vector2(fluid.windX, fluid.windY),
+        uTime: s.time,
+        uStir: fluid.stir * s.agitation,
+        uHand: new THREE.Vector3(s.hand?.x ?? 0, s.hand?.y ?? 0, s.hand?.z ?? 0),
+        uHandOn: s.hand ? 1 : 0,
+        uHandVel: new THREE.Vector3(s.hand?.vx ?? 0, s.hand?.vy ?? 0, s.hand?.vz ?? 0),
       });
       this.pass("curl", "curl", { texVel: T.velB.texture });
       this.pass("confine", "velA", {

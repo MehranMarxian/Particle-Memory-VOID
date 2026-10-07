@@ -115,9 +115,17 @@ Open for the rest of slice 2:
   stirs and the scars grow; REMEMBER: they withdraw), 5-7 ms a step at
   12k. The MEDIUM panel section and the Wake look; scars clear across
   REMEMBER.
+- Smoke check (8 Oct): toggling MEDIUM changed nothing visible. The medium
+  had no motion of its own - only the swarm dragged it - so carrying the
+  swarm by it only pulled the swarm toward its own average. It now has
+  two drives: the stir (large slow eddies scaled by agitation, the
+  panel's Swirl) and the hand (dragging the pointer moves the fluid
+  itself; the wake keeps moving after release). In VOID the swarm now
+  travels 1.75 world units in 5 s with the medium, 0.11-0.20 without,
+  on both GPU paths; RECONSTRUCT still holds (0.33).
 - Open: the CPU backend (touch, low density) has no medium yet - the
-  reference could run it at 24³; Pointer and Ripples still push the
-  particles, not the medium.
+  reference could run it at 24³; Ripples still push the particles, not
+  the medium.
 
 ## 1. What 3D Life Sim actually does (from its source)
 

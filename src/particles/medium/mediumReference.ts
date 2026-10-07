@@ -33,6 +33,71 @@ export interface MediumSettings {
   /** The room's push (acceleration, x and y), as Wind gives it. */
   windX: number;
   windY: number;
+  /**
+   * The medium's own motion: large slow eddies driven into it, scaled by
+   * agitation (acceleration at full agitation). Without a drive of its own
+   * the medium only mirrors the swarm that drags it, and carrying the swarm
+   * by its own average changes nothing anyone can see.
+   */
+  stir: number;
+}
+
+/** The hand in the medium: where it is, how it moves, how far it reaches. */
+export interface MediumHand {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
+
+/** World radius the hand moves the medium within. */
+export const HAND_REACH = 1.6;
+/** Spatial frequency (per world unit) and time rate of the stir's eddies. */
+export const STIR_K = 0.55;
+export const STIR_RATE = 0.25;
+
+/**
+ * The stir: a smooth, slowly turning field of eddies a few world units
+ * across. Not divergence-free on its own - the projection makes it so.
+ * The WGSL and GLSL copies must match this, term for term.
+ */
+export function stirField(x: number, y: number, z: number, time: number): [number, number, number] {
+  const t = STIR_RATE * time;
+  const k = STIR_K;
+  return [
+    Math.sin(k * y + 1.3 * t) + Math.sin(0.7 * k * z - t),
+    Math.sin(k * z + 1.1 * t) + Math.sin(0.8 * k * x + 0.6 * t),
+    Math.sin(k * x + 0.9 * t) + Math.sin(1.2 * k * y - 0.7 * t),
+  ];
+}
+
+/**
+ * The hand's velocity from the pointer the engines are given: positions
+ * while it is down, smoothed (several fixed steps can share one pointer
+ * sample), null when it is up.
+ */
+export class HandTracker {
+  private last: [number, number, number] | null = null;
+  private v: [number, number, number] = [0, 0, 0];
+
+  update(pointer: { x: number; y: number; z: number; strength: number }, dt: number): MediumHand | null {
+    if (!(pointer.strength > 0)) {
+      this.last = null;
+      this.v = [0, 0, 0];
+      return null;
+    }
+    const p: [number, number, number] = [pointer.x, pointer.y, pointer.z];
+    if (this.last && dt > 0) {
+      for (let k = 0; k < 3; k++) {
+        const raw = Math.max(-20, Math.min(20, (p[k] - this.last[k]) / dt));
+        this.v[k] = this.v[k] * 0.6 + raw * 0.4;
+      }
+    }
+    this.last = p;
+    return { x: p[0], y: p[1], z: p[2], vx: this.v[0], vy: this.v[1], vz: this.v[2] };
+  }
 }
 
 export interface ScarSettings {
@@ -163,19 +228,38 @@ export class MediumReference {
   }
 
   /** One fluid step: splat, confine, advect, project. Clears the brush. */
-  step(dt: number, s: MediumSettings, agitation: number): void {
-    this.splat(dt, s);
+  step(dt: number, s: MediumSettings, agitation: number, time = 0, hand: MediumHand | null = null): void {
+    this.splat(dt, s, agitation, time, hand);
     this.confine(dt, s.vorticity * agitation);
     this.advect(dt, s.dissipation);
     this.project(s.pressureIterations);
     this.brush.fill(0);
   }
 
-  /** The swarm's drag, weighted by how many particles are in the cell, and the wind. */
-  private splat(dt: number, s: MediumSettings): void {
+  /** The swarm's drag, the stir, the hand and the wind. */
+  private splat(dt: number, s: MediumSettings, agitation: number, time: number, hand: MediumHand | null): void {
     const cells = this.n ** 3;
+    const n = this.n;
     const pull = 1 - Math.exp(-6 * dt);
+    const handPull = 1 - Math.exp(-10 * dt);
+    const stir = s.stir * agitation * dt;
     for (let c = 0; c < cells; c++) {
+      const wx = ((c % n) + 0.5) * this.h - this.extent;
+      const wy = ((Math.floor(c / n) % n) + 0.5) * this.h - this.extent;
+      const wz = (Math.floor(c / (n * n)) + 0.5) * this.h - this.extent;
+      if (stir !== 0) {
+        const f = stirField(wx, wy, wz, time);
+        this.vel[c * 3] += f[0] * stir;
+        this.vel[c * 3 + 1] += f[1] * stir;
+        this.vel[c * 3 + 2] += f[2] * stir;
+      }
+      if (hand) {
+        const d2 = (wx - hand.x) ** 2 + (wy - hand.y) ** 2 + (wz - hand.z) ** 2;
+        const a = Math.exp(-d2 / (HAND_REACH * HAND_REACH)) * handPull;
+        this.vel[c * 3] += (hand.vx - this.vel[c * 3]) * a;
+        this.vel[c * 3 + 1] += (hand.vy - this.vel[c * 3 + 1]) * a;
+        this.vel[c * 3 + 2] += (hand.vz - this.vel[c * 3 + 2]) * a;
+      }
       const w = this.brush[c * 4 + 3];
       if (w > 0) {
         const a = s.brush * Math.min(1, w * 0.5) * pull;

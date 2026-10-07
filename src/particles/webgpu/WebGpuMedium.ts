@@ -1,4 +1,4 @@
-import { scarSchedule, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
+import { scarSchedule, type MediumHand, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
 import {
   MED,
   MEDIUM_ADVECT_WGSL,
@@ -26,6 +26,10 @@ export interface MediumStep {
   scar: (ScarSettings & { speed: number; deposit: number; erase: number }) | null;
   /** The memory cycle's blend: 0.05 in RECONSTRUCT, 1 in VOID. */
   agitation: number;
+  /** Simulation time (the stir turns with it). */
+  time: number;
+  /** The hand, while it is down. */
+  hand: MediumHand | null;
 }
 
 type Binding = "uniform" | "storage" | "read-only-storage";
@@ -154,6 +158,16 @@ export class WebGpuMedium {
     f[MED.dv] = scar ? scar.dv : 0;
     f[MED.fade] = schedule ? schedule.fade : 0;
     f[MED.seedRate] = scar ? scar.deposit * s.dt : 0;
+    f[MED.time] = s.time;
+    f[MED.stir] = fluid ? fluid.stir * s.agitation : 0;
+    const hand = fluid ? s.hand : null;
+    f[MED.hand] = hand ? hand.x : 0;
+    f[MED.hand + 1] = hand ? hand.y : 0;
+    f[MED.hand + 2] = hand ? hand.z : 0;
+    f[MED.handOn] = hand ? 1 : 0;
+    f[MED.handVel] = hand ? hand.vx : 0;
+    f[MED.handVel + 1] = hand ? hand.vy : 0;
+    f[MED.handVel + 2] = hand ? hand.vz : 0;
     this.device.queue.writeBuffer(this.uniform, 0, this.data);
 
     enc.clearBuffer(this.brush);

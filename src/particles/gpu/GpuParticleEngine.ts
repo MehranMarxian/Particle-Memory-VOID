@@ -9,7 +9,7 @@ import { MATRIX_TEXELS, packGridTextures, packMatrixTexels, type PackedGridTextu
 import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
 import { RippleField } from "@/input/ripples";
-import { DEFAULT_SCAR } from "../medium/mediumReference";
+import { DEFAULT_SCAR, HandTracker } from "../medium/mediumReference";
 // Type only: the medium is a lazy chunk, loaded the first time it is asked for.
 import type { GlMedium } from "./GlMedium";
 
@@ -78,6 +78,7 @@ export class GpuParticleEngine {
   /** The medium (0.12 slice 3), once loaded; until then a stand-in no pass reads. */
   private medium: GlMedium | null = null;
   private mediumLoading = false;
+  private readonly hand = new HandTracker();
   private disposed = false;
   private readonly mediumStandIn = new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType);
   private readback: Float32Array;
@@ -745,8 +746,11 @@ export class GpuParticleEngine {
         {
           dt,
           agitation: params.medium.agitation,
+          time: this.simTime,
+          hand: this.hand.update(params.pointer, dt),
           fluid: params.medium.enabled
             ? {
+                stir: params.medium.stir,
                 brush: params.medium.brush,
                 vorticity: params.medium.vorticity,
                 dissipation: params.medium.dissipation,

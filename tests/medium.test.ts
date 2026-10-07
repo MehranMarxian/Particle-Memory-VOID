@@ -6,6 +6,9 @@ import {
   scarIterations,
   scarSchedule,
   seedWeight,
+  stirField,
+  STIR_K,
+  HandTracker,
   type MediumSettings,
 } from "@/particles/medium/mediumReference";
 import { mulberry32 } from "@/utils/math";
@@ -19,6 +22,7 @@ import { MemorySystem } from "@/memory/MemorySystem";
  * swarm; scars must only grow where they were seeded and stay bounded.
  */
 const SETTINGS: MediumSettings = {
+  stir: 0,
   brush: 1,
   vorticity: 0,
   dissipation: 1,
@@ -114,6 +118,40 @@ describe("medium reference", () => {
       wild.step(1 / 60, { ...SETTINGS, vorticity: 4, dissipation: 0.6 }, 1); // VOID
     }
     expect(wild.kineticEnergy()).toBeGreaterThan(calm.kineticEnergy());
+  });
+
+  it("the stir moves the medium as the piece forgets, and barely while it remembers", () => {
+    const still = new MediumReference(12);
+    const stirred = new MediumReference(12);
+    for (let k = 0; k < 60; k++) {
+      still.step(1 / 60, { ...SETTINGS, stir: 2, dissipation: 0.5 }, 0.05, k / 60); // RECONSTRUCT
+      stirred.step(1 / 60, { ...SETTINGS, stir: 2, dissipation: 0.5 }, 1, k / 60); // VOID
+    }
+    expect(stirred.kineticEnergy()).toBeGreaterThan(still.kineticEnergy() * 50);
+    // Strong enough to carry a swarm: the eddies move at a visible pace.
+    const speeds: number[] = [];
+    for (let i = 0; i < stirred.vel.length; i += 3) speeds.push(Math.hypot(stirred.vel[i], stirred.vel[i + 1], stirred.vel[i + 2]));
+    expect(Math.max(...speeds)).toBeGreaterThan(0.3);
+  });
+
+  it("the hand drags a wake that keeps moving after it lets go", () => {
+    const m = new MediumReference(16);
+    const hand = new HandTracker();
+    for (let k = 0; k < 20; k++) {
+      const h = hand.update({ x: -3 + k * 0.3, y: 0, z: 0, strength: 1 }, 1 / 60);
+      m.step(1 / 60, { ...SETTINGS, dissipation: 0.6 }, 0, k / 60, h);
+    }
+    expect(m.velocityAt(2.5, 0, 0)[0]).toBeGreaterThan(1); // the hand moved +x at 18/s
+    expect(hand.update({ x: 0, y: 0, z: 0, strength: 0 }, 1 / 60)).toBeNull();
+    for (let k = 0; k < 30; k++) m.step(1 / 60, { ...SETTINGS, dissipation: 0.6 }, 0, 0, null);
+    expect(m.kineticEnergy()).toBeGreaterThan(0.01); // the wake drifts on, half a second later
+  });
+
+  it("the stir field is the shaders' (same terms)", () => {
+    const [x, y, z] = stirField(1, 2, 3, 4);
+    expect(x).toBeCloseTo(Math.sin(STIR_K * 2 + 1.3) + Math.sin(0.7 * STIR_K * 3 - 1), 10);
+    expect(y).toBeCloseTo(Math.sin(STIR_K * 3 + 1.1) + Math.sin(0.8 * STIR_K * 1 + 0.6), 10);
+    expect(z).toBeCloseTo(Math.sin(STIR_K * 1 + 0.9) + Math.sin(1.2 * STIR_K * 2 - 0.7), 10);
   });
 
   it("wind pushes the whole medium", () => {

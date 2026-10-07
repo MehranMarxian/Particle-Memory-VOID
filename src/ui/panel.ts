@@ -1053,7 +1053,7 @@ export function createPanel(opts: {
     "OFF",
     "The swarm moves through a medium it drags along; its wakes drift on after it has gone."
   );
-  addObjSlider(mediumBody, "Swirl", params.medium, "vorticity", 0, 8, 0.1, num, "How much the medium curls as the memory goes. Still while it remembers, stirred as it forgets.");
+  addObjSlider(mediumBody, "Swirl", params.medium, "stir", 0, 6, 0.1, num, "How strongly the medium stirs as the memory goes. Still while it remembers, carrying the swarm in eddies as it forgets. Drag through it: it follows your hand.");
   addToggle(
     mediumBody,
     "Scars",
