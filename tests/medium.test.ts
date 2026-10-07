@@ -258,6 +258,24 @@ describe("medium reference", () => {
     expect(params.medium.agitation).toBe(1);
   });
 
+  it("in manual mode the medium follows the user's memory, not the cycle's last state", () => {
+    // Smoke check, 8 Oct: with the cycle off, agitation stayed at RECONSTRUCT's
+    // 0.05 and toggling the medium changed nothing visible.
+    const params = defaultEngineParams();
+    const memory = new MemorySystem({ auto: false, startState: "RECONSTRUCT" });
+    memory.active = false;
+    params.memory.strength = 0;
+    memory.apply(params);
+    expect(params.medium.agitation).toBe(1);
+    params.memory.strength = 8;
+    memory.apply(params);
+    expect(params.medium.agitation).toBeCloseTo(0.05, 5);
+    params.memory.strength = 4;
+    memory.apply(params);
+    expect(params.medium.agitation).toBeCloseTo(0.5, 5);
+    expect(params.scar.erase).toBe(0);
+  });
+
   it("scars are quiet in RECONSTRUCT and free in VOID", () => {
     expect(scarIterations(1, 0.05)).toBeLessThan(scarIterations(1, 1));
     expect(scarIterations(1, 1)).toBe(8);

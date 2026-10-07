@@ -181,13 +181,21 @@ export interface MediumParams {
   agitation: number;
 }
 
+/**
+ * Measured in Mehran's own Chrome (8 Oct), default look, memory released:
+ * the first defaults (stir 2, brush 0.6, drag 1.2) moved the swarm 0.75 in
+ * 5 s against 0.55 with the fluid off - invisible. Dense clusters dragged
+ * the fluid inside them to their own velocity (brush), pinning the medium
+ * exactly where the particles are. Brush 0.15, stir 3, drag 2.5: 2.13
+ * against 0.35, and a remembered shape still holds (1.40 against 1.15).
+ */
 export const defaultMediumParams = (): MediumParams => ({
   enabled: false,
-  stir: 2,
-  brush: 0.6,
+  stir: 3,
+  brush: 0.15,
   vorticity: 2.5,
   dissipation: 0.5,
-  drag: 1.2,
+  drag: 2.5,
   agitation: 0.05,
 });
 
