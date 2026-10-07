@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import { gzipSync } from "node:zlib";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
@@ -65,11 +65,45 @@ function eagerGzipBudget(): Plugin {
   };
 }
 
+/**
+ * Dev server only: POST /__void/thumbnail?name=<look> with a PNG body writes
+ * public/presets/<look>.png - how a look's thumbnail is captured from the
+ * running piece (see docs/PLAN-0.12.0.md). Never part of a build.
+ */
+function thumbnailWriter(): Plugin {
+  return {
+    name: "void:thumbnail-writer",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__void/thumbnail", (req, res) => {
+        const name = new URL(req.url ?? "", "http://x").searchParams.get("name") ?? "";
+        if (req.method !== "POST" || !/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
+          res.statusCode = 400;
+          res.end("POST a PNG with ?name=<look>");
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          const png = Buffer.concat(chunks);
+          if (png.length > 4_000_000 || png.subarray(1, 4).toString() !== "PNG") {
+            res.statusCode = 400;
+            res.end("not a PNG");
+            return;
+          }
+          writeFileSync(fileURLToPath(new URL(`./public/presets/${name}.png`, import.meta.url)), png);
+          res.end(`wrote public/presets/${name}.png (${png.length} bytes)`);
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   // Relative asset paths: the same build runs at a domain root or inside any
   // subfolder, so a dist can be handed to testers or dropped onto a website.
   base: "./",
-  plugins: [eagerGzipBudget()],
+  plugins: [eagerGzipBudget(), thumbnailWriter()],
   // The app shows its own version in the panel footer.
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   resolve: {
