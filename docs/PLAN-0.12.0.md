@@ -89,6 +89,30 @@ Open for the rest of slice 2:
   view), with its own tests; main.ts keeps the app's reactions behind one
   `onInstalled` callback. `looks` and `moments` are still to do.
 
+**Slice 3a, the medium (7 Oct 2026), opt-in with `?backend=webgpu&medium=1`**
+(`medium=fluid` or `medium=scars` for one of the two). WebGPU only for now.
+
+- `particles/medium/mediumReference.ts`: the math on the CPU, tested. A 3D
+  stable-fluids medium (the swarm's drag, wind, vorticity confinement
+  scaled by how much the piece forgets, advection, Jacobi projection) and
+  Gray-Scott scars. Measured in 3D, not carried over from 2D: diffusion
+  under 1/6; seeds raise V and leave U to the reaction (pinning U every
+  step fed it to saturation); seeds spread to the six neighbours (a
+  one-cell seed dies); only memory held in place seeds (scars trace the
+  shape, not the paths); F 0.034 / k 0.063, fade 0.005.
+- `particles/webgpu/mediumWgsl.ts`, `WebGpuMedium.ts`: the same passes on a
+  64³ grid over [-12, 12]³; particles are carried by the fluid (drag 1.2)
+  and climb the scars (steer 1.2). The memory cycle's blend drives it:
+  still in RECONSTRUCT, stirred in VOID.
+- Measured on the dev GPU at 12k: 2.8 ms a step with the medium on. Torus
+  held in RECONSTRUCT (0.38 mean target distance), dissolving in VOID
+  (2.4 after 20 s), fluid settling to rms 0.005 and stirring to 0.02,
+  scars about 1% of the box while held, growing to about 24% after.
+- Open: the WebGL2 port (64³ packed in 2D textures) for fallback parity;
+  a home in the UI (a look, or a section of the panel); scars accumulate
+  across memory cycles, as nothing clears them on purpose; Pointer and
+  Ripples still push the particles, not the medium.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise

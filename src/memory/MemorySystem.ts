@@ -272,6 +272,8 @@ export class MemorySystem {
     params.memory.strength = this.memoryStrength;
     params.memory.decay = this.decay;
     params.turbulence = Math.max(params.turbulence, this.chaos);
+    // The medium stirs as the memory goes: blend is 0.05 in RECONSTRUCT, 1 in VOID.
+    params.medium.agitation = this.blend;
   }
 
   toJSON(): MemoryCyclePreset {

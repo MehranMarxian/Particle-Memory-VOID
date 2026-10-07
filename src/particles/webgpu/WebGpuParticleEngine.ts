@@ -5,6 +5,8 @@ import type { EngineParams } from "@/types";
 import { ScentField } from "../scent/ScentField";
 import { estimateVelocities } from "../gpu/computeHelpers";
 import { cellBudget, gridTableSize, SCAN_BLOCK } from "./hashGrid";
+import { MEDIUM_EXTENT, MEDIUM_N, WebGpuMedium } from "./WebGpuMedium";
+import { DEFAULT_SCAR } from "../medium/mediumReference";
 import {
   FIELD_DEPOSIT_WGSL,
   FIELD_UPDATE_WGSL,
@@ -136,6 +138,11 @@ export class WebGpuParticleEngine {
     fieldUpdate: GPUBindGroup;
   };
 
+  /** The medium, created the first time a step asks for it (slice 3). */
+  private medium: WebGpuMedium | null = null;
+  private readonly mediumStandIn: GPUBuffer;
+  private readonly velocityGroups: (medium: GPUBuffer) => [GPUBindGroup, GPUBindGroup];
+
   /** Position mirror ring: free staging buffers, and the sim time each copy was taken at. */
   private readonly posStaging: GPUBuffer[] = [];
   private readonly posStagingFree: boolean[] = [];
@@ -240,6 +247,7 @@ export class WebGpuParticleEngine {
       "read-only-storage",
       "read-only-storage",
       "read-only-storage",
+      "read-only-storage",
     ]);
     const posL = layout(["uniform", "storage", "read-only-storage", "read-only-storage"]);
     const depositL = layout(["uniform", "read-only-storage", "read-only-storage", "storage"]);
@@ -260,7 +268,7 @@ export class WebGpuParticleEngine {
     const [sA, sB] = this.stateBuffers;
     const stateGroup = (from: GPUBuffer, to: GPUBuffer) =>
       group(stateL, [this.simBuffer, this.posBuffer, this.velBuffer, from, to, this.starts, this.sorted]);
-    const velGroup = (state: GPUBuffer) =>
+    const velGroup = (state: GPUBuffer, medium: GPUBuffer) =>
       group(velL, [
         this.simBuffer,
         this.posBuffer,
@@ -270,14 +278,19 @@ export class WebGpuParticleEngine {
         this.fieldBuffer,
         this.starts,
         this.sorted,
+        medium,
       ]);
+    // Until the medium exists the binding is a stand-in, never read
+    // (mediumDrag and scarSteer are 0).
+    this.mediumStandIn = buf(16, S);
+    this.velocityGroups = (medium: GPUBuffer) => [velGroup(sB, medium), velGroup(sA, medium)];
     this.groups = {
       count: group(countL, [this.simBuffer, this.posBuffer, this.counts, this.keys]),
       scan: group(scanL, [this.scanInfoBuffer, this.counts, this.starts, this.blockSums]),
       scatter: group(scatterL, [this.scanInfoBuffer, this.keys, this.cursor, this.sorted]),
       // Index = the current state buffer before the step: read it, write the other.
       state: [stateGroup(sA, sB), stateGroup(sB, sA)],
-      velocity: [velGroup(sB), velGroup(sA)],
+      velocity: this.velocityGroups(this.mediumStandIn),
       position: group(posL, [this.simBuffer, this.posBuffer, this.velBuffer, this.targetBuffer]),
       fieldDeposit: group(depositL, [this.simBuffer, this.posBuffer, this.velBuffer, this.fieldAccum]),
       fieldUpdate: group(updateL, [this.simBuffer, this.fieldAccum, this.fieldBuffer]),
@@ -442,6 +455,7 @@ export class WebGpuParticleEngine {
     pass.dispatchWorkgroups(Math.ceil(this.tableSize / WG));
     pass.end();
     enc.copyBufferToBuffer(this.starts, 0, this.cursor, 0, this.tableSize * 4);
+    if (params.medium.enabled || params.scar.enabled) this.encodeMedium(enc, dt, params);
     pass = enc.beginComputePass();
     pass.setPipeline(this.pipes.scatter);
     pass.setBindGroup(0, this.groups.scatter);
@@ -481,6 +495,34 @@ export class WebGpuParticleEngine {
     if (posCopy >= 0) this.mirrorPositions(posCopy, this.simTime);
     if (slow) this.mirrorSlow();
     this.lastStepTime = (performance.now() - t0) / 1000;
+  }
+
+  /** The medium's step, before the particles' velocity pass reads it. */
+  private encodeMedium(enc: GPUCommandEncoder, dt: number, params: EngineParams): void {
+    if (!this.medium) {
+      this.medium = new WebGpuMedium(this.ctx.device, this.count, this.posBuffer, this.velBuffer, this.targetBuffer);
+      this.groups.velocity = this.velocityGroups(this.medium.sample);
+    }
+    const m = params.medium;
+    const sc = params.scar;
+    const push = windPush(params.wind);
+    this.medium.encode(enc, {
+      dt,
+      agitation: m.agitation,
+      fluid: m.enabled
+        ? {
+            brush: m.brush,
+            vorticity: m.vorticity,
+            dissipation: m.dissipation,
+            pressureIterations: 0, // the GPU runs its own fixed count
+            windX: push.x,
+            windY: push.y,
+          }
+        : null,
+      scar: sc.enabled
+        ? { ...DEFAULT_SCAR, feed: sc.feed, kill: sc.kill, speed: sc.speed, deposit: sc.deposit }
+        : null,
+    });
   }
 
   private writeUniforms(dt: number, params: EngineParams, matrix: InteractionMatrix): void {
@@ -547,6 +589,11 @@ export class WebGpuParticleEngine {
       f[o + 2] = r ? r.z : 0;
       f[o + 3] = r ? r.born : -1000;
     }
+    // The medium reaches the particles only once it exists.
+    f[SIM.mediumDrag] = this.medium && params.medium.enabled ? params.medium.drag : 0;
+    f[SIM.scarSteer] = this.medium && params.scar.enabled ? params.scar.steer : 0;
+    f[SIM.mediumN] = MEDIUM_N;
+    f[SIM.mediumExtent] = MEDIUM_EXTENT;
     const flat = matrix.toFlat();
     for (let i = 0; i < 64; i++) f[SIM.matrix + i] = i < flat.length ? flat[i] : 0;
     this.ctx.device.queue.writeBuffer(this.simBuffer, 0, this.simData);
@@ -655,6 +702,7 @@ export class WebGpuParticleEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.medium?.dispose();
     for (const b of [
       this.posBuffer,
       this.velBuffer,
@@ -674,6 +722,7 @@ export class WebGpuParticleEngine {
       this.stateStaging,
       this.memStaging,
       this.fieldStaging,
+      this.mediumStandIn,
     ]) {
       b.destroy();
     }

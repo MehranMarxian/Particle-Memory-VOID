@@ -154,6 +154,64 @@ export const defaultEnvironmentParams = (): EnvironmentParams => ({
   heat: 0,
 });
 
+/**
+ * The medium (0.12 slice 3): an incompressible fluid the swarm moves
+ * through and drags along, which keeps swirling after the swarm has gone.
+ * WebGPU only for now; off by default, so every look is unchanged.
+ */
+export interface MediumParams {
+  enabled: boolean;
+  /** How strongly the swarm drags the medium toward its own motion, 0..1. */
+  brush: number;
+  /** Swirl the medium keeps and sharpens (scaled by agitation). */
+  vorticity: number;
+  /** Per-second retention of the medium's motion (1 = never settles). */
+  dissipation: number;
+  /** How strongly particles are carried by the medium. */
+  drag: number;
+  /**
+   * How much the piece has forgotten, 0..1: still in RECONSTRUCT, turbulent
+   * in VOID. Written by the memory cycle each step (MemorySystem.apply).
+   */
+  agitation: number;
+}
+
+export const defaultMediumParams = (): MediumParams => ({
+  enabled: false,
+  brush: 0.6,
+  vorticity: 2.5,
+  dissipation: 0.5,
+  drag: 1.2,
+  agitation: 0.05,
+});
+
+/**
+ * Scars (0.12 slice 3): Gray-Scott reaction-diffusion on the medium's grid.
+ * Particles that still hold memory seed it; it grows patterns nobody drew,
+ * quiet while the swarm remembers and free when it forgets, and outlives it.
+ */
+export interface ScarParams {
+  enabled: boolean;
+  /** Seed per remembering particle per second. */
+  deposit: number;
+  /** Reaction speed (Gray-Scott iterations per step at full agitation / 8). */
+  speed: number;
+  /** Signed steer up the scar's gradient: particles find the pattern. */
+  steer: number;
+  /** Gray-Scott feed and kill. */
+  feed: number;
+  kill: number;
+}
+
+export const defaultScarParams = (): ScarParams => ({
+  enabled: false,
+  deposit: 1,
+  speed: 1,
+  steer: 1.2,
+  feed: 0.034,
+  kill: 0.063,
+});
+
 export interface EngineParams {
   /**
    * The room's push (v0.11.2). Live input like the pointer: written by the
@@ -172,6 +230,8 @@ export interface EngineParams {
   lifecycle: LifeCycleParams;
   heat: HeatParams;
   environment: EnvironmentParams;
+  medium: MediumParams;
+  scar: ScarParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -215,6 +275,8 @@ export const defaultEngineParams = (): EngineParams => ({
   lifecycle: defaultLifeCycleParams(),
   heat: defaultHeatParams(),
   environment: defaultEnvironmentParams(),
+  medium: defaultMediumParams(),
+  scar: defaultScarParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

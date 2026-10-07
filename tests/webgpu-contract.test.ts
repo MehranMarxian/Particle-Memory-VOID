@@ -11,6 +11,7 @@ import {
   VELOCITY_WGSL,
 } from "@/particles/webgpu/simulationWgsl";
 import { SHAPE_FIELD_GLSL, SHAPE_FIELD_WGSL } from "@/rendering/shapes";
+import * as MEDIUM from "@/particles/webgpu/mediumWgsl";
 
 /**
  * The WebGPU engine's contract, the WGSL twin of shaderContract.test.ts.
@@ -26,8 +27,8 @@ interface Field {
   type: string;
 }
 
-function structFields(src: string): Field[] {
-  const body = src.match(/struct Sim \{([\s\S]*?)\n\}/)![1];
+function structFields(src: string, name = "Sim"): Field[] {
+  const body = src.match(new RegExp(`struct ${name} \\{([\\s\\S]*?)\\n\\}`))![1];
   return [...body.matchAll(/(\w+):\s*(array<vec4f,\s*\d+>|vec[234]f|f32|u32)/g)].map((m) => ({
     name: m[1],
     type: m[2],
@@ -101,5 +102,22 @@ describe("webgpu engine contract", () => {
     const branches = (s: string) => (s.match(/if \(id < [\d.]+\)/g) ?? []).length;
     expect(branches(SHAPE_FIELD_WGSL)).toBe(branches(SHAPE_FIELD_GLSL));
     expect(SHAPE_FIELD_WGSL).not.toMatch(/\bfloat\b|\bmod\(/);
+  });
+
+  it("the medium's uniform sits where its struct says, and every field is read", () => {
+    const fields = structFields(MEDIUM.MEDIUM_STRUCT, "Med");
+    const layout = offsets(fields);
+    for (const [name, slot] of Object.entries(MEDIUM.MED)) {
+      if (name === "size") continue;
+      expect(layout.get(name), `MED.${name}`).toBe(slot);
+    }
+    expect(layout.get("$size")).toBe(MEDIUM.MED.size);
+    const kernels = Object.entries(MEDIUM)
+      .filter(([k, v]) => k.endsWith("_WGSL") && typeof v === "string")
+      .map(([, v]) => (v as string).replace(/struct Med \{[\s\S]*?\n\}/, ""))
+      .join("\n");
+    for (const f of fields.filter((x) => !x.name.startsWith("_"))) {
+      expect(kernels, `med.${f.name} is never read`).toMatch(new RegExp(`\\bmed\\.${f.name}\\b`));
+    }
   });
 });

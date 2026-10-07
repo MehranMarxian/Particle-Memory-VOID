@@ -68,8 +68,12 @@ export const SIM = {
   heatRetention: 47,
   ripples: 48,
   matrix: 64,
+  mediumDrag: 128,
+  scarSteer: 129,
+  mediumN: 130,
+  mediumExtent: 131,
   /** Total floats. */
-  size: 128,
+  size: 132,
 } as const;
 
 export const SIM_STRUCT = /* wgsl */ `
@@ -88,6 +92,7 @@ struct Sim {
   fieldN: f32, fieldExtent: f32, scentRetention: f32, heatRetention: f32,
   ripples: array<vec4f, 4>,
   matrix: array<vec4f, 16>,
+  mediumDrag: f32, scarSteer: f32, mediumN: f32, mediumExtent: f32,
 }
 @group(0) @binding(0) var<uniform> sim: Sim;
 
@@ -270,6 +275,29 @@ export const VELOCITY_WGSL = /* wgsl */ `${SIM_STRUCT}
 @group(0) @binding(5) var<storage, read> field: array<vec2f>;
 @group(0) @binding(6) var<storage, read> starts: array<u32>;
 @group(0) @binding(7) var<storage, read> sorted: array<u32>;
+// The medium (slice 3): fluid velocity in xyz, the scar's V in w.
+@group(0) @binding(8) var<storage, read> medium: array<vec4f>;
+
+fn mediumCell(x: i32, y: i32, z: i32) -> vec4f {
+  let n = i32(sim.mediumN);
+  let c = clamp(vec3i(x, y, z), vec3i(0), vec3i(n - 1));
+  return medium[u32((c.z * n + c.y) * n + c.x)];
+}
+
+// Trilinear, cell centres at integers (MediumReference.velocityAt).
+fn mediumAt(p: vec3f) -> vec4f {
+  let n = sim.mediumN;
+  let h = 2.0 * sim.mediumExtent / n;
+  let gp = clamp((p + vec3f(sim.mediumExtent)) / h - 0.5, vec3f(0.0), vec3f(n - 1.0));
+  let f0 = floor(gp);
+  let f = gp - f0;
+  let i = vec3i(f0);
+  let a = mix(mix(mediumCell(i.x, i.y, i.z), mediumCell(i.x + 1, i.y, i.z), f.x),
+              mix(mediumCell(i.x, i.y + 1, i.z), mediumCell(i.x + 1, i.y + 1, i.z), f.x), f.y);
+  let b = mix(mix(mediumCell(i.x, i.y, i.z + 1), mediumCell(i.x + 1, i.y, i.z + 1), f.x),
+              mix(mediumCell(i.x, i.y + 1, i.z + 1), mediumCell(i.x + 1, i.y + 1, i.z + 1), f.x), f.y);
+  return mix(a, b, f.z);
+}
 
 fn fieldAt(x: i32, y: i32, z: i32) -> vec2f {
   let n = i32(sim.fieldN);
@@ -479,6 +507,21 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
                    fields(p + vec3f(0.0, 0.0, h)).x - c0);
     let gm = length(sg);
     if (gm > 1e-5) { accel += sg * (sim.scentSteer * min(1.0, gm) / gm); }
+  }
+
+  // The medium carries the swarm: a drag toward the fluid's own motion.
+  if (sim.mediumDrag > 0.0) {
+    accel += (mediumAt(p).xyz - v) * sim.mediumDrag;
+  }
+  // Scars: climb (or flee) the pattern the swarm left behind.
+  if (sim.scarSteer != 0.0) {
+    let mh = 2.0 * sim.mediumExtent / sim.mediumN;
+    let s0 = mediumAt(p).w;
+    let sg = vec3f(mediumAt(p + vec3f(mh, 0.0, 0.0)).w - s0,
+                   mediumAt(p + vec3f(0.0, mh, 0.0)).w - s0,
+                   mediumAt(p + vec3f(0.0, 0.0, mh)).w - s0);
+    let gm = length(sg);
+    if (gm > 1e-5) { accel += sg * (sim.scarSteer * min(1.0, gm * 8.0) / gm); }
   }
 
   // --- Integrate ------------------------------------------------------

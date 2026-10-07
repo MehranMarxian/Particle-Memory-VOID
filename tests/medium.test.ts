@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SCAR, MediumReference, scarIterations, type MediumSettings } from "@/particles/medium/mediumReference";
+import {
+  DEFAULT_SCAR,
+  MediumReference,
+  SEED_REACH,
+  scarIterations,
+  seedWeight,
+  type MediumSettings,
+} from "@/particles/medium/mediumReference";
 import { mulberry32 } from "@/utils/math";
 
 /**
@@ -144,6 +151,24 @@ describe("medium reference", () => {
       expect(m.u[c]).toBeGreaterThanOrEqual(0);
       expect(m.u[c]).toBeLessThanOrEqual(1);
     }
+  });
+
+  it("a dense swarm seeding every step does not force-feed the scar to saturation", () => {
+    // The GPU case: dozens of remembering particles per cell, seeding every
+    // step. A seed that reset U each time fed the reaction forever (V -> 1).
+    const m = new MediumReference(12);
+    for (let k = 0; k < 200; k++) {
+      for (let x = -3; x <= 3; x += 0.5) for (let y = -3; y <= 3; y += 0.5) m.deposit(x, y, 0, 0, 0, 0, 1);
+      m.scar(1, DEFAULT_SCAR);
+    }
+    expect(Math.max(...m.v)).toBeLessThan(0.8);
+  });
+
+  it("only memory held in place seeds: the shape, not the paths to it", () => {
+    expect(seedWeight(1, 0)).toBe(1);
+    expect(seedWeight(0, 0)).toBe(0); // forgotten
+    expect(seedWeight(1, SEED_REACH * 3)).toBeLessThan(0.001); // in transit
+    expect(seedWeight(0.5, 0)).toBe(0.5);
   });
 
   it("scars are quiet in RECONSTRUCT and free in VOID", () => {

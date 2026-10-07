@@ -47,20 +47,34 @@ export interface ScarSettings {
   fade: number;
 }
 
-/** Gray-Scott's classic seed state, which a memory deposit nudges a cell toward. */
-export const SEED_U = 0.5;
+/** The V a memory deposit raises a cell toward (Gray-Scott's classic seed level). */
 export const SEED_V = 0.25;
 /** How much of a cell's seed each of its six neighbours also receives. */
 export const SEED_SPREAD = 0.5;
 
 /**
- * Measured in 3D on the reference (a seeded spherical shell, the shape a
- * held memory takes): F 0.03 / k 0.06 grows scars while memory is held and
- * keeps them after it is gone, without filling the box. Diffusion stays
- * under 1/6: in 3D the six-neighbour Laplacian's checkerboard eigenvalue
- * is -12, and 2D's familiar 0.16 sits on the edge of blowing up.
+ * Measured in 3D on the reference (a spherical shell seeded every step, the
+ * shape a held memory takes, then freed at VOID's 8 iterations a step):
+ * F 0.034 / k 0.063 with fade 0.005 holds scars at about four times the
+ * shell while it is remembered and lets them creep, slowly and steadily,
+ * once it is forgotten (12% -> 20% of the box over 2400 iterations), where
+ * F 0.03 / k 0.06 reached 45% and the F 0.022 regimes flickered. Diffusion
+ * stays under 1/6: in 3D the six-neighbour Laplacian's checkerboard
+ * eigenvalue is -12, and 2D's familiar 0.16 sits on the edge of blowing up.
  */
-export const DEFAULT_SCAR: ScarSettings = { feed: 0.03, kill: 0.06, du: 0.1, dv: 0.05, fade: 0.001 };
+export const DEFAULT_SCAR: ScarSettings = { feed: 0.034, kill: 0.063, du: 0.1, dv: 0.05, fade: 0.005 };
+
+/**
+ * How far from its own target a particle still counts as holding its
+ * memory in place (world units). Seeds are weighted by memory and by
+ * closeness: scars trace the shape that was held, not the paths of
+ * particles flying in or drifting away.
+ */
+export const SEED_REACH = 0.6;
+
+export function seedWeight(memory: number, distanceToTarget: number): number {
+  return memory * Math.exp(-(distanceToTarget * distanceToTarget) / (SEED_REACH * SEED_REACH));
+}
 
 export class MediumReference {
   readonly n: number;
@@ -332,15 +346,14 @@ export class MediumReference {
                 sd[this.idx(x, y - 1, z)] + sd[this.idx(x, y + 1, z)] +
                 sd[this.idx(x, y, z - 1)] + sd[this.idx(x, y, z + 1)]);
         }
-    // A seed nudges the cell toward Gray-Scott's classic seed state
-    // (U 0.5, V 0.25). Pushing V to 1 and U to 0 would kill the reaction
-    // where it is meant to start: with no U there is nothing to feed on.
+    // A seed raises V toward the seed level and leaves U to the reaction.
+    // Pinning U (the textbook seed sets it to 0.5) works once, but the swarm
+    // seeds every step: a cell whose U is reset each step is fed forever
+    // and V runs to saturation. With U left alone it starts and then
+    // depletes, as Gray-Scott should.
     for (let c = 0; c < cells; c++) {
       const t = Math.min(1, spread[c]);
-      if (t > 0) {
-        this.u[c] += (SEED_U - this.u[c]) * t;
-        this.v[c] = Math.max(this.v[c], this.v[c] + (SEED_V - this.v[c]) * t);
-      }
+      if (t > 0) this.v[c] = Math.max(this.v[c], this.v[c] + (SEED_V - this.v[c]) * t);
     }
     this.seed.fill(0);
     const n = this.n;

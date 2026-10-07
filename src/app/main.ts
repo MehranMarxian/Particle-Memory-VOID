@@ -207,6 +207,15 @@ params.turbulence = 0.02;
 
 const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 815 });
 
+// ?medium=1 (0.12 slice 3, WebGPU only for now): the swarm moves through a
+// medium that remembers it - a fluid it drags, and scars where memory was.
+// ?medium=fluid or ?medium=scars for one of the two.
+{
+  const m = new URLSearchParams(location.search).get("medium");
+  if (m === "1" || m === "fluid") params.medium.enabled = true;
+  if (m === "1" || m === "scars") params.scar.enabled = true;
+}
+
 // --- Look state ------------------------------------------------------------
 // The source's own baked colours are kept aside so switching back from
 // SPECIES/RANDOM to MONOCHROME/SOURCE restores them exactly.
