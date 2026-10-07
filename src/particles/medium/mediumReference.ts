@@ -1,4 +1,4 @@
-﻿/**
+/**
  * The medium, as plain TypeScript (0.12 slice 3, after the Next Build Plan).
  *
  * VOID's swarm used to move through empty space. The medium is what it moves
@@ -16,7 +16,7 @@
  * reaction-diffusion is Gray-Scott from Pearson (1993), written from the
  * equations.
  *
- * Grid: nÂ³ cells over the cube [-extent, extent]Â³, cell index
+ * Grid: n³ cells over the cube [-extent, extent]³, cell index
  * (z * n + y) * n + x. Edges clamp (the box is closed: pressure has zero
  * normal gradient at the walls).
  */
@@ -40,7 +40,7 @@ export interface ScarSettings {
   feed: number;
   /** Gray-Scott kill rate k. */
   kill: number;
-  /** Diffusion of U and V, in cellsÂ² per iteration. */
+  /** Diffusion of U and V, in cells² per iteration. */
   du: number;
   dv: number;
   /** Extra decay of V per iteration, so scars stay near where they were seeded. */
@@ -189,7 +189,7 @@ export class MediumReference {
     }
   }
 
-  /** Vorticity confinement: push along N Ã— Ï‰, N the direction to stronger swirl. */
+  /** Vorticity confinement: push along N × ω, N the direction to stronger swirl. */
   private confine(dt: number, eps: number): void {
     if (eps <= 0) return;
     const n = this.n;

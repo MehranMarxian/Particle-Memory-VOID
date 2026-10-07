@@ -192,6 +192,35 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uEnvScent;
   uniform float uEnvHeat;
   uniform sampler2D texScent;
+  // The medium (0.12 slice 3, gpu/GlMedium.ts): fluid velocity in xyz, scar
+  // V in w, 64^3 tiled 8 x 8. The grid helpers below are GlMedium's
+  // GL_GRID_GLSL, copied so the eager engine never imports the lazy medium;
+  // a contract test holds the two copies equal.
+  uniform sampler2D texMedium;
+  uniform float uMediumDrag;
+  uniform float uScarSteer;
+  #define MN 64
+  #define MT 8
+  #define ME 12.0
+  ivec2 texelOf(ivec3 c) {
+    c = clamp(c, ivec3(0), ivec3(MN - 1));
+    return ivec2((c.z % MT) * MN + c.x, (c.z / MT) * MN + c.y);
+  }
+
+  vec4 mediumCell(ivec3 c) { return texelFetch(texMedium, texelOf(c), 0); }
+  // Trilinear, cell centres at integers (MediumReference.velocityAt).
+  vec4 mediumAt(vec3 p) {
+    float mh = 2.0 * ME / float(MN);
+    vec3 g = clamp((p + vec3(ME)) / mh - 0.5, vec3(0.0), vec3(float(MN) - 1.0));
+    vec3 f0 = floor(g);
+    vec3 f = g - f0;
+    ivec3 i = ivec3(f0);
+    vec4 a = mix(mix(mediumCell(i), mediumCell(i + ivec3(1, 0, 0)), f.x),
+                 mix(mediumCell(i + ivec3(0, 1, 0)), mediumCell(i + ivec3(1, 1, 0)), f.x), f.y);
+    vec4 b = mix(mix(mediumCell(i + ivec3(0, 0, 1)), mediumCell(i + ivec3(1, 0, 1)), f.x),
+                 mix(mediumCell(i + ivec3(0, 1, 1)), mediumCell(i + ivec3(1, 1, 1)), f.x), f.y);
+    return mix(a, b, f.z);
+  }
   uniform float uScentN;
   uniform float uScentExtent;
 
@@ -472,6 +501,21 @@ export const gpuVelocityShader = /* glsl */ `
         accel += grad * (uScentSteer * min(1.0, gm) / gm);
       }
     }
+    // The medium carries the swarm: a drag toward the fluid's own motion.
+    if (uMediumDrag > 0.0) {
+      accel += (mediumAt(pos).xyz - vel) * uMediumDrag;
+    }
+    // Scars: climb (or flee) the pattern the swarm left behind.
+    if (uScarSteer != 0.0) {
+      float mh = 2.0 * ME / float(MN);
+      float s0 = mediumAt(pos).w;
+      vec3 sg = vec3(mediumAt(pos + vec3(mh, 0.0, 0.0)).w - s0,
+                     mediumAt(pos + vec3(0.0, mh, 0.0)).w - s0,
+                     mediumAt(pos + vec3(0.0, 0.0, mh)).w - s0);
+      float gm = length(sg);
+      if (gm > 1e-5) accel += sg * (uScarSteer * min(1.0, gm * 8.0) / gm);
+    }
+
     // --- Integrate ------------------------------------------------------
     float friction = pow(clamp(uFriction, 0.0, 1.0), uDt * 60.0);
     vel = (vel + accel * uDt) * friction;

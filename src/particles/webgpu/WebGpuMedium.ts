@@ -1,4 +1,4 @@
-﻿import { scarSchedule, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
+import { scarSchedule, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
 import {
   MED,
   MEDIUM_ADVECT_WGSL,
@@ -13,7 +13,7 @@ import {
   SCAR_STEP_WGSL,
 } from "./mediumWgsl";
 
-/** The medium's grid: 64Â³ cells over [-12, 12]Â³ (cells 0.375 wide). */
+/** The medium's grid: 64³ cells over [-12, 12]³ (cells 0.375 wide). */
 export const MEDIUM_N = 64;
 export const MEDIUM_EXTENT = 12;
 /** Jacobi iterations per step: even, so the solution lands back in pA. */

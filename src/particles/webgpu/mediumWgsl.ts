@@ -1,6 +1,6 @@
-﻿/**
+/**
  * The medium in WGSL (0.12 slice 3): particles/medium/mediumReference.ts,
- * pass for pass, on a 64Â³ grid. Read that file for the why; this one is the
+ * pass for pass, on a 64³ grid. Read that file for the why; this one is the
  * how, with three GPU-only differences:
  *
  * - The swarm's deposits are fixed-point atomic adds (WGSL atomics are
@@ -133,7 +133,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 }
 `;
 
-/** Per cell: vorticity confinement, along N Ã— Ï‰ (vorticity already scaled by agitation). */
+/** Per cell: vorticity confinement, along N × ω (vorticity already scaled by agitation). */
 export const MEDIUM_CONFINE_WGSL = /* wgsl */ `${MEDIUM_STRUCT}
 @group(0) @binding(1) var<storage, read_write> velA: array<vec4f>;
 @group(0) @binding(2) var<storage, read> curl: array<vec4f>;

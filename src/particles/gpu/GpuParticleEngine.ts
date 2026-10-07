@@ -9,6 +9,9 @@ import { MATRIX_TEXELS, packGridTextures, packMatrixTexels, type PackedGridTextu
 import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
 import { RippleField } from "@/input/ripples";
+import { DEFAULT_SCAR } from "../medium/mediumReference";
+// Type only: the medium is a lazy chunk, loaded the first time it is asked for.
+import type { GlMedium } from "./GlMedium";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
@@ -72,6 +75,11 @@ export class GpuParticleEngine {
   private cellStartTex: THREE.DataTexture;
   private targetsTex: THREE.DataTexture;
   private matrixTex: THREE.DataTexture;
+  /** The medium (0.12 slice 3), once loaded; until then a stand-in no pass reads. */
+  private medium: GlMedium | null = null;
+  private mediumLoading = false;
+  private disposed = false;
+  private readonly mediumStandIn = new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType);
   private readback: Float32Array;
   private renderer: THREE.WebGLRenderer;
   private pendingRegain = 0;
@@ -168,6 +176,9 @@ export class GpuParticleEngine {
     vu["texCellStart"] = { value: this.cellStartTex };
     vu["texMatrix"] = { value: this.matrixTex };
     vu["texStateNew"] = { value: null };
+    vu["texMedium"] = { value: this.mediumStandIn };
+    vu["uMediumDrag"] = { value: 0 };
+    vu["uScarSteer"] = { value: 0 };
     vu["uEntriesRes"] = {
       value: new THREE.Vector2(this.packed.entriesWidth, this.packed.entriesHeight),
     };
@@ -627,6 +638,9 @@ export class GpuParticleEngine {
       this.compute.getAlternateRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget
     ).texture;
 
+    // 4b. The medium, before the velocity pass reads it.
+    this.stepMedium(dt, params);
+
     // 5. Compute, then clear one-frame flags.
     this.compute.compute();
     this.pendingRegain = 0;
@@ -704,7 +718,58 @@ export class GpuParticleEngine {
     this.lastReadbacks.bytes += this.texW * this.texH * 16;
   }
 
+  /**
+   * The medium (0.12 slice 3): loaded on first use, then stepped from the
+   * particles' own textures - deposits are drawn on the GPU, nothing is read
+   * back. Drag and steer stay 0 until it exists.
+   */
+  private stepMedium(dt: number, params: EngineParams): void {
+    const vu = this.velocityVar.material.uniforms;
+    const want = params.medium.enabled || params.scar.enabled;
+    if (want && !this.medium && !this.mediumLoading) {
+      this.mediumLoading = true;
+      void import("./GlMedium").then((m) => {
+        if (!this.disposed) this.medium = new m.GlMedium(this.renderer, this.count, this.texW, this.texH);
+      });
+    }
+    const medium = want ? this.medium : null;
+    if (medium) {
+      const push = windPush(params.wind);
+      const sc = params.scar;
+      medium.step(
+        {
+          positions: this.getPositionTexture(),
+          velocities: this.getVelocityTexture(),
+          targets: this.targetsTex,
+        },
+        {
+          dt,
+          agitation: params.medium.agitation,
+          fluid: params.medium.enabled
+            ? {
+                brush: params.medium.brush,
+                vorticity: params.medium.vorticity,
+                dissipation: params.medium.dissipation,
+                pressureIterations: 0, // the GPU runs its own fixed count
+                windX: push.x,
+                windY: push.y,
+              }
+            : null,
+          scar: sc.enabled
+            ? { ...DEFAULT_SCAR, feed: sc.feed, kill: sc.kill, speed: sc.speed, deposit: sc.deposit, erase: sc.erase }
+            : null,
+        }
+      );
+      vu["texMedium"].value = medium.sample;
+    }
+    vu["uMediumDrag"].value = medium && params.medium.enabled ? params.medium.drag : 0;
+    vu["uScarSteer"].value = medium && params.scar.enabled ? params.scar.steer : 0;
+  }
+
   dispose(): void {
+    this.disposed = true;
+    this.medium?.dispose();
+    this.mediumStandIn.dispose();
     this.compute.dispose();
     this.scentTex.dispose();
     this.entriesTex.dispose();

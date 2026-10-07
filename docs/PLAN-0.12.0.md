@@ -108,10 +108,16 @@ Open for the rest of slice 2:
   held in RECONSTRUCT (0.38 mean target distance), dissolving in VOID
   (2.4 after 20 s), fluid settling to rms 0.005 and stirring to 0.02,
   scars about 1% of the box while held, growing to about 24% after.
-- Open: the WebGL2 port (64³ packed in 2D textures) for fallback parity;
-  a home in the UI (a look, or a section of the panel); scars accumulate
-  across memory cycles, as nothing clears them on purpose; Pointer and
-  Ripples still push the particles, not the medium.
+- Since: the WebGL2 port (`gpu/GlMedium.ts`, lazy, 3.6 kB): 64³ tiled
+  8 × 8 in one 512² float texture, deposits as additive points read from
+  the engine's own textures, the same passes as fragment shaders. Same
+  behaviour as WebGPU (RECONSTRUCT: fluid settles, scars ~1%; VOID: it
+  stirs and the scars grow; REMEMBER: they withdraw), 5-7 ms a step at
+  12k. The MEDIUM panel section and the Wake look; scars clear across
+  REMEMBER.
+- Open: the CPU backend (touch, low density) has no medium yet - the
+  reference could run it at 24³; Pointer and Ripples still push the
+  particles, not the medium.
 
 ## 1. What 3D Life Sim actually does (from its source)
 

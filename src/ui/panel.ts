@@ -1051,7 +1051,7 @@ export function createPanel(opts: {
     (v) => (params.medium.enabled = v),
     "ON",
     "OFF",
-    "The swarm moves through a medium it drags along; its wakes drift on after it has gone. Needs WebGPU for now (?backend=webgpu)."
+    "The swarm moves through a medium it drags along; its wakes drift on after it has gone."
   );
   addObjSlider(mediumBody, "Swirl", params.medium, "vorticity", 0, 8, 0.1, num, "How much the medium curls as the memory goes. Still while it remembers, stirred as it forgets.");
   addToggle(
@@ -1061,7 +1061,7 @@ export function createPanel(opts: {
     (v) => (params.scar.enabled = v),
     "ON",
     "OFF",
-    "Patterns grow where memory was held and outlive it; the swarm finds them as it forgets, and they fade as it remembers. Needs WebGPU for now."
+    "Patterns grow where memory was held and outlive it; the swarm finds them as it forgets, and they fade as it remembers."
   );
 
   const ecoBody = section("ECOLOGY", "ecology");

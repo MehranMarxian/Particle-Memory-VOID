@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SCAR,
   MediumReference,
@@ -34,7 +34,7 @@ function randomField(m: MediumReference, seed: number): void {
 
 describe("medium reference", () => {
   it("projection removes most of a smooth outflow's divergence", () => {
-    // A source in the middle: v = r Â· falloff, divergent everywhere. (White
+    // A source in the middle: v = r · falloff, divergent everywhere. (White
     // noise is the wrong probe: on a collocated grid its checkerboard modes
     // are invisible to the solve, the known limit of this scheme.)
     const make = () => {

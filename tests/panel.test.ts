@@ -1,4 +1,4 @@
-﻿// @vitest-environment happy-dom
+// @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from "vitest";
 import { createPanel, LAYOUT_KEY, type PanelCallbacks } from "@/ui/panel";
 import { defaultEngineParams } from "@/types";
