@@ -14,7 +14,9 @@
  * can actually persist.
  *
  * GPUComputationRenderer injects `resolution` and the dependency samplers
- * (texturePosition / textureVelocity) automatically.
+ * (texturePosition / textureVelocity) automatically - bound to the
+ * previous step's targets, which is why the position pass takes this
+ * step's velocity through texVelocityNew instead.
  */
 export const gpuPositionShader = /* glsl */ `
   uniform float uCount;
@@ -24,6 +26,12 @@ export const gpuPositionShader = /* glsl */ `
   uniform float uLifespan;
   uniform float uLifeSpread;
   uniform sampler2D texTargets;
+  // The velocity this step's velocity pass just wrote (semi-implicit Euler,
+  // as ParticleEngine.step integrates). GPUComputationRenderer binds its
+  // dependencies to the previous step's targets, so velocity is bound by
+  // hand rather than as a dependency: through one, the position would ride
+  // a step-old velocity - explicit Euler, a step behind the other engines.
+  uniform sampler2D texVelocityNew;
 
   float hash1(float n) { return fract(sin(n) * 43758.5453123); }
 
@@ -32,7 +40,7 @@ export const gpuPositionShader = /* glsl */ `
     float idx = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
     vec4 pos = texture2D(texturePosition, uv);
     if (idx >= uCount) { gl_FragColor = vec4(0.0); return; }
-    vec4 vel = texture2D(textureVelocity, uv);
+    vec4 vel = texture2D(texVelocityNew, uv);
 
     // Rebirth places the particle at its source point, as the CPU engine's
     // teleport does (ParticleEngine.step): the same age test and ring
@@ -72,8 +80,11 @@ export const gpuStateShader = /* glsl */ `
   uniform float uCellSize;
 
   vec2 sIndexToUv(float i, vec2 res) {
-    float x = mod(i, res.x);
-    float y = floor(i / res.x);
+    // Row from the half-index: at an exact multiple of the width, i / res.x
+    // can land a hair under the integer on the GPU, and floor + mod would
+    // then read texel i - 1. Half a texel of headroom keeps it exact.
+    float y = floor((i + 0.5) / res.x);
+    float x = i - y * res.x;
     return (vec2(x, y) + 0.5) / res;
   }
 
@@ -128,6 +139,10 @@ export const gpuVelocityShader = /* glsl */ `
   uniform sampler2D texCellStart;
   uniform sampler2D texEntries;
   uniform sampler2D texMatrix;
+  // The organism state the state pass wrote this step, bound by hand (see
+  // texVelocityNew in the position shader): the CPU engine's sleep gate
+  // reads the state its previous step ended on, which is this one.
+  uniform sampler2D texStateNew;
 
   uniform vec3 uGridMin;
   uniform vec3 uGridDims;
@@ -181,8 +196,11 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uScentExtent;
 
   vec2 indexToUv(float i, vec2 res) {
-    float x = mod(i, res.x);
-    float y = floor(i / res.x);
+    // Row from the half-index: at an exact multiple of the width, i / res.x
+    // can land a hair under the integer on the GPU, and floor + mod would
+    // then read texel i - 1. Half a texel of headroom keeps it exact.
+    float y = floor((i + 0.5) / res.x);
+    float x = i - y * res.x;
     return (vec2(x, y) + 0.5) / res;
   }
 
@@ -337,7 +355,7 @@ export const gpuVelocityShader = /* glsl */ `
       }
     }
 
-    vec4 stS = texture2D(textureState, uv);
+    vec4 stS = texture2D(texStateNew, uv);
     // Environment-modulated affinities: the swarm's own fields bend how
     // sociable it is where it has been (scent) and where it is busy (heat).
     float envMod = 1.0;

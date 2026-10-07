@@ -87,6 +87,10 @@ export class ParticleEngine {
     this.ripples = new RippleField();
     this.rng = mulberry32(seed);
     for (let i = 0; i < capacity; i++) {
+      // Species dealt round-robin, as both GPU engines' create() deal them:
+      // an engine filled in place (the app's createCpuEngine) must not run
+      // as a one-species swarm.
+      this.species[i] = i % speciesCount;
       this.renderState[i * 4] = this.rng() * Math.PI * 2; // phase
       this.renderState[i * 4 + 1] = 0.6 + this.rng() * 0.8; // omega
     }

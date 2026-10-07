@@ -18,6 +18,19 @@ export interface PackedGridTextures {
   cellStartHeight: number;
 }
 
+/** Texels in the species-matrix texture (64 x 1): up to 8 x 8 species. */
+export const MATRIX_TEXELS = 64;
+
+/**
+ * Write the flat interaction matrix (row-major, a * speciesCount + b) into
+ * RGBA texel data, one weight per texel in .x — the layout the velocity
+ * shader samples at ((si * uSpeciesCount + sj + 0.5) / 64). `texels` must
+ * be the texture's own image buffer.
+ */
+export function packMatrixTexels(flat: readonly number[], texels: Float32Array): void {
+  for (let i = 0; i < MATRIX_TEXELS; i++) texels[i * 4] = i < flat.length ? flat[i] : 0;
+}
+
 function squareDims(n: number): { w: number; h: number } {
   const w = Math.max(1, Math.ceil(Math.sqrt(n)));
   const h = Math.max(1, Math.ceil(n / w));

@@ -5,7 +5,7 @@ import { SpatialGrid } from "../SpatialGrid";
 import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulationShader";
-import { packGridTextures, type PackedGridTextures } from "./gridTextures";
+import { MATRIX_TEXELS, packGridTextures, packMatrixTexels, type PackedGridTextures } from "./gridTextures";
 import { estimateVelocities } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
 import { RippleField } from "@/input/ripples";
@@ -72,8 +72,6 @@ export class GpuParticleEngine {
   private cellStartTex: THREE.DataTexture;
   private targetsTex: THREE.DataTexture;
   private matrixTex: THREE.DataTexture;
-  private matrixData = new Float32Array(64 * 4);
-  private matrixFlat = new Float32Array(64);
   private readback: Float32Array;
   private renderer: THREE.WebGLRenderer;
   private pendingRegain = 0;
@@ -148,26 +146,28 @@ export class GpuParticleEngine {
       this.velocityVar as never,
       this.positionVar as never,
     ]);
+    // Not state: the velocity pass reads the state written this step
+    // (texStateNew, bound in step()), as the position pass reads velocity.
     this.compute.setVariableDependencies(this.velocityVar as never, [
-      this.stateVar as never,
       this.positionVar as never,
       this.velocityVar as never,
     ]);
-    this.compute.setVariableDependencies(this.positionVar as never, [
-      this.positionVar as never,
-      this.velocityVar as never,
-    ]);
+    // Not velocity: dependencies are bound to the previous step's targets,
+    // and the position pass needs the one written this step (texVelocityNew,
+    // bound in step()).
+    this.compute.setVariableDependencies(this.positionVar as never, [this.positionVar as never]);
 
     this.entriesTex = this.makeFloatTex(this.packed.entriesWidth, this.packed.entriesHeight);
     this.cellStartTex = this.makeFloatTex(this.packed.cellStartWidth, this.packed.cellStartHeight);
     this.targetsTex = this.makeFloatTex(texW, texH);
-    this.matrixTex = this.makeFloatTex(64, 1);
+    this.matrixTex = this.makeFloatTex(MATRIX_TEXELS, 1);
 
     const vu = this.velocityVar.material.uniforms;
     vu["texTargets"] = { value: this.targetsTex };
     vu["texEntries"] = { value: this.entriesTex };
     vu["texCellStart"] = { value: this.cellStartTex };
     vu["texMatrix"] = { value: this.matrixTex };
+    vu["texStateNew"] = { value: null };
     vu["uEntriesRes"] = {
       value: new THREE.Vector2(this.packed.entriesWidth, this.packed.entriesHeight),
     };
@@ -245,6 +245,7 @@ export class GpuParticleEngine {
     pu["uLifespan"] = { value: 10 };
     pu["uLifeSpread"] = { value: 0.3 };
     pu["texTargets"] = { value: this.targetsTex };
+    pu["texVelocityNew"] = { value: null };
   }
 
   /** Create and initialize a GPU engine; throws when the platform can't. */
@@ -337,8 +338,11 @@ export class GpuParticleEngine {
     for (let i = 0; i < this.capacity; i++) {
       stData[i * 4] = this.renderState[i * 4];
       stData[i * 4 + 1] = this.renderState[i * 4 + 1];
-      stData[i * 4 + 2] = 0;
-      stData[i * 4 + 3] = 0;
+      // Stress and sleep go in too: a carried swarm arrives as it was. (At
+      // create() the mirror holds zeros here, as before.) Zeroing them woke
+      // every particle for the first step - life at four times the yield.
+      stData[i * 4 + 2] = this.renderState[i * 4 + 2];
+      stData[i * 4 + 3] = this.renderState[i * 4 + 3];
     }
     const initMat = new THREE.ShaderMaterial({
       uniforms: { tInit: { value: null } },
@@ -513,9 +517,13 @@ export class GpuParticleEngine {
     // 2. CPU grid rebuild → textures.
     this.grid.build(this.positions, this.count);
     this.packed = packGridTextures(this.grid.cellEntries, this.grid.size, this.grid.cellStart_);
+    // Both dimensions: a height-only change would leave the shader addressing
+    // rows against a texture of a different height.
     if (
-      (this.entriesTex.image.width !== this.packed.entriesWidth ||
-        this.cellStartTex.image.width !== this.packed.cellStartWidth)
+      this.entriesTex.image.width !== this.packed.entriesWidth ||
+      this.entriesTex.image.height !== this.packed.entriesHeight ||
+      this.cellStartTex.image.width !== this.packed.cellStartWidth ||
+      this.cellStartTex.image.height !== this.packed.cellStartHeight
     ) {
       this.entriesTex.dispose();
       this.cellStartTex.dispose();
@@ -531,10 +539,9 @@ export class GpuParticleEngine {
     this.cellStartTex.needsUpdate = true;
 
     // 3. Species matrix → texture (dynamic texture lookup, ES1.00-safe).
-    const flat = matrix.toFlat();
-    for (let i = 0; i < 64; i++) this.matrixFlat[i] = i < flat.length ? flat[i] : 0;
-    const md = this.matrixData;
-    for (let i = 0; i < 64; i++) md[i * 4] = this.matrixFlat[i];
+    //    Written into the texture's own buffer: a separate array never
+    //    reaches the GPU, and every weight would read 0.
+    packMatrixTexels(matrix.toFlat(), this.matrixTex.image.data as unknown as Float32Array);
     this.matrixTex.needsUpdate = true;
 
     // 4. Uniforms.
@@ -609,6 +616,16 @@ export class GpuParticleEngine {
     pu["uLifeOn"].value = params.lifecycle.enabled ? 1 : 0;
     pu["uLifespan"].value = params.lifecycle.lifespan;
     pu["uLifeSpread"].value = params.lifecycle.spread;
+
+    // The targets the state and velocity passes write this step are the
+    // alternate ones: velocity reads the fresh state, and position
+    // integrates with the fresh velocity (semi-implicit Euler).
+    u["texStateNew"].value = (
+      this.compute.getAlternateRenderTarget(this.stateVar as never) as THREE.WebGLRenderTarget
+    ).texture;
+    pu["texVelocityNew"].value = (
+      this.compute.getAlternateRenderTarget(this.velocityVar as never) as THREE.WebGLRenderTarget
+    ).texture;
 
     // 5. Compute, then clear one-frame flags.
     this.compute.compute();
