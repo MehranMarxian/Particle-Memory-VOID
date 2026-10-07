@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from "vitest";
 import { createPanel, LAYOUT_KEY, type PanelCallbacks } from "@/ui/panel";
 import { defaultEngineParams } from "@/types";
@@ -16,7 +16,7 @@ import { PRESET_DEFINITIONS } from "@/presets/presets";
  * closed, reopened and remembered.
  */
 
-const SECTIONS = ["MOTION", "MEMORY", "LIFE", "FIELD", "SCENT & HEAT", "ECOLOGY", "VISUAL", "SOUND", "EVOLVE", "LAB"];
+const SECTIONS = ["MOTION", "MEMORY", "LIFE", "FIELD", "SCENT & HEAT", "MEDIUM", "ECOLOGY", "VISUAL", "SOUND", "EVOLVE", "LAB"];
 
 function makeCallbacks(): PanelCallbacks & { calls: string[] } {
   const calls: string[] = [];

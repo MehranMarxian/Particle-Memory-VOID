@@ -1,13 +1,16 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SCAR,
   MediumReference,
   SEED_REACH,
   scarIterations,
+  scarSchedule,
   seedWeight,
   type MediumSettings,
 } from "@/particles/medium/mediumReference";
 import { mulberry32 } from "@/utils/math";
+import { defaultEngineParams } from "@/types";
+import { MemorySystem } from "@/memory/MemorySystem";
 
 /**
  * The medium's reference (slice 3): the properties the WGSL inherits. A
@@ -31,7 +34,7 @@ function randomField(m: MediumReference, seed: number): void {
 
 describe("medium reference", () => {
   it("projection removes most of a smooth outflow's divergence", () => {
-    // A source in the middle: v = r · falloff, divergent everywhere. (White
+    // A source in the middle: v = r Â· falloff, divergent everywhere. (White
     // noise is the wrong probe: on a collocated grid its checkerboard modes
     // are invisible to the solve, the known limit of this scheme.)
     const make = () => {
@@ -169,6 +172,52 @@ describe("medium reference", () => {
     expect(seedWeight(0, 0)).toBe(0); // forgotten
     expect(seedWeight(1, SEED_REACH * 3)).toBeLessThan(0.001); // in transit
     expect(seedWeight(0.5, 0)).toBe(0.5);
+  });
+
+  it("remembering clears the scars: gradually, then fully", () => {
+    const m = new MediumReference(20);
+    const h = m.h;
+    for (let k = 0; k < 10; k++) {
+      for (let t = 0; t < 400; t++) {
+        const a = Math.acos(2 * ((t * 0.618) % 1) - 1);
+        const b = t * 2.39996;
+        m.deposit(4 * h * Math.sin(a) * Math.cos(b), 4 * h * Math.sin(a) * Math.sin(b), 4 * h * Math.cos(a), 0, 0, 0, 0.3);
+      }
+      m.scar(30, DEFAULT_SCAR);
+    }
+    const live = () => m.v.filter((x) => x > 0.1).length;
+    const before = live();
+    const step = () => {
+      // REMEMBER: blend 0.12, erasing.
+      const s = scarSchedule(1, 0.12, 1, DEFAULT_SCAR.fade);
+      m.scar(s.iterations, { ...DEFAULT_SCAR, fade: s.fade });
+    };
+    step();
+    expect(live()).toBeGreaterThan(before * 0.8); // a fade, not a cut
+    for (let k = 0; k < 360; k++) step(); // six seconds at 60 steps a second
+    expect(live()).toBeLessThan(before * 0.05);
+  });
+
+  it("only REMEMBER erases", () => {
+    const keep = scarSchedule(1, 1, 0, DEFAULT_SCAR.fade);
+    expect(keep.fade).toBe(DEFAULT_SCAR.fade);
+    const erase = scarSchedule(1, 0.12, 1, DEFAULT_SCAR.fade);
+    expect(erase.fade).toBeGreaterThan(DEFAULT_SCAR.fade);
+    expect(erase.iterations).toBeGreaterThanOrEqual(3);
+    const params = defaultEngineParams();
+    const memory = new MemorySystem({ auto: false, startState: "REMEMBER" });
+    memory.apply(params);
+    const early = params.scar.erase;
+    for (let k = 0; k < 60 * 6; k++) memory.update(1 / 60);
+    memory.apply(params);
+    // A ramp across REMEMBER, not a switch.
+    expect(early).toBeLessThan(0.05);
+    expect(params.scar.erase).toBeGreaterThan(early);
+    expect(params.scar.erase).toBeLessThanOrEqual(1);
+    memory.setState("VOID", true);
+    memory.apply(params);
+    expect(params.scar.erase).toBe(0);
+    expect(params.medium.agitation).toBe(1);
   });
 
   it("scars are quiet in RECONSTRUCT and free in VOID", () => {

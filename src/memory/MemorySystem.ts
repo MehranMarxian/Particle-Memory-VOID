@@ -274,6 +274,12 @@ export class MemorySystem {
     params.turbulence = Math.max(params.turbulence, this.chaos);
     // The medium stirs as the memory goes: blend is 0.05 in RECONSTRUCT, 1 in VOID.
     params.medium.agitation = this.blend;
+    // Remembering clears the scars: a ramp across the state, not a switch.
+    // Gray-Scott has a threshold - below it a fixed fade only shrinks the
+    // pattern to a new size, above it everything dies at once - so the
+    // fade rises with REMEMBER's progress and the scars withdraw over its
+    // seconds (measured on the GPU: 23% of the box to 5% over 8 s).
+    params.scar.erase = this.currentName === "REMEMBER" ? this.progress : 0;
   }
 
   toJSON(): MemoryCyclePreset {

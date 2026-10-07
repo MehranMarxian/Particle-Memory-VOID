@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   ECOLOGY_GENE_RANGES,
   applyEcologyGenes,
@@ -226,8 +226,8 @@ describe("the Predator preset", () => {
     expect(predator?.visual?.shapeBySpecies).toBe(true);
   });
 
-  it("ships eighteen presets, each with a distinct label", () => {
-    expect(PRESET_DEFINITIONS).toHaveLength(18);
-    expect(new Set(PRESET_DEFINITIONS.map((d) => d.label)).size).toBe(18);
+  it("ships nineteen presets, each with a distinct label", () => {
+    expect(PRESET_DEFINITIONS).toHaveLength(19);
+    expect(new Set(PRESET_DEFINITIONS.map((d) => d.label)).size).toBe(19);
   });
 });

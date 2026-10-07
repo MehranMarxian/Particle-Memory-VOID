@@ -201,6 +201,12 @@ export interface ScarParams {
   /** Gray-Scott feed and kill. */
   feed: number;
   kill: number;
+  /**
+   * 0..1: how hard the scars are being cleared. Written by the memory cycle
+   * (MemorySystem.apply): 1 while the piece REMEMBERs, so the patterns
+   * fade out as the memory comes back, 0 otherwise.
+   */
+  erase: number;
 }
 
 export const defaultScarParams = (): ScarParams => ({
@@ -210,6 +216,7 @@ export const defaultScarParams = (): ScarParams => ({
   steer: 1.2,
   feed: 0.034,
   kill: 0.063,
+  erase: 0,
 });
 
 export interface EngineParams {

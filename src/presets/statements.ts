@@ -29,6 +29,7 @@ export const LOOK_STATEMENTS: Readonly<Record<string, string>> = {
   aurora: "Light that never lands. A memory kept in the sky.",
   sketch: "What we keep of a face is not its light. It is the lines.",
   kin: "No one told them to part. Each only wanted to be a little nearer its own.",
+  wake: "What leaves still moves the world it left. Forgetting is not an empty place.",
   // Not looks, but moments the piece names.
   genesis: "The first particle system was a wall of fire that left a living world behind it.",
   presence: "For as long as you stay, you are what it remembers.",

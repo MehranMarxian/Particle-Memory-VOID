@@ -1041,6 +1041,29 @@ export function createPanel(opts: {
   addObjSlider(scentBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
   addObjSlider(scentBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
 
+  // The medium (0.12): child-simple on purpose - on/off, how much it swirls,
+  // and the scars. The fine controls stay in the look data.
+  const mediumBody = section("MEDIUM", "medium");
+  addToggle(
+    mediumBody,
+    "Fluid",
+    () => params.medium.enabled,
+    (v) => (params.medium.enabled = v),
+    "ON",
+    "OFF",
+    "The swarm moves through a medium it drags along; its wakes drift on after it has gone. Needs WebGPU for now (?backend=webgpu)."
+  );
+  addObjSlider(mediumBody, "Swirl", params.medium, "vorticity", 0, 8, 0.1, num, "How much the medium curls as the memory goes. Still while it remembers, stirred as it forgets.");
+  addToggle(
+    mediumBody,
+    "Scars",
+    () => params.scar.enabled,
+    (v) => (params.scar.enabled = v),
+    "ON",
+    "OFF",
+    "Patterns grow where memory was held and outlive it; the swarm finds them as it forgets, and they fade as it remembers. Needs WebGPU for now."
+  );
+
   const ecoBody = section("ECOLOGY", "ecology");
   addToggle(
     ecoBody,

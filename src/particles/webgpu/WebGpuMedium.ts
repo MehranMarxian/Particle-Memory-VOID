@@ -1,4 +1,4 @@
-﻿import { scarIterations, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
+﻿import { scarSchedule, type MediumSettings, type ScarSettings } from "../medium/mediumReference";
 import {
   MED,
   MEDIUM_ADVECT_WGSL,
@@ -23,7 +23,7 @@ const WG = 256;
 export interface MediumStep {
   dt: number;
   fluid: MediumSettings | null;
-  scar: (ScarSettings & { speed: number; deposit: number }) | null;
+  scar: (ScarSettings & { speed: number; deposit: number; erase: number }) | null;
   /** The memory cycle's blend: 0.05 in RECONSTRUCT, 1 in VOID. */
   agitation: number;
 }
@@ -135,7 +135,8 @@ export class WebGpuMedium {
     const u = this.u;
     const fluid = s.fluid;
     const scar = s.scar;
-    const iters = scar ? scarIterations(scar.speed, s.agitation) : 0;
+    const schedule = scar ? scarSchedule(scar.speed, s.agitation, scar.erase, scar.fade) : null;
+    const iters = schedule ? schedule.iterations : 0;
     u[MED.n] = this.n;
     u[MED.cells] = this.cells;
     u[MED.count] = this.count;
@@ -151,7 +152,7 @@ export class WebGpuMedium {
     f[MED.kill] = scar ? scar.kill : 0;
     f[MED.du] = scar ? scar.du : 0;
     f[MED.dv] = scar ? scar.dv : 0;
-    f[MED.fade] = scar ? scar.fade : 0;
+    f[MED.fade] = schedule ? schedule.fade : 0;
     f[MED.seedRate] = scar ? scar.deposit * s.dt : 0;
     this.device.queue.writeBuffer(this.uniform, 0, this.data);
 

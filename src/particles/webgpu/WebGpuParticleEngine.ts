@@ -520,7 +520,7 @@ export class WebGpuParticleEngine {
           }
         : null,
       scar: sc.enabled
-        ? { ...DEFAULT_SCAR, feed: sc.feed, kill: sc.kill, speed: sc.speed, deposit: sc.deposit }
+        ? { ...DEFAULT_SCAR, feed: sc.feed, kill: sc.kill, speed: sc.speed, deposit: sc.deposit, erase: sc.erase }
         : null,
     });
   }

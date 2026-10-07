@@ -40,6 +40,9 @@ export interface PresetDefinition {
   speciesCount?: number;
   scent?: Partial<ScentParams>;
   heat?: Partial<EngineParams["heat"]>;
+  /** The medium (0.12): a look either moves through one or it does not. */
+  medium?: Partial<EngineParams["medium"]>;
+  scar?: Partial<EngineParams["scar"]>;
   environment?: Partial<EngineParams["environment"]>;
   lifecycle?: Partial<EngineParams["lifecycle"]>;
   /** The screensaver camera. A preset that ships none gets today's motion. */
@@ -677,6 +680,44 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     },
     camera: { orbitSpeed: 0.012, zoomAmplitude: 2, zoomPeriodSeconds: 80, elevationWander: 0.05, path: "orbit" },
   },
+  {
+    name: "wake",
+    label: "Wake",
+    description:
+      "The memory moves through something that remembers it: wakes that drift on after it has gone, and scars where it was held that outlive it",
+    // The medium (0.12, WebGPU): the fluid carries the swarm, the scars
+    // grow where memory was held, and the cycle gives both their timing -
+    // still while it remembers, stirred as it forgets, cleared as it returns.
+    memory: { strength: 7, decay: 0, reconstructionEase: 1.1 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.8,
+      coreRadius: 0.3,
+      forceScale: 4.5,
+      friction: 0.9,
+      attraction: 1,
+      repulsion: 1,
+      chaos: 0.06,
+      maxSpeed: 3.5,
+    },
+    field: { turbulence: 0.02, drift: 0, gravity: 0, wander: 0.03 },
+    scent: { enabled: false },
+    heat: { enabled: false },
+    medium: { enabled: true, vorticity: 3, drag: 1.4 },
+    scar: { enabled: true, steer: 1.4 },
+    visual: {
+      colorMode: "monochrome",
+      shape: "circle",
+      particleSize: 0.85,
+      glow: 0.6,
+      opacity: 0.75,
+      trails: true,
+      trailDecay: 0.72,
+      dof: 0.15,
+      fogDensity: 0.04,
+    },
+    camera: { orbitSpeed: 0.01, zoomAmplitude: 1.5, zoomPeriodSeconds: 100, elevationWander: 0.05, path: "orbit" },
+  },
 ];
 
 /** Snapshot of everything a preset / randomize / undo round-trip touches. */
@@ -757,6 +798,8 @@ export function applyPreset(
   if (def.field) Object.assign(params, def.field);
   if (def.scent) Object.assign(params.scent, def.scent);
   if (def.heat) Object.assign(params.heat, def.heat);
+  if (def.medium) Object.assign(params.medium, def.medium);
+  if (def.scar) Object.assign(params.scar, def.scar);
   if (def.environment) Object.assign(params.environment, def.environment);
   if (def.lifecycle) Object.assign(params.lifecycle, def.lifecycle);
   if (def.pointer && def.pointer.ripple !== undefined) params.pointer.ripple = def.pointer.ripple;

@@ -389,3 +389,25 @@ export class MediumReference {
 export function scarIterations(speed: number, agitation: number): number {
   return Math.max(0, Math.round(8 * speed * (0.1 + 0.9 * Math.min(1, Math.max(0, agitation)))));
 }
+
+/** Extra V decay per iteration at full erase: scars fade over a few seconds, not at once. */
+export const ERASE_FADE = 0.012;
+/** Iterations per step while erasing, so the fade does not wait on a quiet state. */
+export const ERASE_ITERATIONS = 3;
+
+/**
+ * One step's Gray-Scott schedule: iterations and fade. Remembering
+ * (erase -> 1) raises the fade into the regime where no pattern survives
+ * and keeps a few iterations running, so the scars fade out while the
+ * source comes back.
+ */
+export function scarSchedule(
+  speed: number,
+  agitation: number,
+  erase: number,
+  baseFade: number
+): { iterations: number; fade: number } {
+  const e = Math.min(1, Math.max(0, erase));
+  const iterations = Math.max(scarIterations(speed, agitation), e > 0 ? ERASE_ITERATIONS : 0);
+  return { iterations, fade: baseFade + ERASE_FADE * e };
+}
