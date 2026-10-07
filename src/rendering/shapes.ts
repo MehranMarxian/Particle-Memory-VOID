@@ -33,6 +33,21 @@ export const SHAPE_FIELD_GLSL = `float shapeField(float id, vec2 uv) {
 ${SHAPE_FIELDS.map((body, i) => `  ${i === SHAPE_FIELDS.length - 1 ? "// last" : `if (id < ${i + 0.5}) {`}\n      ${body}${i === SHAPE_FIELDS.length - 1 ? "" : "\n  }"}`).join("\n")}
 }`;
 
+/**
+ * The same fields in WGSL, for the WebGPU renderer: generated from the one
+ * table above, so the two paths cannot drift. GLSL's `float x =` becomes a
+ * `let`, and its mod becomes fmod (floored, which WGSL's % is not).
+ */
+export const SHAPE_FIELD_WGSL = `fn fmodShape(x: f32, y: f32) -> f32 { return x - y * floor(x / y); }
+fn shapeField(id: f32, uv: vec2f) -> f32 {
+  let r = length(uv);
+  let th = atan2(uv.y, uv.x);
+${SHAPE_FIELDS.map((body, i) => {
+  const wgsl = body.replace(/\bfloat (\w+) =/g, "let $1 =").replace(/\bmod\(/g, "fmodShape(");
+  return i === SHAPE_FIELDS.length - 1 ? `  ${wgsl}` : `  if (id < ${i + 0.5}) {\n    ${wgsl}\n  }`;
+}).join("\n")}
+}`;
+
 /** Index of a shape in the canonical order; unknown names fall back to circle. */
 export function shapeIndex(shape: ParticleShape): number {
   const i = PARTICLE_SHAPES.indexOf(shape);

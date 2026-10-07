@@ -198,7 +198,7 @@ export function createPanel(opts: {
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
   /** Live backend label for the LAB's SIM button. */
-  backend: () => "gpu" | "cpu";
+  backend: () => "webgpu" | "gpu" | "cpu";
   ecology: {
     enabled: boolean;
     captureRadius: number;

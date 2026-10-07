@@ -8,11 +8,34 @@
  * of that table are still to be filled in, and the touch numbers here are
  * the first guess, not a finding.
  */
-export type Backend = "gpu" | "cpu";
+/**
+ * `webgpu` is the 0.12 engine (docs/ADR-0001-webgpu-engine.md): opt-in with
+ * ?backend=webgpu, never chosen by auto, and lazy-loaded, so default visitors
+ * run exactly the WebGL2 and CPU paths below.
+ */
+export type Backend = "webgpu" | "gpu" | "cpu";
 export type BackendMode = "auto" | Backend;
 
 /** The density menu, shared by the [ ] keys and the panel slider. */
 export const DENSITY_LEVELS: readonly number[] = [4000, 8000, 12000, 20000, 32000, 50000];
+
+/**
+ * The WebGPU engine's menu: the shared levels, then the scale only it holds.
+ * Offered only while that engine runs, so the WebGL2 menu never grows a
+ * step its engine would have to cap.
+ */
+export const WEBGPU_DENSITY_LEVELS: readonly number[] = [
+  ...DENSITY_LEVELS,
+  100_000,
+  250_000,
+  500_000,
+  1_000_000,
+];
+
+/** The density menu for the backend that runs it. */
+export function densityLevels(backend: Backend): readonly number[] {
+  return backend === "webgpu" ? WEBGPU_DENSITY_LEVELS : DENSITY_LEVELS;
+}
 
 /** Desktop default: 12k. Touch default: 4k. */
 export const DEFAULT_DENSITY_INDEX = 2;
@@ -27,9 +50,11 @@ export const TOUCH_DENSITY_INDEX = 0;
  * a dense shell and pair interactions follow clustering, not particle count
  * - 4k costs ~22 ms a step, 8k ~61 ms, 12k ~121 ms. 4k is the only density
  * the CPU backend sustains; the slow-motion scheduler covers anything a
- * sparse source lets through anyway.
+ * sparse source lets through anyway. WebGPU: provisional, from the slice 1
+ * spike (0.79 ms a frame at 1M for spring and draw on the dev GPU); the
+ * neighbour pass at scale is what this number waits on.
  */
-export const DENSITY_CEILING: Record<Backend, number> = { gpu: 50000, cpu: 4000 };
+export const DENSITY_CEILING: Record<Backend, number> = { webgpu: 1_000_000, gpu: 50000, cpu: 4000 };
 
 /**
  * On a touch-primary device, auto picks the CPU engine at or below this
@@ -42,7 +67,7 @@ export const TOUCH_CPU_DENSITY = 4000;
 /** Which backend auto mode wants for this density and pointer class. */
 export function wantsCpuBackend(mode: BackendMode, count: number, coarsePointer: boolean): boolean {
   if (mode === "cpu") return true;
-  if (mode === "gpu") return false;
+  if (mode === "gpu" || mode === "webgpu") return false;
   return coarsePointer && count <= TOUCH_CPU_DENSITY;
 }
 

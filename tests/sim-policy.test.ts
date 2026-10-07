@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   DENSITY_LEVELS,
   DENSITY_CEILING,
+  WEBGPU_DENSITY_LEVELS,
+  densityLevels,
   wantsCpuBackend,
   effectiveDensity,
 } from "@/app/simPolicy";
@@ -41,5 +43,24 @@ describe("backend policy", () => {
   it("the cpu ceiling is at least the touch auto-pick density", () => {
     // The touch default (4k, CPU) must be inside the CPU's own menu.
     expect(DENSITY_CEILING.cpu).toBeGreaterThanOrEqual(4000);
+  });
+
+  it("webgpu never asks for the cpu, even on touch at low density", () => {
+    expect(wantsCpuBackend("webgpu", 4000, true)).toBe(false);
+  });
+
+  it("the webgpu menu extends the shared one and ends at its own ceiling", () => {
+    expect(WEBGPU_DENSITY_LEVELS.slice(0, DENSITY_LEVELS.length)).toEqual([...DENSITY_LEVELS]);
+    expect(WEBGPU_DENSITY_LEVELS[WEBGPU_DENSITY_LEVELS.length - 1]).toBe(DENSITY_CEILING.webgpu);
+    for (let i = 1; i < WEBGPU_DENSITY_LEVELS.length; i++) {
+      expect(WEBGPU_DENSITY_LEVELS[i]).toBeGreaterThan(WEBGPU_DENSITY_LEVELS[i - 1]);
+    }
+  });
+
+  it("only the webgpu backend is offered the extended menu", () => {
+    expect(densityLevels("webgpu")).toBe(WEBGPU_DENSITY_LEVELS);
+    expect(densityLevels("gpu")).toBe(DENSITY_LEVELS);
+    expect(densityLevels("cpu")).toBe(DENSITY_LEVELS);
+    expect(effectiveDensity(500_000, "gpu")).toBe(DENSITY_CEILING.gpu);
   });
 });

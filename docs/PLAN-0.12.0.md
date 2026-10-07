@@ -41,6 +41,49 @@ the work into **two releases**:
 WebGPU/WGSL in a lazy chunk, beside the unchanged WebGL2 stack. 500k costs
 0.44 ms per frame on the reference GPU.
 
+**Slice 2, first cut (7 Oct 2026), opt-in with `?backend=webgpu`.** Default
+visitors run exactly what they ran before: auto never picks WebGPU, and the
+engine is a 13.3 kB lazy chunk (eager JS 207.3 kB of 220).
+
+- `particles/webgpu/`: the WebGL2 force model in WGSL, line for line. The
+  neighbour grid is a GPU counting sort over a spatial hash, with a cell
+  filter so colliding buckets never double-count. Scent and heat deposit
+  and decay on the GPU. CPU consumers read async mirrors and nothing waits
+  on the GPU, except one exact mirror before a backend switch.
+- `rendering/webgpu/WebGpuSwarmView.ts`: ParticleRenderer and TrailPass in
+  WGSL (sprites, shapes generated from the same table as the GLSL, HDR
+  trail, ACES present), on a canvas under the UI. The WebGL canvas goes
+  transparent but keeps every input listener.
+- Boot: the piece starts on WebGL2 as always, the device loads in the
+  background, and the live swarm is handed over by the ordinary carried
+  switch. A lost device falls back to WebGL2 once, with a hint.
+- Scale: a neighbour budget (full scan up to 50k, bounded and unbiased
+  stride sampling above), and density compensation above 50k so a 500k
+  swarm carries the forces and light of a 50k one. Measured on the RTX
+  4070 Ti, full step with neighbour forces: 50k about 6 ms, 500k about
+  19 ms, 1M about 15 ms (sparser cells), main thread 0.02 ms a step.
+  Before the GPU fields and the budget, 500k cost 22 ms of CPU and 1.2 s
+  of GPU a step.
+- Tests: `webgpu-hash-grid` (the grid against brute force, collisions
+  included; budget, stride partition, compensation) and `webgpu-contract`
+  (the Sim uniform's offsets computed from the WGSL struct, every field
+  written and read, the shape fields in step with the GLSL).
+
+Open for the rest of slice 2:
+
+- **Parity at density is not settled.** From one converged 12k state, two
+  seconds later: WebGL2 0.046, WebGPU 0.115, the CPU engine (the canonical
+  force model) 0.263 mean target distance. At 4k all three agree (about
+  0.16). WebGPU sits between the two existing engines, which already
+  disagree with each other; that disagreement needs its own look.
+- The gate's moments (Witness, Presence, Genesis, Exhibition) are not yet
+  exercised on WebGPU, nor is ecology (CPU only, as on WebGL2).
+- The panel's particle slider still ends at 50k; 100k-1M are reached with
+  `[` `]` or `?count=`.
+- Density compensation is an artistic default, not physics: the artist
+  should judge the 500k and 1M looks.
+- The `main.ts` split (engineHost, looks, moments) is still to do.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise

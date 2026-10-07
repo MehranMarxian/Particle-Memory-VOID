@@ -61,11 +61,13 @@ import { carryLiveState } from "@/particles/carryState";
 import { FIXED_DT, scheduleSteps } from "@/app/stepper";
 import {
   DENSITY_CEILING,
-  DENSITY_LEVELS,
   DEFAULT_DENSITY_INDEX,
   TOUCH_DENSITY_INDEX,
+  densityLevels,
   effectiveDensity,
   wantsCpuBackend,
+  type Backend,
+  type BackendMode,
 } from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
 import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
@@ -113,6 +115,9 @@ import { hasWebgl, NoWebglError, showNoWebgl } from "@/ui/noWebgl";
 import { colourSpecies } from "@/particles/colourSpecies";
 import { installFooter } from "@/ui/footer";
 import { MEMORY_FORMS, SPECIES_FROM, type MemoryForm, type SpeciesFrom } from "@/types";
+// Types only: the WebGPU backend itself is a lazy chunk (see bootWebGpu).
+import type { WebGpuContext, WebGpuParticleEngine } from "@/particles/webgpu/WebGpuParticleEngine";
+import type { WebGpuSwarmView } from "@/rendering/webgpu/WebGpuSwarmView";
 
 /** The subset of engine behavior the app layer needs (CPU or GPU backend). */
 interface SimEngine {
@@ -141,7 +146,12 @@ interface SimEngine {
   spawnRipple(x: number, y: number, z: number): void;
   /** GPU only: push `targets` to the target texture after a live retarget. */
   uploadTargets?(): void;
+  /** WebGPU only: set when the device is lost; the frame loop falls back. */
+  readonly failed?: string | null;
 }
+
+/** What draws the swarm: three's Points on WebGL, or the WebGPU view. */
+type SwarmView = ParticleRenderer | WebGpuSwarmView;
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
 const coarsePointer =
@@ -165,18 +175,27 @@ const macros = defaultMacros();
 
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
-let currentCount = DENSITY_LEVELS[densityIndex];
+let currentCount = densityLevels("gpu")[densityIndex];
 let engine!: SimEngine;
-let engineMode: "auto" | "gpu" | "cpu" = "auto";
+let engineMode: BackendMode = "auto";
 // ?backend=gpu|cpu forces the backend — boot, the panel switch and the G key
 // all read engineMode, so comparisons between the engines are one URL away.
 // An unavailable forced GPU falls back through the existing GPU-unavailable
 // hint path.
 {
   const forced = new URLSearchParams(location.search).get("backend");
-  if (forced === "gpu" || forced === "cpu") engineMode = forced;
+  if (forced === "gpu" || forced === "cpu" || forced === "webgpu") engineMode = forced;
 }
-let activeBackend: "gpu" | "cpu" = "cpu";
+let activeBackend: Backend = "cpu";
+/**
+ * The WebGPU backend once it has loaded (?backend=webgpu only): the lazy
+ * module and its device. Until then a webgpu request runs on WebGL2.
+ */
+let webgpu: { mod: typeof import("@/particles/webgpu"); ctx: WebGpuContext } | null = null;
+/** The density a webgpu boot asked for, built once the device is ready. */
+let webgpuWantedCount = 0;
+/** Set while a lost device is falling back, so the fallback runs once. */
+let webgpuFalling = false;
 let panelApi: PanelApi | null = null;
 const history: StateSnapshot[] = [];
 let activePreset: string | null = null;
@@ -213,7 +232,7 @@ function pushHistory(): void {
   history.push(captureSnapshot(params, visual, matrix, activeCamera));
   if (history.length > 30) history.shift();
 }
-let particleRenderer: ParticleRenderer | null = null;
+let particleRenderer: SwarmView | null = null;
 let currentSourceName = "synthetic torus";
 let currentSourceDetail = "synthetic memory";
 let pendingHandle: SourceHandle | null = null;
@@ -543,7 +562,8 @@ function createCpuEngine(sample: FlatSource, count: number, seed: number, rng: (
   return next;
 }
 
-function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: () => number): GpuParticleEngine {
+/** A fresh swarm's start: scattered through a ball, memory partly held. */
+function scatteredStart(count: number, rng: () => number): { positions: Float32Array; memory: Float32Array } {
   const positions = new Float32Array(count * 3);
   const memory = new Float32Array(count);
   for (let i = 0; i < count; i++) {
@@ -555,6 +575,58 @@ function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: 
     positions[i * 3 + 2] = r * Math.cos(phi);
     memory[i] = 0.35 + 0.65 * rng();
   }
+  return { positions, memory };
+}
+
+/** The WebGPU engine (?backend=webgpu, once its lazy module has loaded). */
+function createWebGpuEngine(sample: FlatSource, count: number, rng: () => number): WebGpuParticleEngine {
+  if (!webgpu) throw new Error("WebGPU is not loaded");
+  const { positions, memory } = scatteredStart(count, rng);
+  return webgpu.mod.WebGpuParticleEngine.create(
+    webgpu.ctx,
+    count,
+    speciesCount,
+    sample.positions,
+    sample.colors,
+    positions,
+    memory
+  );
+}
+
+/** Build the view that draws this engine: three's Points, or the WebGPU canvas. */
+function createSwarmView(next: SimEngine, backend: Backend): SwarmView {
+  if (backend === "webgpu" && webgpu) {
+    const gpuView = new webgpu.mod.WebGpuSwarmView(
+      webgpu.ctx,
+      next as unknown as WebGpuParticleEngine,
+      stage,
+      renderer3d.domElement
+    );
+    // The WebGL canvas stops drawing but keeps every input listener: made
+    // transparent rather than hidden, because Chromium may composite its
+    // last frame over the WebGPU canvas whatever the stacking says.
+    renderer3d.domElement.style.opacity = "0";
+    return gpuView;
+  }
+  renderer3d.domElement.style.opacity = "";
+  const view = new ParticleRenderer(next.count, next.positions, next.colors, next.renderState, next.velocities);
+  if (backend === "gpu" && "getPositionTexture" in next) {
+    // The readback-free render path: vertices sample the compute textures.
+    view.attachCompute(next as unknown as ComputeTextureSource);
+  }
+  scene.add(view.points);
+  return view;
+}
+
+function removeSwarmView(): void {
+  if (!particleRenderer) return;
+  if (particleRenderer instanceof ParticleRenderer) scene.remove(particleRenderer.points);
+  particleRenderer.dispose();
+  particleRenderer = null;
+}
+
+function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: () => number): GpuParticleEngine {
+  const { positions, memory } = scatteredStart(count, rng);
   return GpuParticleEngine.create(
     renderer3d,
     count,
@@ -582,14 +654,26 @@ function buildFromSource(sample: FlatSource): void {
   }
   subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
 
-  let next: SimEngine;
-  let backend: "gpu" | "cpu" = "cpu";
+  let next: SimEngine | null = null;
+  let backend: Backend = "cpu";
+  // WebGPU first when asked for and loaded; a refusal falls through to the
+  // WebGL2 policy below, with the reason said out loud.
+  if (engineMode === "webgpu" && webgpu) {
+    try {
+      next = createWebGpuEngine(sample, count, rng);
+      backend = "webgpu";
+    } catch (err) {
+      flashHint(`WEBGPU UNAVAILABLE: ${(err as Error).message}`, 6);
+    }
+  }
   // Auto follows the density policy: on a touch-primary device at low
   // density the CPU engine wins — the GPU path's one fixed position
   // readback costs the same whatever the count, so at low density it
   // dominates. Provisional, like simPolicy.ts's rationale (re-measure in
   // v0.10.0 slice 6).
-  if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
+  if (next) {
+    // WebGPU took it.
+  } else if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
     try {
       next = createGpuEngine(sample, count, seed, rng);
       backend = "gpu";
@@ -606,23 +690,10 @@ function buildFromSource(sample: FlatSource): void {
   next.configureGrid(params);
 
   if (engine && "dispose" in engine) (engine as unknown as { dispose: () => void }).dispose();
-  if (particleRenderer) {
-    scene.remove(particleRenderer.points);
-    particleRenderer.dispose();
-  }
+  removeSwarmView();
   engine = next;
   activeBackend = backend;
-  particleRenderer = new ParticleRenderer(
-    engine.count,
-    engine.positions,
-    engine.colors,
-    engine.renderState,
-    engine.velocities
-  );
-  if (backend === "gpu" && "getPositionTexture" in next) {
-    // The readback-free render path: vertices sample the compute textures.
-    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
-  }
+  particleRenderer = createSwarmView(next, backend);
   // Count-scoped like every consumer: a backend switch builds the new engine
   // at the live count with a different capacity, and the pristine copy must
   // follow the count, not the buffer it was captured from.
@@ -633,7 +704,6 @@ function buildFromSource(sample: FlatSource): void {
   witness.resize(engine.count, WITNESS_SEED);
   installEcology();
   applyLook();
-  scene.add(particleRenderer.points);
   panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
   scheduleSave();
 }
@@ -650,7 +720,21 @@ function guessKindLabel(): string {
   return "mesh";
 }
 
-function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
+function switchBackend(mode: BackendMode): void {
+  const old = engine;
+  // A WebGPU swarm is mirrored asynchronously: take one exact mirror first,
+  // so the carry below moves the swarm as it is, not as it was a moment ago.
+  if ("prepareCarry" in old) {
+    const go = () => {
+      if (engine === old) switchBackendNow(mode);
+    };
+    void (old as unknown as WebGpuParticleEngine).prepareCarry().then(go, go);
+    return;
+  }
+  switchBackendNow(mode);
+}
+
+function switchBackendNow(mode: BackendMode): void {
   engineMode = mode;
   // Rebuild from the current targets so the memory survives the switch, and
   // from the source's own colours: engine.colors holds the last *baked*
@@ -668,8 +752,22 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   const seed = (Math.random() * 1e9) | 0;
   const rng = mulberry32(seed ^ 0x9e3779b9);
   let next: SimEngine;
-  let backend: "gpu" | "cpu" = "cpu";
-  if (mode !== "cpu") {
+  let backend: Backend = "cpu";
+  if (mode === "webgpu") {
+    if (!webgpu) {
+      flashHint("WEBGPU IS NOT LOADED - START WITH ?backend=webgpu", 5);
+      engineMode = activeBackend;
+      return;
+    }
+    try {
+      next = createWebGpuEngine(sample, engine.count, rng);
+      backend = "webgpu";
+    } catch (err) {
+      flashHint(`WEBGPU UNAVAILABLE: ${(err as Error).message}`, 6);
+      engineMode = activeBackend;
+      return;
+    }
+  } else if (mode !== "cpu") {
     try {
       next = createGpuEngine(sample, engine.count, seed, rng);
       backend = "gpu";
@@ -690,31 +788,18 @@ function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
   if ("syncMemoryMirror" in old) (old as GpuParticleEngine).syncMemoryMirror();
   carryLiveState(old, next);
   next.configureGrid(params);
-  if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
+  if ("uploadInitialState" in next) (next as unknown as { uploadInitialState(): void }).uploadInitialState();
   if ("dispose" in old) (old as unknown as { dispose: () => void }).dispose();
-  if (particleRenderer) {
-    scene.remove(particleRenderer.points);
-    particleRenderer.dispose();
-  }
+  removeSwarmView();
   engine = next;
   activeBackend = backend;
-  particleRenderer = new ParticleRenderer(
-    engine.count,
-    engine.positions,
-    engine.colors,
-    engine.renderState,
-    engine.velocities
-  );
-  if (backend === "gpu" && "getPositionTexture" in next) {
-    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
-  }
+  particleRenderer = createSwarmView(next, backend);
   // sourceColors stays untouched: it still describes this source, and
   // re-deriving it from engine.colors would capture whatever look
   // applyLook baked last.
   if (params.life.species === "colour") assignSpecies();
   installEcology();
   applyLook();
-  scene.add(particleRenderer.points);
   // The backend toggle is an explicit override, so the count is kept rather
   // than clamped to the ceiling - clamping would resample the memory and
   // crop it. The cost is said out loud instead, and the scheduler keeps the
@@ -873,10 +958,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     for (let a = 0; a < n; a++)
       for (let b = 0; b < n; b++) matrix.set(a, b, cfg.matrix[a * n + b]);
     currentCount = Math.min(50000, Math.max(1000, cfg.currentCount));
-    densityIndex = DENSITY_LEVELS.indexOf(
-      DENSITY_LEVELS.reduce((a2, b2) => (Math.abs(b2 - currentCount) < Math.abs(a2 - currentCount) ? b2 : a2))
-    );
-    if (densityIndex < 0) densityIndex = 2;
+    densityIndex = nearestDensityIndex(currentCount);
     memory.active = memory.auto = cfg.cycleActive;
     lastSourceName = cfg.lastSourceName;
     lastSourceUrl = cfg.lastSourceUrl;
@@ -948,14 +1030,47 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   }
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
-  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= 50000) {
+  // A webgpu boot may ask for more than WebGL2 holds: it starts at the
+  // WebGL2 ceiling and is rebuilt at the asked count once WebGPU is up.
+  const countMax = engineMode === "webgpu" ? DENSITY_CEILING.webgpu : DENSITY_CEILING.gpu;
+  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= countMax) {
     currentCount = Math.round(countParam);
-    densityIndex = DENSITY_LEVELS.indexOf(
-      DENSITY_LEVELS.reduce((a, b) => (Math.abs(b - currentCount) < Math.abs(a - currentCount) ? b : a))
-    );
+    if (currentCount > DENSITY_CEILING.gpu) {
+      webgpuWantedCount = currentCount;
+      currentCount = DENSITY_CEILING.gpu;
+    }
+    densityIndex = nearestDensityIndex(currentCount);
   }
 }
 buildFromSource(makeSyntheticSource(currentCount));
+if (engineMode === "webgpu") void bootWebGpu();
+
+/**
+ * ?backend=webgpu: the piece has already started on WebGL2. Load the WebGPU
+ * module and device in the background, then hand the live swarm over with
+ * the ordinary carried switch - or stay on WebGL2 and say why.
+ */
+async function bootWebGpu(): Promise<void> {
+  try {
+    const mod = await import("@/particles/webgpu");
+    webgpu = { mod, ctx: await mod.acquireWebGpu() };
+  } catch (err) {
+    if (engineMode === "webgpu") engineMode = "gpu";
+    flashHint(`WEBGPU UNAVAILABLE: ${(err as Error).message.toUpperCase()} - STAYING ON WEBGL2`, 6);
+    return;
+  }
+  // The visitor may have picked another backend while it loaded.
+  if (engineMode !== "webgpu") return;
+  if (webgpuWantedCount > currentCount) {
+    currentCount = webgpuWantedCount;
+    densityIndex = nearestDensityIndex(currentCount);
+    if (pendingHandle) void adoptHandle(pendingHandle);
+    else buildFromSource(makeSyntheticSource(currentCount));
+    flashHint(`SIM BACKEND: WEBGPU AT ${currentCount.toLocaleString()}`, 5);
+  } else {
+    switchBackend("webgpu");
+  }
+}
 
 // --- HUD / UI elements ------------------------------------------------------
 // Overlay elements were folded into the panel (Phase 5.5).
@@ -1237,13 +1352,30 @@ window.addEventListener("drop", (e) => {
 // Density keys rebuild from the current source handle (or the torus).
 
 /** The backend that will run a build at this density, per the current mode. */
-function backendForCount(count: number): "gpu" | "cpu" {
+function backendForCount(count: number): Backend {
+  if (engineMode === "webgpu" && webgpu) return "webgpu";
   return wantsCpuBackend(engineMode, count, coarsePointer) ? "cpu" : "gpu";
 }
 
+/** The density menu of the backend that will run the next build. */
+function densityMenu(): readonly number[] {
+  return densityLevels(engineMode === "webgpu" && webgpu ? "webgpu" : "gpu");
+}
+
+/** The menu step nearest a count. */
+function nearestDensityIndex(count: number): number {
+  const menu = densityMenu();
+  let best = 0;
+  for (let i = 1; i < menu.length; i++) {
+    if (Math.abs(menu[i] - count) < Math.abs(menu[best] - count)) best = i;
+  }
+  return best;
+}
+
 function setDensity(index: number): void {
-  densityIndex = Math.max(0, Math.min(DENSITY_LEVELS.length - 1, index));
-  const requested = DENSITY_LEVELS[densityIndex];
+  const menu = densityMenu();
+  densityIndex = Math.max(0, Math.min(menu.length - 1, index));
+  const requested = menu[densityIndex];
   currentCount = effectiveDensity(requested, backendForCount(requested));
   if (pendingHandle) {
     void adoptHandle(pendingHandle);
@@ -1793,7 +1925,7 @@ if (!demoMode) {
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
         densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
-        currentCount = DENSITY_LEVELS[densityIndex];
+        currentCount = densityMenu()[densityIndex];
         engine.configureGrid(params);
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeSyntheticSource(currentCount));
@@ -1981,6 +2113,27 @@ function declareGlobalHandle(): void {
     saver,
     toggleScreensaver,
   };
+  // Dev builds only (stripped from production): enough to hold one backend
+  // against another from the console or a test harness.
+  if (import.meta.env.DEV) {
+    Object.assign((window as unknown as Record<string, object>).__void, {
+      backend: () => activeBackend,
+      switchBackend,
+      fps: () => fps,
+      p95: () => p95FrameTime(),
+      /** n fixed steps exactly as the frame loop runs them (a hidden tab gets no rAF). */
+      step(n: number): void {
+        for (let s = 0; s < n; s++) {
+          memory.update(FIXED_DT);
+          memory.apply(params);
+          if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
+          if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
+          engine.step(FIXED_DT, params, activeMatrix);
+          stepEcology(FIXED_DT);
+        }
+      },
+    });
+  }
 }
 
 window.addEventListener("beforeunload", persistNow);
@@ -2355,7 +2508,9 @@ function saveFrame(): void {
     .replace(/[^\w-]+/g, "-")
     .slice(0, 40);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  renderer3d.domElement.toBlob((blob) => {
+  const shot =
+    particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
+  shot.toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -2405,6 +2560,15 @@ function frameInner(now: number): void {
     stepEcology(FIXED_DT);
   }
   accumulator = residual;
+  // A lost WebGPU device: back to WebGL2, once, carrying the last mirror.
+  if (activeBackend === "webgpu" && engine.failed && !webgpuFalling) {
+    webgpuFalling = true;
+    flashHint(`WEBGPU LOST (${engine.failed}) - BACK ON WEBGL2`, 6);
+    webgpu = null;
+    switchBackend("gpu");
+  } else if (activeBackend !== "webgpu") {
+    webgpuFalling = false;
+  }
 
   updateTouch(dt);
   // Life cycle: derive the per-particle life the renderer uses, from the same
@@ -2517,7 +2681,19 @@ function frameInner(now: number): void {
   prevFrameAzimuth = azimuthNow;
   prevFrameRadius = radiusNow;
   trailPass.decay = cameraTrailDecay(visual.trailDecay, angular + zoomJump * 2);
-  trailPass.render(scene, camera, dt);
+  if (particleRenderer && !(particleRenderer instanceof ParticleRenderer)) {
+    // WebGPU draws the swarm on its own canvas, with the same trail and present.
+    const t = trailSize();
+    particleRenderer.render(
+      camera,
+      dt,
+      { enabled: trailPass.enabled, decay: trailPass.decay, exposure: trailPass.exposure },
+      t.w,
+      t.h
+    );
+  } else {
+    trailPass.render(scene, camera, dt);
+  }
   // Capture takes the present-pass pixels in the same task as the render:
   // with preserveDrawingBuffer off, the buffer is valid only until compositing.
   if (capturePending) {
@@ -2551,7 +2727,7 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend !== "cpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       (coarsePointer
         ? `guide: the ? button - tap any key in it to run it`
