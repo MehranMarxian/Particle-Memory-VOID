@@ -76,13 +76,18 @@ Open for the rest of slice 2:
   force model) 0.263 mean target distance. At 4k all three agree (about
   0.16). WebGPU sits between the two existing engines, which already
   disagree with each other; that disagreement needs its own look.
-- The gate's moments (Witness, Presence, Genesis, Exhibition) are not yet
-  exercised on WebGPU, nor is ecology (CPU only, as on WebGL2).
+- Moments on WebGPU: Genesis, Witness (the crowd memory, the count,
+  the lights going out) and Exhibition were run live and hold. Presence
+  needs a camera and was checked in code only: every retarget is followed
+  by an upload. Ecology stays CPU only, as on WebGL2.
 - The panel's particle slider still ends at 50k; 100k-1M are reached with
   `[` `]` or `?count=`.
 - Density compensation is an artistic default, not physics: the artist
   should judge the 500k and 1M looks.
-- The `main.ts` split (engineHost, looks, moments) is still to do.
+- The `main.ts` split: `app/engineHost.ts` is out (backend choice, the
+  engine factories, the carried switch, the WebGPU loader, the swarm
+  view), with its own tests; main.ts keeps the app's reactions behind one
+  `onInstalled` callback. `looks` and `moments` are still to do.
 
 ## 1. What 3D Life Sim actually does (from its source)
 
