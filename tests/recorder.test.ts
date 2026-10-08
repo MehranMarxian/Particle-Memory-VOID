@@ -21,6 +21,9 @@ describe("recording (0.12 slice 5)", () => {
     expect(handleKey("R", ctx, { shiftKey: true })).toBe(true);
     expect(handleKey("r", ctx)).toBe(true);
     expect(calls).toEqual(["record", "random"]);
-    expect(SHORTCUT_ROWS.some((r) => r.display === "Shift R" && r.label === "Record")).toBe(true);
+    const row = SHORTCUT_ROWS.find((r) => r.label === "Record");
+    expect(row?.shiftKeys).toEqual(["R"]);
+    // Every documented shifted key dispatches with Shift held.
+    for (const r of SHORTCUT_ROWS) for (const k of r.shiftKeys ?? []) expect(handleKey(k, ctx, { shiftKey: true })).toBe(true);
   });
 });

@@ -173,6 +173,29 @@ default looks render as before. Wake uses bloom, AgX and the medium light.
 - Editor, MIDI/OSC, look files and recorder are lazy chunks; eager JS is
   216.9 kB of 220.
 
+0.12.0 released 9 Oct 2026 (tag `v0.12.0`). 0.13 "The Studio" follows.
+
+**Slice 6, discovery (9 Oct 2026, for 0.13).**
+
+- DISCOVER (looks dock) runs the search in a Web Worker at about a 60%
+  duty cycle, on 1,500 points strided through the visitor's own memory.
+- Rule genomes (`discovery/genome.ts`): 3-6 species and their matrix, the
+  kernel, life, memory and field genes; appearance genes (palette, colour
+  mode, shape, size, glow, trails, bloom) ride along unscored.
+- A trial holds the swarm at the genome's memory for 5 s, then releases it
+  into the cycle's own VOID for 8 s. Interestingness: it must remember
+  (legibility at least 0.45), not freeze, not fly apart; then structure
+  (entropy), bodies (clumps), motion, change and same-species company, each
+  in a band. Harvest needs 0.85 and a descriptor distance of 0.28 from
+  every earlier find. About 0.5-0.9 s a trial in Node.
+- Gate, measured: from a cold start in the browser, 3 finds in the first
+  minute and 5 within two (47 trials). Human review: Mehran's.
+- The Found row (up to 12, the weakest replaced) lives in this browser,
+  with dot-plot thumbnails and names drawn from each genome; a find applies
+  as a whole look and keeps what the sliders listen to. Fields and births
+  stay off in a find, as in its trial.
+- Eager JS 218.0 kB of 220: the budget is nearly spent.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise

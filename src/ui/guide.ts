@@ -55,17 +55,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLEle
 /** The shortcut context the key chips dispatch through; inert until bound. */
 let boundContext: ShortcutContext | null = null;
 
-function renderRow(display: string, label: string, hint: string, keys: string[]): HTMLElement {
+function renderRow(display: string, label: string, hint: string, keys: string[], shiftKeys: string[] = []): HTMLElement {
   const row = el("div", "gd-row");
   const keyCell = el("div", "gd-keys");
-  for (const key of keys) {
+  const chips = [...keys.map((key) => ({ key, shift: false })), ...shiftKeys.map((key) => ({ key, shift: true }))];
+  for (const { key, shift } of chips) {
     const chip = el("button", "gd-key gd-key-tap") as HTMLButtonElement;
     chip.type = "button";
-    chip.textContent = key === "Escape" ? "ESC" : key;
+    chip.textContent = shift ? `SHIFT ${key}` : key === "Escape" ? "ESC" : key;
     chip.title = `Run: ${label}`;
     chip.setAttribute("aria-label", `Run shortcut: ${label}`);
     chip.addEventListener("click", () => {
-      if (boundContext) handleKey(key, boundContext);
+      if (boundContext) handleKey(key, boundContext, { shiftKey: shift });
     });
     keyCell.appendChild(chip);
   }
@@ -107,7 +108,7 @@ export function createControlsGuide(): GuideApi {
     heading.textContent = group;
     column.appendChild(heading);
     for (const row of SHORTCUT_ROWS.filter((r) => r.group === (group as ShortcutGroup))) {
-      column.appendChild(renderRow(row.display, row.label, row.hint, row.keys));
+      column.appendChild(renderRow(row.display, row.label, row.hint, row.keys, row.shiftKeys));
     }
     body.appendChild(column);
   }
