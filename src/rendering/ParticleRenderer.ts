@@ -10,6 +10,8 @@ import {
 import { packGradientStops, paletteStops } from "./palette";
 import { SHAPE_FIELD_GLSL } from "./shapes";
 import { STRETCH_MAX, STRETCH_SECONDS } from "./stretch";
+import type { RibbonHistory } from "./ribbons";
+import type { GlRibbons } from "./glRibbons";
 import { packComputeRefs } from "@/particles/gpu/computeHelpers";
 
 /**
@@ -22,6 +24,8 @@ export interface ComputeTextureSource {
   getPositionTexture(): THREE.Texture;
   getStateTexture(): THREE.Texture;
   getVelocityTexture(): THREE.Texture;
+  /** The ribbon history, while ribbons are on (0.12). */
+  getRibbonHistory?(): RibbonHistory | null;
 }
 
 /**
@@ -58,6 +62,11 @@ export class ParticleRenderer {
   private lastPalette = "";
   /** The compute-texture source, when the GPU engine is attached. */
   private computeSource: ComputeTextureSource | null = null;
+  /** Ribbons (0.12): drawn from the GPU engine's history; none on the CPU path. */
+  private ribbons: GlRibbons | null = null;
+  private ribbonsLoading = false;
+  private ribbonOpacity = 0;
+  private ribbonView = { w: 1, h: 1, pr: 1, mono: true, fog: 0.02 };
   /** Binds the aRef attribute while no compute source is attached. */
   private readonly refBuffer: Float32Array;
   /** Placeholder sampler value so the CPU path binds a valid texture. */
@@ -321,6 +330,7 @@ export class ParticleRenderer {
     }
     if (this.colorsDirty) {
       this.colorAttr.needsUpdate = true;
+      this.ribbons?.markColorsDirty();
       this.colorsDirty = false;
     }
     if (this.lifeDirty) {
@@ -359,6 +369,7 @@ export class ParticleRenderer {
 
   setCount(count: number): void {
     this.geometry.setDrawRange(0, count);
+    this.ribbons?.setCount(count);
   }
 
   /**
@@ -371,7 +382,8 @@ export class ParticleRenderer {
     focusDistance: number,
     subjectRadius = 1,
     /** The drawing buffer's height in pixels (velocity stretch measures on screen). */
-    viewportHeight = 1
+    viewportHeight = 1,
+    viewportWidth = 1
   ): void {
     const s = clampVisualSettings(settings);
     const u = this.material.uniforms;
@@ -401,9 +413,23 @@ export class ParticleRenderer {
     u.uFogDensity.value = s.fogDensity;
     u.uStretch.value = s.stretch;
     u.uViewportH.value = viewportHeight;
+    this.ribbonOpacity = s.ribbons;
+    this.ribbonView = { w: viewportWidth, h: viewportHeight, pr: pixelRatio, mono: s.colorMode === "monochrome", fog: s.fogDensity };
+    const history = this.computeSource?.getRibbonHistory?.() ?? null;
+    if (history && !this.ribbons && !this.ribbonsLoading) {
+      // The engine has a history to draw: fetch the strips (a lazy chunk).
+      this.ribbonsLoading = true;
+      void import("./glRibbons").then((m) => {
+        this.ribbons = new m.GlRibbons(this.refBuffer, this.colorAttr.array as Float32Array, this.geometry.drawRange.count);
+        this.points.add(this.ribbons.mesh);
+      });
+    }
+    const v = this.ribbonView;
+    this.ribbons?.update(history, this.ribbonOpacity, v.mono, v.fog, v.w, v.h, v.pr);
   }
 
   dispose(): void {
+    this.ribbons?.dispose();
     this.geometry.dispose();
     this.material.dispose();
     this.placeholderTex.dispose();

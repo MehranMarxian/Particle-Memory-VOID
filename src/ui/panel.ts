@@ -1113,6 +1113,7 @@ export function createPanel(opts: {
   addObjSlider(visBody, "Fog", visual, "fogDensity", 0, 0.12, 0.002, (v) => v.toFixed(3));
   addObjSlider(visBody, "Bloom", visual, "bloom", 0, 2, 0.05, num, "Light that spills from the brightest places.");
   addObjSlider(visBody, "Stretch", visual, "stretch", 0, 1, 0.05, num, "Fast particles drawn long along their motion, as light streaks.");
+  addObjSlider(visBody, "Ribbons", visual, "ribbons", 0, 1, 0.05, num, "Each particle's last moments drawn as a thin fading path (GPU backends).");
   addToggle(
     visBody,
     "Tone",

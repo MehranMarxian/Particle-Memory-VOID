@@ -93,6 +93,8 @@ export interface VisualSettings {
   mediumLight: number;
   /** Velocity stretch: sprites drawn long along their motion. 0 = round. */
   stretch: number;
+  /** Ribbons: each particle's last moments drawn as a fading strip. 0 = none. */
+  ribbons: number;
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
@@ -112,6 +114,7 @@ export const defaultVisualSettings = (): VisualSettings => ({
   toneMap: "aces",
   mediumLight: 0,
   stretch: 0,
+  ribbons: 0,
 });
 
 /**
@@ -142,6 +145,7 @@ export function clampVisualSettings(s: VisualSettings): VisualSettings {
     toneMap: s.toneMap === "agx" ? "agx" : "aces",
     mediumLight: cl(s.mediumLight, 0, 3),
     stretch: cl(s.stretch, 0, 1),
+    ribbons: cl(s.ribbons, 0, 1),
   };
 }
 

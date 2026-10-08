@@ -12,6 +12,8 @@ import { RippleField } from "@/input/ripples";
 import { DEFAULT_SCAR, HandTracker } from "../medium/mediumReference";
 // Type only: the medium is a lazy chunk, loaded the first time it is asked for.
 import type { GlMedium } from "./GlMedium";
+import type { RibbonHistory } from "@/rendering/ribbons";
+import type { GlRibbonHistory } from "@/rendering/glRibbons";
 
 /**
  * GPU particle-life engine — the pragmatic hybrid:
@@ -332,8 +334,38 @@ export class GpuParticleEngine {
     }
   }
 
+  private ribbonHistory: GlRibbonHistory | null = null;
+  private ribbonsWanted = false;
+  private ribbonsLoading = false;
+
+  /**
+   * Ribbons (0.12): keep a position history while they are on, none
+   * otherwise. The history's code is a lazy chunk, fetched the first time.
+   */
+  setRibbons(on: boolean): void {
+    this.ribbonsWanted = on;
+    if (on && !this.ribbonHistory && !this.ribbonsLoading) {
+      this.ribbonsLoading = true;
+      void import("@/rendering/glRibbons").then((m) => {
+        this.ribbonsLoading = false;
+        if (this.ribbonsWanted && !this.disposed && !this.ribbonHistory) {
+          this.ribbonHistory = new m.GlRibbonHistory(this.renderer, this.texW, this.texH);
+        }
+      });
+    } else if (!on && this.ribbonHistory) {
+      this.ribbonHistory.dispose();
+      this.ribbonHistory = null;
+    }
+  }
+
+  getRibbonHistory(): RibbonHistory | null {
+    return this.ribbonHistory;
+  }
+
   /** Write initial positions/velocities/memory/state into all ping-pong buffers. */
   uploadInitialState(): void {
+    // The swarm was placed, not moved: the old path is not its path.
+    this.ribbonHistory?.restart();
     const posData = new Float32Array(this.capacity * 4);
     const velData = new Float32Array(this.capacity * 4);
     for (let i = 0; i < this.capacity; i++) {
@@ -644,6 +676,7 @@ export class GpuParticleEngine {
 
     // 5. Compute, then clear one-frame flags.
     this.compute.compute();
+    this.ribbonHistory?.record(this.getPositionTexture());
     this.pendingRegain = 0;
     this.pendingRestore = 0;
     this.simTime += dt;
@@ -777,6 +810,7 @@ export class GpuParticleEngine {
 
   dispose(): void {
     this.disposed = true;
+    this.ribbonHistory?.dispose();
     this.medium?.dispose();
     this.mediumStandIn.dispose();
     this.compute.dispose();

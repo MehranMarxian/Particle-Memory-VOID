@@ -2477,8 +2477,11 @@ function frameInner(now: number): void {
     renderer3d.getPixelRatio(),
     radius,
     subjectRadius,
-    renderer3d.domElement.height
+    renderer3d.domElement.height,
+    renderer3d.domElement.width
   );
+  // Ribbons need the engine to keep a history; it keeps none while they are off.
+  if ("setRibbons" in engine) (engine as unknown as { setRibbons(on: boolean): void }).setRibbons(effective.ribbons > 0);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
@@ -2514,6 +2517,7 @@ function frameInner(now: number): void {
         bloom: trailPass.bloom,
         toneMap: trailPass.toneMap,
         mediumLight: trailPass.mediumLight,
+        ribbons: effective.ribbons,
       },
       t.w,
       t.h

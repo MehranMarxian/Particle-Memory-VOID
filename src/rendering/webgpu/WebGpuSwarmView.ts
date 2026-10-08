@@ -5,6 +5,7 @@ import { SHAPE_FIELD_WGSL } from "../shapes";
 import { trailRetention, type ToneMap } from "../TrailPass";
 import { WebGpuLight } from "./WebGpuLight";
 import { STRETCH_MAX, STRETCH_SECONDS } from "../stretch";
+import { RIBBON_JUMP, RIBBON_SLOTS, RIBBON_WIDTH } from "../ribbons";
 import type { WebGpuContext, WebGpuParticleEngine } from "@/particles/webgpu/WebGpuParticleEngine";
 import { densityCompensation } from "@/particles/webgpu/hashGrid";
 
@@ -158,6 +159,82 @@ fn fs(in: Out) -> @location(0) vec4f {
 }
 `;
 
+/** ribbons.ts's GlRibbons, in WGSL: the same strip, fade and jump test. */
+const RIBBON_WGSL = /* wgsl */ `
+struct View {
+  view: mat4x4f,
+  proj: mat4x4f,
+  viewport: vec2f, pixelRatio: f32, size: f32,
+  opacity: f32, glow: f32, monochrome: f32, gradient: f32,
+  gradAxis: f32, stopCount: f32, shape: f32, shapeBySpecies: f32,
+  radialScale: f32, focus: f32, dof: f32, fogDensity: f32,
+  stops: array<vec4f, 4>,
+  light: f32, stretch: f32, _l1: f32, _l2: f32,
+}
+struct Ribbon { head: f32, fill: f32, opacity: f32, count: f32 }
+@group(0) @binding(0) var<uniform> v: View;
+@group(0) @binding(1) var<uniform> rb: Ribbon;
+@group(0) @binding(2) var<storage, read> ring: array<vec4f>;
+@group(0) @binding(3) var<storage, read> color: array<vec4f>;
+
+const SLOTS: f32 = ${RIBBON_SLOTS.toFixed(1)};
+// Two triangles per segment: (age offset, side) per corner.
+var<private> AGE = array<f32, 6>(0.0, 0.0, 1.0, 1.0, 0.0, 1.0);
+var<private> SIDE = array<f32, 6>(-1.0, 1.0, -1.0, -1.0, 1.0, 1.0);
+
+struct Out {
+  @builtin(position) clip: vec4f,
+  @location(0) color: vec3f,
+  @location(1) alpha: f32,
+  @location(2) side: f32,
+}
+
+fn histAt(i: u32, age: f32) -> vec3f {
+  let slot = u32((rb.head - age + SLOTS) % SLOTS);
+  return ring[slot * u32(rb.count) + i].xyz;
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
+  let k = vi % 6u;
+  let age = f32(vi / 6u) + AGE[k];
+  let side = SIDE[k];
+  let p = histAt(i, age);
+  var other = age + 1.0;
+  if (age >= SLOTS - 1.0) { other = age - 1.0; }
+  let q = histAt(i, other);
+  let mv = v.view * vec4f(p, 1.0);
+  var c0 = v.proj * mv;
+  let c1 = v.proj * (v.view * vec4f(q, 1.0));
+  let halfVp = v.viewport * 0.5;
+  let d = (c1.xy / c1.w - c0.xy / c0.w) * halfVp;
+  let len = length(d);
+  var n = vec2f(0.0, 1.0);
+  if (len > 1e-5) { n = vec2f(-d.y, d.x) / len; }
+  let width = ${RIBBON_WIDTH.toFixed(2)} * v.pixelRatio * 0.5;
+  c0 = vec4f(c0.xy + n * side * width / halfVp * c0.w, c0.zw);
+  c0.z = (c0.z + c0.w) * 0.5;
+  let fade = 1.0 - age / (SLOTS - 1.0);
+  let jump = max(distance(p, histAt(i, max(age - 1.0, 0.0))), distance(p, histAt(i, min(age + 1.0, SLOTS - 1.0))));
+  var valid = 0.0;
+  if (age < rb.fill && other < rb.fill && jump < ${RIBBON_JUMP.toFixed(1)}) { valid = 1.0; }
+  var o: Out;
+  o.clip = c0;
+  o.color = color[i].rgb;
+  o.alpha = fade * rb.opacity * valid * exp(-v.fogDensity * max(0.1, -mv.z)) * v.light;
+  o.side = side;
+  return o;
+}
+
+@fragment
+fn fs(in: Out) -> @location(0) vec4f {
+  if (in.alpha < 0.002) { discard; }
+  let col = mix(in.color, vec3f(dot(in.color, vec3f(0.2126, 0.7152, 0.0722))) * vec3f(0.94, 0.97, 1.04), v.monochrome);
+  let edge = 1.0 - 0.6 * in.side * in.side;
+  return vec4f(col, in.alpha * edge);
+}
+`;
+
 const QUAD_WGSL = /* wgsl */ `
 struct Post { decay: f32, exposure: f32, frame: f32, bloom: f32, fog: f32, agx: f32, _p0: f32, _p1: f32 }
 @group(0) @binding(0) var<uniform> post: Post;
@@ -227,6 +304,8 @@ export interface TrailSettings {
   toneMap: ToneMap;
   /** The medium's own light; 0 or no medium = off. */
   mediumLight: number;
+  /** Ribbons' opacity; 0 = none. */
+  ribbons: number;
 }
 
 export class WebGpuSwarmView {
@@ -245,6 +324,8 @@ export class WebGpuSwarmView {
   private readonly spritePipe: GPURenderPipeline;
   private readonly fadePipe: GPURenderPipeline;
   private readonly presentPipe: GPURenderPipeline;
+  private readonly ribbonPipe: GPURenderPipeline;
+  private readonly ribbonBuffer: GPUBuffer;
   private readonly sampler: GPUSampler;
   /** One sprite bind group per engine state buffer (the state ping-pongs). */
   private readonly spriteGroups = new Map<GPUBuffer, GPUBindGroup>();
@@ -320,6 +401,14 @@ export class WebGpuSwarmView {
       fragment: { module: sprite, entryPoint: "fs", targets: [{ format: HDR_FORMAT, blend: additive }] },
       primitive: { topology: "triangle-list" },
     });
+    const ribbon = d.createShaderModule({ code: RIBBON_WGSL });
+    this.ribbonPipe = d.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: ribbon, entryPoint: "vs" },
+      fragment: { module: ribbon, entryPoint: "fs", targets: [{ format: HDR_FORMAT, blend: additive }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this.ribbonBuffer = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const quad = d.createShaderModule({ code: QUAD_WGSL });
     this.fadePipe = d.createRenderPipeline({
       layout: "auto",
@@ -461,6 +550,23 @@ export class WebGpuSwarmView {
     pass.setPipeline(this.spritePipe);
     pass.setBindGroup(0, this.spriteGroup(this.engine.stateBuffer));
     pass.draw(6, this.count);
+    // Ribbons (0.12): the engine keeps the ring while they are on.
+    const ring = trail.ribbons > 0 ? this.engine.getRibbonRing() : null;
+    if (ring && ring.fill > 1) {
+      q.writeBuffer(this.ribbonBuffer, 0, new Float32Array([ring.head, ring.fill, trail.ribbons, this.engine.count]));
+      pass.setPipeline(this.ribbonPipe);
+      pass.setBindGroup(
+        0,
+        this.device.createBindGroup({
+          layout: this.ribbonPipe.getBindGroupLayout(0),
+          entries: [this.viewBuffer, this.ribbonBuffer, ring.buffer, this.colorBuffer].map((buffer, binding) => ({
+            binding,
+            resource: { buffer },
+          })),
+        })
+      );
+      pass.draw((RIBBON_SLOTS - 1) * 6, this.count);
+    }
     pass.end();
 
     // The light: bloom of this frame, light from the medium. Off costs nothing.
@@ -550,7 +656,7 @@ export class WebGpuSwarmView {
     this.light?.dispose();
     this.light = null;
     this.black.destroy();
-    for (const b of [this.viewBuffer, ...this.postBuffers, this.colorBuffer, this.lifeShapeBuffer]) b.destroy();
+    for (const b of [this.viewBuffer, ...this.postBuffers, this.colorBuffer, this.lifeShapeBuffer, this.ribbonBuffer]) b.destroy();
     try {
       this.context.unconfigure();
     } catch {

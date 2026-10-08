@@ -6,6 +6,7 @@ import { ScentField } from "../scent/ScentField";
 import { estimateVelocities } from "../gpu/computeHelpers";
 import { cellBudget, gridTableSize, SCAN_BLOCK } from "./hashGrid";
 import { MEDIUM_EXTENT, MEDIUM_N, WebGpuMedium } from "./WebGpuMedium";
+import { RIBBON_EVERY, RIBBON_SLOTS } from "@/rendering/ribbons";
 import { DEFAULT_SCAR, HandTracker } from "../medium/mediumReference";
 import {
   FIELD_DEPOSIT_WGSL,
@@ -374,6 +375,8 @@ export class WebGpuParticleEngine {
       vel[i * 4 + 3] = this.memoryPerParticle[i];
     }
     const q = this.ctx.device.queue;
+    // The swarm was placed, not moved: the old path is not its path.
+    this.ribbonFill = 0;
     q.writeBuffer(this.posBuffer, 0, pos);
     q.writeBuffer(this.velBuffer, 0, vel);
     q.writeBuffer(this.stateBuffers[this.stateIndex], 0, this.renderState.subarray(0, n * 4));
@@ -488,6 +491,13 @@ export class WebGpuParticleEngine {
       this.lastReadbacks.count += 3;
       this.lastReadbacks.bytes += n * 32 + this.fieldCells * 8;
     }
+    // Ribbons (0.12): every RIBBON_EVERY steps, the positions into the ring.
+    if (this.ribbonRing && ++this.ribbonTick >= RIBBON_EVERY) {
+      this.ribbonTick = 0;
+      this.ribbonHead = (this.ribbonHead + 1) % RIBBON_SLOTS;
+      this.ribbonFill = Math.min(RIBBON_SLOTS, this.ribbonFill + 1);
+      enc.copyBufferToBuffer(this.posBuffer, 0, this.ribbonRing, this.ribbonHead * this.count * 16, n * 16);
+    }
     device.queue.submit([enc.finish()]);
 
     this.pendingRegain = 0;
@@ -496,6 +506,30 @@ export class WebGpuParticleEngine {
     if (posCopy >= 0) this.mirrorPositions(posCopy, this.simTime);
     if (slow) this.mirrorSlow();
     this.lastStepTime = (performance.now() - t0) / 1000;
+  }
+
+  private ribbonRing: GPUBuffer | null = null;
+  private ribbonHead = RIBBON_SLOTS - 1;
+  private ribbonFill = 0;
+  private ribbonTick = 0;
+
+  /** Ribbons (0.12): keep a ring of position snapshots while they are on, none otherwise. */
+  setRibbons(on: boolean): void {
+    if (on && !this.ribbonRing) {
+      this.ribbonRing = this.ctx.device.createBuffer({
+        size: Math.max(16, RIBBON_SLOTS * this.count * 16),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.ribbonFill = 0;
+    } else if (!on && this.ribbonRing) {
+      this.ribbonRing.destroy();
+      this.ribbonRing = null;
+    }
+  }
+
+  /** The ring (slot-major: slot * count + particle), its newest slot and how full it is. */
+  getRibbonRing(): { buffer: GPUBuffer; head: number; fill: number } | null {
+    return this.ribbonRing ? { buffer: this.ribbonRing, head: this.ribbonHead, fill: this.ribbonFill } : null;
   }
 
   /** The medium's grid for the light (one vec4 per cell, scar V in w), once it runs. */
@@ -711,6 +745,7 @@ export class WebGpuParticleEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.ribbonRing?.destroy();
     this.medium?.dispose();
     for (const b of [
       this.posBuffer,
