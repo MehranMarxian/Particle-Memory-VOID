@@ -572,6 +572,41 @@
 #void-looks .preset-card.witness .preset-face {
   border-color: #4a3b26;
 }
+/* The Found row (0.13): Discovery's finds after the authored looks. */
+#void-looks .found-label {
+  flex: none;
+  align-self: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 8.5px;
+  letter-spacing: 0.3em;
+  color: var(--ink-dim);
+  padding: 0 2px 0 8px;
+  border-left: 1px solid var(--line-strong);
+}
+#void-looks .found-label[hidden] {
+  display: none;
+}
+#void-looks .preset-card.found .preset-name {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 74px;
+}
+#void-looks .preset-card.found .forget {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-dim);
+  opacity: 0;
+  cursor: pointer;
+}
+#void-looks .preset-card.found:hover .forget,
+#void-looks .preset-card.found:focus-visible .forget {
+  opacity: 1;
+}
 #void-looks .preset-name {
   font-size: 8.5px;
   letter-spacing: 0.12em;

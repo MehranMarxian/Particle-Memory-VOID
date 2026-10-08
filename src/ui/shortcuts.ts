@@ -17,6 +17,8 @@ export interface ShortcutRow {
   keys: string[];
   /** Convenience aliases that also dispatch but stay out of the key column. */
   aliases?: string[];
+  /** Keys this row runs with Shift held (letters uppercase). */
+  shiftKeys?: string[];
   label: string;
   hint: string;
 }
@@ -55,6 +57,7 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     display: "Shift R",
     // Shift + R: the key column's R is the organism's.
     keys: [],
+    shiftKeys: ["R"],
     label: "Record",
     hint: "Film the piece and its soundscape to a WebM file; again to stop.",
   },

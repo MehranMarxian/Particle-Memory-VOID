@@ -86,6 +86,11 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** DISCOVER (0.13): start or stop the background search for new looks. */
+  onDiscover?(): void;
+  /** A Found card was chosen, or forgotten. */
+  onFoundLook?(id: string): void;
+  onForgetFound?(id: string): void;
   /** SAVE / OPEN (0.12): the look as a file, with what it listens to. */
   onSaveLook?(): void;
   onOpenLook?(): void;
@@ -113,6 +118,10 @@ export interface PanelApi {
   readonly targets: ReadonlyMap<string, ModTarget>;
   /** Repaint these sliders only (the matrix moved them). */
   syncTargets(ids: Iterable<string>): void;
+  /** The Found row (0.13): what Discovery kept, newest last. */
+  setFound(items: readonly { id: string; name: string; thumb: string; tip: string }[]): void;
+  /** DISCOVER's state, and a line on what it has done. */
+  setDiscovering(on: boolean, status: string): void;
 }
 
 export type StudioPanel = "tools" | "props" | "looks";
@@ -1327,6 +1336,50 @@ export function createPanel(opts: {
     presetBtns.set(def.name, card);
   }
 
+  // The Found row (0.13): Discovery's finds, after the authored looks.
+  const foundLabel = document.createElement("span");
+  foundLabel.className = "found-label";
+  foundLabel.textContent = "FOUND";
+  foundLabel.hidden = true;
+  presetGrid.appendChild(foundLabel);
+  const foundCards: HTMLElement[] = [];
+  function renderFound(items: readonly { id: string; name: string; thumb: string; tip: string }[]): void {
+    for (const c of foundCards) c.remove();
+    foundCards.length = 0;
+    foundLabel.hidden = items.length === 0;
+    for (const item of items) {
+      const card = document.createElement("button");
+      card.className = "preset-card found";
+      card.dataset.found = item.id;
+      card.title = item.tip;
+      card.setAttribute("aria-label", `${item.name}: ${item.tip}`);
+      const face = document.createElement("span");
+      face.className = "preset-face";
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = item.thumb;
+      face.appendChild(img);
+      const forget = document.createElement("span");
+      forget.className = "forget";
+      forget.setAttribute("role", "button");
+      forget.setAttribute("aria-label", `Forget ${item.name}`);
+      forget.title = "Forget this find";
+      forget.textContent = "×";
+      forget.addEventListener("click", (e) => {
+        e.stopPropagation();
+        callbacks.onForgetFound?.(item.id);
+      });
+      face.appendChild(forget);
+      const label = document.createElement("span");
+      label.className = "preset-name";
+      label.textContent = item.name.toUpperCase();
+      card.append(face, label);
+      card.addEventListener("click", () => callbacks.onFoundLook?.(item.id));
+      presetGrid.appendChild(card);
+      foundCards.push(card);
+    }
+  }
+
   const looksActions = document.createElement("div");
   looksActions.className = "looks-actions";
   looksRow.appendChild(looksActions);
@@ -1335,6 +1388,9 @@ export function createPanel(opts: {
   iconBtn(looksActions, "reset", "reset", "RESET", () => callbacks.onReset(), "Back to the beginning");
   if (callbacks.onSaveLook) iconBtn(looksActions, "save-look", "saveLook", "SAVE", () => callbacks.onSaveLook?.(), "Save this look as a file, with what it listens to");
   if (callbacks.onOpenLook) iconBtn(looksActions, "open-look", "openLook", "OPEN", () => callbacks.onOpenLook?.(), "Open a look file");
+  const discoverBtn = callbacks.onDiscover
+    ? iconBtn(looksActions, "discover", "discover", "DISCOVER", () => callbacks.onDiscover?.(), "Let VOID search for new looks in the background, on your memory")
+    : null;
 
   studio.appendChild(status);
 
@@ -1452,6 +1508,13 @@ export function createPanel(opts: {
     targets,
     syncTargets(ids) {
       for (const id of ids) for (const fn of targetSync.get(id) ?? []) fn();
+    },
+    setFound: renderFound,
+    setDiscovering(on, status) {
+      if (!discoverBtn) return;
+      discoverBtn.classList.toggle("on", on);
+      discoverBtn.setAttribute("aria-pressed", String(on));
+      discoverBtn.title = status;
     },
     setSourceInfo(name, kind, detail, count) {
       // The chip is the door: what VOID remembers, and the tap that changes it.

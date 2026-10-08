@@ -93,6 +93,7 @@ import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import { clampModulation, Modulator } from "@/instrument/modulation";
+import type { FoundLook } from "@/discovery/found";
 import type { ControllerEvents } from "@/instrument/controllers";
 import {
   audioDrive,
@@ -319,6 +320,88 @@ function applyLookFile(look: import("@/instrument/lookFile").LookFile): void {
   panelApi?.setActivePreset(null);
   scheduleSave();
   flashHint(`LOOK: ${look.name.toUpperCase()}`, 3);
+}
+
+// --- Discovery (0.13 slice 6) -----------------------------------------------------------
+// DISCOVER runs a search for new looks in a worker, on a small copy of the
+// visitor's own memory; what it keeps lands in the looks dock's Found row.
+// The store loads lazily (the eager budget is nearly spent): the row fills a moment after boot.
+let found: FoundLook[] = [];
+let discovering = false;
+/** The particles the search lives on: a stride through the memory. */
+const DISCOVERY_COUNT = 1500;
+
+function foundItems(): { id: string; name: string; thumb: string; tip: string }[] {
+  return found.map((f) => ({
+    id: f.id,
+    name: f.name,
+    thumb: f.thumb,
+    tip: `Found by VOID: ${f.genome.species} species, interest ${f.score.toFixed(2)}`,
+  }));
+}
+
+function discoveryTargets(): Float32Array {
+  const n = Math.min(DISCOVERY_COUNT, engine.count);
+  const out = new Float32Array(n * 3);
+  const stride = engine.count / n;
+  for (let i = 0; i < n; i++) {
+    const k = Math.floor(i * stride);
+    out[i * 3] = engine.targets[k * 3];
+    out[i * 3 + 1] = engine.targets[k * 3 + 1];
+    out[i * 3 + 2] = engine.targets[k * 3 + 2];
+  }
+  return out;
+}
+
+function toggleDiscovery(): void {
+  discovering = !discovering;
+  if (!discovering) {
+    void import("@/discovery/client").then((c) => c.stopDiscovery());
+    panelApi?.setDiscovering(false, "Let VOID search for new looks in the background, on your memory");
+    flashHint("DISCOVERY STOPPED", 2);
+    return;
+  }
+  panelApi?.setDiscovering(true, "Discovering...");
+  flashHint("DISCOVERING - FINDS APPEAR IN LOOKS", 4);
+  void import("@/discovery/client").then((c) => {
+    if (!discovering) return;
+    c.startDiscovery(discoveryTargets(), {
+      onFound(look) {
+        found = c.addFound(found, look);
+        c.saveFound(found);
+        panelApi?.setFound(foundItems());
+        if (found.includes(look)) flashHint(`FOUND: ${look.name.toUpperCase()}`, 4);
+      },
+      onProgress(trials, kept) {
+        panelApi?.setDiscovering(true, `Discovering: ${trials} tried, ${kept} found - press to stop`);
+      },
+    });
+  });
+}
+
+function applyFound(id: string): void {
+  const f = found.find((x) => x.id === id);
+  if (!f) return;
+  void import("@/discovery/genome").then((g) => {
+    // A find is a whole look; what the sliders listen to stays.
+    applyLookFile({
+      format: "void-look",
+      version: 1,
+      name: f.name,
+      params: g.genomeParams(f.genome),
+      visual: g.genomeVisual(f.genome),
+      matrix: [...f.genome.matrix],
+      camera: { ...DEFAULT_CAMERA_CHOREOGRAPHY },
+      ecology: defaultEcologyParams(),
+      modulation: modulator.state,
+    });
+  });
+}
+
+function forgetFound(id: string): void {
+  found = found.filter((x) => x.id !== id);
+  void import("@/discovery/found").then((f) => f.saveFound(found));
+  panelApi?.setFound(foundItems());
 }
 
 function openModEditor(target: string, row: HTMLElement): void {
@@ -1911,6 +1994,9 @@ if (!demoMode) {
       },
       onListen: openModEditor,
       onSaveLook: saveLookFile,
+      onDiscover: toggleDiscovery,
+      onFoundLook: applyFound,
+      onForgetFound: forgetFound,
       onOpenLook: openLookFile,
       isListening: (target) => modulator.mappingFor(target) !== undefined,
       onRelease() {
@@ -1962,6 +2048,10 @@ if (!demoMode) {
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
+  void import("@/discovery/found").then((f) => {
+    found = f.loadFound();
+    panelApi?.setFound(foundItems());
+  });
 }
 if (!demoMode) {
   document.body.appendChild(witnessOverlay.element);
