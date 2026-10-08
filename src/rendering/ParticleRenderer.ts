@@ -9,6 +9,7 @@ import {
 } from "./VisualSettings";
 import { packGradientStops, paletteStops } from "./palette";
 import { SHAPE_FIELD_GLSL } from "./shapes";
+import { STRETCH_MAX, STRETCH_SECONDS } from "./stretch";
 import { packComputeRefs } from "@/particles/gpu/computeHelpers";
 
 /**
@@ -128,6 +129,8 @@ export class ParticleRenderer {
         uFocus: { value: 17 },
         uDof: { value: 0.25 },
         uFogDensity: { value: 0.02 },
+        uStretch: { value: 0 },
+        uViewportH: { value: 1 },
         uCompute: { value: 0 },
         uComputePos: { value: this.placeholderTex },
         uComputeState: { value: this.placeholderTex },
@@ -159,10 +162,13 @@ export class ParticleRenderer {
         uniform vec4 uStopD;
         uniform float uStopCount;
         uniform float uRadialScale;
+        uniform float uStretch;
+        uniform float uViewportH;
         varying vec3 vColor;
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
+        varying vec3 vStretch;
         // Authored ramps, stops packed as rgb + position along the axis.
         vec3 gradientColor(float t) {
           float x = clamp(t, 0.0, 1.0);
@@ -228,6 +234,19 @@ export class ParticleRenderer {
           vShape = mix(uShape, aShape, uShapeBySpecies);
           vState = state4.xyz;
           gl_Position = projectionMatrix * mv;
+          // Velocity stretch (0.12 slice 4): the sprite drawn long along its
+          // motion on screen, narrower across it, its light conserved.
+          vStretch = vec3(1.0, 0.0, 1.0);
+          if (uStretch > 0.0) {
+            vec4 c1 = projectionMatrix * (modelViewMatrix * vec4(p + vel * ${STRETCH_SECONDS.toFixed(3)}, 1.0));
+            vec2 aspect = vec2(projectionMatrix[1][1] / projectionMatrix[0][0], 1.0);
+            vec2 d = (c1.xy / c1.w - gl_Position.xy / gl_Position.w) * 0.5 * uViewportH * aspect;
+            float len = length(d);
+            float e = 1.0 + uStretch * min(len / max(gl_PointSize, 1.0), ${STRETCH_MAX.toFixed(1)});
+            vStretch = vec3(len > 1e-4 ? d / len : vec2(1.0, 0.0), e);
+            gl_PointSize *= e;
+            vFade /= sqrt(e);
+          }
         }
       `,
       fragmentShader: /* glsl */ `
@@ -238,11 +257,19 @@ export class ParticleRenderer {
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
+        varying vec3 vStretch;
         ${SHAPE_FIELD_GLSL}
         void main() {
           vec3 col = vColor;
           col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.94, 0.97, 1.04), uMonochrome);
           vec2 uv = gl_PointCoord - 0.5;
+          if (vStretch.z > 1.0) {
+            // Into the stretched sprite's frame: along the motion the point
+            // is the shape's length; across, it is 1/sqrt(e) of the width.
+            vec2 dir = vec2(vStretch.x, -vStretch.y); // point coords run down
+            float e = vStretch.z;
+            uv = vec2(dot(uv, dir), dot(uv, vec2(-dir.y, dir.x)) * e * sqrt(e));
+          }
           // One 0..1 field per sprite: the same two thresholds draw every
           // shape, and shape 0 is the original disc, bit for bit.
           float field = shapeField(vShape, uv);
@@ -338,7 +365,14 @@ export class ParticleRenderer {
    * `subjectRadius` is the source's own radius, measured once per source, and
    * only used by the RADIAL gradient axis.
    */
-  applySettings(settings: VisualSettings, pixelRatio: number, focusDistance: number, subjectRadius = 1): void {
+  applySettings(
+    settings: VisualSettings,
+    pixelRatio: number,
+    focusDistance: number,
+    subjectRadius = 1,
+    /** The drawing buffer's height in pixels (velocity stretch measures on screen). */
+    viewportHeight = 1
+  ): void {
     const s = clampVisualSettings(settings);
     const u = this.material.uniforms;
     u.uSize.value = s.particleSize;
@@ -365,6 +399,8 @@ export class ParticleRenderer {
     u.uFocus.value = Math.max(0.5, focusDistance);
     u.uDof.value = s.dof;
     u.uFogDensity.value = s.fogDensity;
+    u.uStretch.value = s.stretch;
+    u.uViewportH.value = viewportHeight;
   }
 
   dispose(): void {

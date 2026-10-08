@@ -4,6 +4,7 @@ import { packGradientStops, paletteStops } from "../palette";
 import { SHAPE_FIELD_WGSL } from "../shapes";
 import { trailRetention, type ToneMap } from "../TrailPass";
 import { WebGpuLight } from "./WebGpuLight";
+import { STRETCH_MAX, STRETCH_SECONDS } from "../stretch";
 import type { WebGpuContext, WebGpuParticleEngine } from "@/particles/webgpu/WebGpuParticleEngine";
 import { densityCompensation } from "@/particles/webgpu/hashGrid";
 
@@ -38,7 +39,7 @@ struct View {
   gradAxis: f32, stopCount: f32, shape: f32, shapeBySpecies: f32,
   radialScale: f32, focus: f32, dof: f32, fogDensity: f32,
   stops: array<vec4f, 4>,
-  light: f32, _l0: f32, _l1: f32, _l2: f32,
+  light: f32, stretch: f32, _l1: f32, _l2: f32,
 }
 @group(0) @binding(0) var<uniform> v: View;
 @group(0) @binding(1) var<storage, read> pos: array<vec4f>;
@@ -55,6 +56,7 @@ struct Out {
   @location(1) fade: f32,
   @location(2) uv: vec2f,
   @location(3) shape: f32,
+  @location(4) stretch: vec3f,
 }
 
 var<private> QUAD = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
@@ -84,7 +86,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
   let bloom = 1.0 + min(speed * 0.35, 1.8);
   let lifeM = clamp(ls.x, 0.0, 1.4);
   let sizeAtten = (1.0 + v.dof * defocus) * breathe * bloom * (0.35 + 0.65 * min(lifeM, 1.15));
-  let pointSize = v.size * v.pixelRatio * (42.0 / dist) * sizeAtten;
+  var pointSize = v.size * v.pixelRatio * (42.0 / dist) * sizeAtten;
   let fog = exp(-v.fogDensity * dist);
   let coc = 1.0 + v.dof * defocus;
   var fade = fog / (coc * coc);
@@ -110,8 +112,22 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
   o.shape = mix(v.shape, ls.y, v.shapeBySpecies);
   o.fade = fade;
 
-  // A GL point sprite, as a quad: pointSize pixels across, uv = gl_PointCoord - 0.5.
   var clip = v.proj * mv;
+  // Velocity stretch: ParticleRenderer's, line for line.
+  o.stretch = vec3f(1.0, 0.0, 1.0);
+  if (v.stretch > 0.0) {
+    let c1 = v.proj * (v.view * vec4f(p + ve * ${STRETCH_SECONDS.toFixed(3)}, 1.0));
+    let d = (c1.xy / c1.w - clip.xy / clip.w) * 0.5 * v.viewport;
+    let len = length(d);
+    let e = 1.0 + v.stretch * min(len / max(pointSize, 1.0), ${STRETCH_MAX.toFixed(1)});
+    var dir = vec2f(1.0, 0.0);
+    if (len > 1e-4) { dir = d / len; }
+    o.stretch = vec3f(dir, e);
+    pointSize = pointSize * e;
+    o.fade = o.fade / sqrt(e);
+  }
+
+  // A GL point sprite, as a quad: pointSize pixels across, uv = gl_PointCoord - 0.5.
   let corner = QUAD[vi];
   clip = vec4f(clip.xy + corner * (pointSize / v.viewport) * clip.w, clip.zw);
   // three's projection maps depth to [-1, 1]; WebGPU clips to [0, 1].
@@ -125,7 +141,13 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
 fn fs(in: Out) -> @location(0) vec4f {
   var col = in.color;
   col = mix(col, vec3f(dot(col, vec3f(0.2126, 0.7152, 0.0722))) * vec3f(0.94, 0.97, 1.04), v.monochrome);
-  let field = shapeField(in.shape, in.uv);
+  var uv = in.uv;
+  if (in.stretch.z > 1.0) {
+    let dir = vec2f(in.stretch.x, -in.stretch.y);
+    let e = in.stretch.z;
+    uv = vec2f(dot(uv, dir), dot(uv, vec2f(-dir.y, dir.x)) * e * sqrt(e));
+  }
+  let field = shapeField(in.shape, uv);
   let core = 1.0 - smoothstep(0.7, 1.0, field);
   let halo = exp(-field * 3.5) * v.glow * 0.3;
   let alpha = (core + halo) * v.opacity * in.fade;
@@ -397,6 +419,7 @@ export class WebGpuSwarmView {
     v[45] = Math.max(0.5, focusDistance);
     v[46] = s.dof;
     v[47] = s.fogDensity;
+    v[LIGHT_SLOT + 1] = s.stretch;
   }
 
   /**

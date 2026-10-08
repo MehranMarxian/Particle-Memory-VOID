@@ -91,6 +91,8 @@ export interface VisualSettings {
   toneMap: "aces" | "agx";
   /** Light drawn from the medium - wakes and scars glowing in the space. 0 = off. */
   mediumLight: number;
+  /** Velocity stretch: sprites drawn long along their motion. 0 = round. */
+  stretch: number;
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
@@ -109,6 +111,7 @@ export const defaultVisualSettings = (): VisualSettings => ({
   bloom: 0,
   toneMap: "aces",
   mediumLight: 0,
+  stretch: 0,
 });
 
 /**
@@ -138,6 +141,7 @@ export function clampVisualSettings(s: VisualSettings): VisualSettings {
     bloom: cl(s.bloom, 0, 2),
     toneMap: s.toneMap === "agx" ? "agx" : "aces",
     mediumLight: cl(s.mediumLight, 0, 3),
+    stretch: cl(s.stretch, 0, 1),
   };
 }
 

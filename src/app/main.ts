@@ -2472,7 +2472,13 @@ function frameInner(now: number): void {
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
   }
-  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius, subjectRadius);
+  particleRenderer?.applySettings(
+    effective,
+    renderer3d.getPixelRatio(),
+    radius,
+    subjectRadius,
+    renderer3d.domElement.height
+  );
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
