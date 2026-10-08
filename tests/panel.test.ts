@@ -16,7 +16,7 @@ import { PRESET_DEFINITIONS } from "@/presets/presets";
  * closed, reopened and remembered.
  */
 
-const SECTIONS = ["MOTION", "MEMORY", "LIFE", "FIELD", "SCENT & HEAT", "ECOLOGY", "VISUAL", "SOUND", "EVOLVE", "LAB"];
+const SECTIONS = ["MOTION", "MEMORY", "LIFE", "FIELD", "SCENT & HEAT", "MEDIUM", "ECOLOGY", "VISUAL", "SOUND", "EVOLVE", "LAB"];
 
 function makeCallbacks(): PanelCallbacks & { calls: string[] } {
   const calls: string[] = [];

@@ -1,3 +1,4 @@
+import type { ModTarget } from "@/instrument/modulation";
 import type { EngineParams } from "@/types";
 import type { AudioSource } from "@/audio/audioReactive";
 import {
@@ -17,6 +18,7 @@ import {
   MACRO_LABELS,
   MACRO_ORDER,
   MACRO_TIPS,
+  readMacro,
   type MacroName,
   type MacroValues,
 } from "@/presets/macros";
@@ -84,6 +86,13 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** SAVE / OPEN (0.12): the look as a file, with what it listens to. */
+  onSaveLook?(): void;
+  onOpenLook?(): void;
+  /** A slider's listen dot was pressed (0.12): open its mapping beside `row`. */
+  onListen?(target: string, row: HTMLElement): void;
+  /** Whether a slider is listening to something right now. */
+  isListening?(target: string): boolean;
 }
 
 export interface PanelApi {
@@ -100,6 +109,10 @@ export interface PanelApi {
   clearHint(): void;
   toggleVisible(): void;
   refresh(): void;
+  /** Every slider the modulation matrix can play, by id ("<object>.<key>"). */
+  readonly targets: ReadonlyMap<string, ModTarget>;
+  /** Repaint these sliders only (the matrix moved them). */
+  syncTargets(ids: Iterable<string>): void;
 }
 
 export type StudioPanel = "tools" | "props" | "looks";
@@ -198,7 +211,7 @@ export function createPanel(opts: {
   pointer: { strength: number; mode: number; ghost: boolean };
   callbacks: PanelCallbacks;
   /** Live backend label for the LAB's SIM button. */
-  backend: () => "gpu" | "cpu";
+  backend: () => "webgpu" | "gpu" | "cpu";
   ecology: {
     enabled: boolean;
     captureRadius: number;
@@ -226,6 +239,18 @@ export function createPanel(opts: {
   const syncAll = () => {
     for (const fn of syncFns) fn();
   };
+
+  // The modulation matrix's targets (0.12): every slider over a known live
+  // object, named "<object>.<key>" so a mapping survives a save and a file.
+  const objectNames = new Map<object, string>();
+  const nameObject = (obj: object, name: string) => {
+    if (!objectNames.has(obj)) objectNames.set(obj, name);
+  };
+  nameObject(params, "params");
+  for (const [k, v] of Object.entries(params)) if (v && typeof v === "object" && !Array.isArray(v)) nameObject(v, `params.${k}`);
+  for (const [k, v] of Object.entries({ visual, sound, soundscape, evolve, pointer, ecology, wind })) nameObject(v, k);
+  const targets = new Map<string, ModTarget>();
+  const targetSync = new Map<string, Array<() => void>>();
   let evolveReadout: HTMLElement | null = null;
 
   const studio = document.createElement("div");
@@ -369,6 +394,47 @@ export function createPanel(opts: {
       true,
       tip
     );
+    const name = objectNames.get(obj);
+    const row = body.lastElementChild as HTMLElement | null;
+    if (!name || !row) return;
+    const id = `${name}.${key}`;
+    if (!targets.has(id)) {
+      targets.set(id, {
+        id,
+        label,
+        min,
+        max,
+        get: () => Number(o[key] ?? 0),
+        set: (v) => {
+          o[key] = v;
+        },
+      });
+    }
+    // The row's own repaint, so the matrix can move just this slider.
+    const paint = syncFns[syncFns.length - 1];
+    const list = targetSync.get(id) ?? [];
+    list.push(paint);
+    targetSync.set(id, list);
+    // The listen dot: map this slider to a sound band, MIDI or OSC.
+    if (!callbacks.onListen) return;
+    row.classList.add("listen");
+    const dot = document.createElement("button");
+    dot.className = "listen-dot";
+    dot.type = "button";
+    dot.setAttribute("aria-label", `${label}: listen`);
+    dot.title = "Listen: let sound, MIDI or OSC play this slider";
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      callbacks.onListen?.(id, row);
+    });
+    row.appendChild(dot);
+    const paintDot = () => {
+      const on = callbacks.isListening?.(id) ?? false;
+      dot.classList.toggle("on", on);
+      dot.setAttribute("aria-pressed", String(on));
+    };
+    paintDot();
+    syncFns.push(paintDot);
   }
 
   function addToggle(
@@ -531,7 +597,7 @@ export function createPanel(opts: {
         visual.gradientAxis = v as GradientAxis;
         lookChanged();
       },
-      "What the ramp is mapped across: a particle's own life, its distance from the camera or the centre, or the scent and heat it moves through.",
+      "What the ramp is mapped across: a particle's own life, its distance from the camera or the centre, the scent and heat it moves through - or its history: how near it once came home, the fastest it ever moved, how long it has stayed in company.",
       () => visual.colorMode === "gradient"
     );
   }
@@ -969,7 +1035,9 @@ export function createPanel(opts: {
       motionBody,
       MACRO_LABELS[macroName],
       { min: 0, max: 1, step: 0.01 },
-      () => opts.macros[macroName],
+      // The live params, not a stored position: a look, the cycle or a
+      // section slider may have moved them (readMacro).
+      () => readMacro(macroName, params, visual),
       (v) => {
         macros[macroName] = v;
         callbacks.onMacro(macroName);
@@ -1041,6 +1109,30 @@ export function createPanel(opts: {
   addObjSlider(scentBody, "Heat decay", params.heat, "decay", 0.02, 0.95, 0.01, num, "How quickly the warmth cools away.");
   addObjSlider(scentBody, "Heat steer", params.heat, "steer", -2, 2, 0.05, num, "Negative flees the warmth, positive seeks it.");
 
+  // The medium (0.12): child-simple on purpose - on/off, how much it swirls,
+  // and the scars. The fine controls stay in the look data.
+  const mediumBody = section("MEDIUM", "medium");
+  addToggle(
+    mediumBody,
+    "Fluid",
+    () => params.medium.enabled,
+    (v) => (params.medium.enabled = v),
+    "ON",
+    "OFF",
+    "The swarm moves through a medium it drags along; its wakes drift on after it has gone."
+  );
+  addObjSlider(mediumBody, "Swirl", params.medium, "stir", 0, 6, 0.1, num, "How strongly the medium stirs as the memory goes. Still while it remembers, carrying the swarm in eddies as it forgets. Drag through it: it follows your hand.");
+  addObjSlider(mediumBody, "Light", visual, "mediumLight", 0, 3, 0.05, num, "The medium's own light: wakes and scars glowing in the space, even where no particle is.");
+  addToggle(
+    mediumBody,
+    "Scars",
+    () => params.scar.enabled,
+    (v) => (params.scar.enabled = v),
+    "ON",
+    "OFF",
+    "Patterns grow where memory was held and outlive it; the swarm finds them as it forgets, and they fade as it remembers."
+  );
+
   const ecoBody = section("ECOLOGY", "ecology");
   addToggle(
     ecoBody,
@@ -1084,6 +1176,18 @@ export function createPanel(opts: {
   addObjSlider(visBody, "Opacity", visual, "opacity", 0.05, 1, 0.01, num);
   addObjSlider(visBody, "Depth", visual, "dof", 0, 1, 0.01, num, "Depth-of-field focus falloff.");
   addObjSlider(visBody, "Fog", visual, "fogDensity", 0, 0.12, 0.002, (v) => v.toFixed(3));
+  addObjSlider(visBody, "Bloom", visual, "bloom", 0, 2, 0.05, num, "Light that spills from the brightest places.");
+  addObjSlider(visBody, "Stretch", visual, "stretch", 0, 1, 0.05, num, "Fast particles drawn long along their motion, as light streaks.");
+  addObjSlider(visBody, "Ribbons", visual, "ribbons", 0, 1, 0.05, num, "Each particle's last moments drawn as a thin fading path (GPU backends).");
+  addToggle(
+    visBody,
+    "Tone",
+    () => visual.toneMap === "agx",
+    (v) => (visual.toneMap = v ? "agx" : "aces"),
+    "AGX",
+    "ACES",
+    "How light becomes the image: ACES is the piece's own; AgX keeps colour in dense light."
+  );
   trailControls(visBody);
   colorControls(visBody);
   shapeControls(visBody);
@@ -1229,6 +1333,8 @@ export function createPanel(opts: {
   iconBtn(looksActions, "randomize", "random", "RANDOM", () => callbacks.onRandomize(), "A brand-new organism (undo is always there)");
   iconBtn(looksActions, "undo", "undo", "UNDO", () => callbacks.onUndo(), "Go back one step");
   iconBtn(looksActions, "reset", "reset", "RESET", () => callbacks.onReset(), "Back to the beginning");
+  if (callbacks.onSaveLook) iconBtn(looksActions, "save-look", "saveLook", "SAVE", () => callbacks.onSaveLook?.(), "Save this look as a file, with what it listens to");
+  if (callbacks.onOpenLook) iconBtn(looksActions, "open-look", "openLook", "OPEN", () => callbacks.onOpenLook?.(), "Open a look file");
 
   studio.appendChild(status);
 
@@ -1343,6 +1449,10 @@ export function createPanel(opts: {
 
   return {
     element: studio,
+    targets,
+    syncTargets(ids) {
+      for (const id of ids) for (const fn of targetSync.get(id) ?? []) fn();
+    },
     setSourceInfo(name, kind, detail, count) {
       // The chip is the door: what VOID remembers, and the tap that changes it.
       sourceChip.textContent = `${name} · ${count.toLocaleString()}`;

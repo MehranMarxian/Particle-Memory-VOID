@@ -90,6 +90,15 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
   },
 };
 
+/**
+ * How much the piece has forgotten when the user holds MEMORY by hand:
+ * full RECONSTRUCT strength (8) is still, no memory at all is VOID.
+ */
+export function manualAgitation(memoryStrength: number): number {
+  const full = defaultStateConfigs.RECONSTRUCT.memoryStrength;
+  return Math.min(1, Math.max(0.05, 1 - memoryStrength / full));
+}
+
 /** Serialized cycle configuration (JSON-friendly). */
 export interface MemoryCyclePreset {
   transitionSeconds: [number, number];
@@ -268,10 +277,26 @@ export class MemorySystem {
 
   /** Apply the effective memory values onto engine params. */
   apply(params: EngineParams): void {
-    if (!this.active) return;
+    if (!this.active) {
+      // Manual control: the user owns MEMORY, so how much the piece has
+      // forgotten follows their memory strength - otherwise the medium
+      // would stay at whatever the cycle last left (RECONSTRUCT's 0.05)
+      // and never stir, whatever the sliders say.
+      params.medium.agitation = manualAgitation(params.memory.strength);
+      params.scar.erase = 0;
+      return;
+    }
     params.memory.strength = this.memoryStrength;
     params.memory.decay = this.decay;
     params.turbulence = Math.max(params.turbulence, this.chaos);
+    // The medium stirs as the memory goes: blend is 0.05 in RECONSTRUCT, 1 in VOID.
+    params.medium.agitation = this.blend;
+    // Remembering clears the scars: a ramp across the state, not a switch.
+    // Gray-Scott has a threshold - below it a fixed fade only shrinks the
+    // pattern to a new size, above it everything dies at once - so the
+    // fade rises with REMEMBER's progress and the scars withdraw over its
+    // seconds (measured on the GPU: 23% of the box to 5% over 8 s).
+    params.scar.erase = this.currentName === "REMEMBER" ? this.progress : 0;
   }
 
   toJSON(): MemoryCyclePreset {

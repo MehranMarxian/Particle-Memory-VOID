@@ -14,7 +14,9 @@
  * can actually persist.
  *
  * GPUComputationRenderer injects `resolution` and the dependency samplers
- * (texturePosition / textureVelocity) automatically.
+ * (texturePosition / textureVelocity) automatically - bound to the
+ * previous step's targets, which is why the position pass takes this
+ * step's velocity through texVelocityNew instead.
  */
 export const gpuPositionShader = /* glsl */ `
   uniform float uCount;
@@ -24,6 +26,12 @@ export const gpuPositionShader = /* glsl */ `
   uniform float uLifespan;
   uniform float uLifeSpread;
   uniform sampler2D texTargets;
+  // The velocity this step's velocity pass just wrote (semi-implicit Euler,
+  // as ParticleEngine.step integrates). GPUComputationRenderer binds its
+  // dependencies to the previous step's targets, so velocity is bound by
+  // hand rather than as a dependency: through one, the position would ride
+  // a step-old velocity - explicit Euler, a step behind the other engines.
+  uniform sampler2D texVelocityNew;
 
   float hash1(float n) { return fract(sin(n) * 43758.5453123); }
 
@@ -32,7 +40,7 @@ export const gpuPositionShader = /* glsl */ `
     float idx = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
     vec4 pos = texture2D(texturePosition, uv);
     if (idx >= uCount) { gl_FragColor = vec4(0.0); return; }
-    vec4 vel = texture2D(textureVelocity, uv);
+    vec4 vel = texture2D(texVelocityNew, uv);
 
     // Rebirth places the particle at its source point, as the CPU engine's
     // teleport does (ParticleEngine.step): the same age test and ring
@@ -72,8 +80,11 @@ export const gpuStateShader = /* glsl */ `
   uniform float uCellSize;
 
   vec2 sIndexToUv(float i, vec2 res) {
-    float x = mod(i, res.x);
-    float y = floor(i / res.x);
+    // Row from the half-index: at an exact multiple of the width, i / res.x
+    // can land a hair under the integer on the GPU, and floor + mod would
+    // then read texel i - 1. Half a texel of headroom keeps it exact.
+    float y = floor((i + 0.5) / res.x);
+    float x = i - y * res.x;
     return (vec2(x, y) + 0.5) / res;
   }
 
@@ -128,6 +139,10 @@ export const gpuVelocityShader = /* glsl */ `
   uniform sampler2D texCellStart;
   uniform sampler2D texEntries;
   uniform sampler2D texMatrix;
+  // The organism state the state pass wrote this step, bound by hand (see
+  // texVelocityNew in the position shader): the CPU engine's sleep gate
+  // reads the state its previous step ended on, which is this one.
+  uniform sampler2D texStateNew;
 
   uniform vec3 uGridMin;
   uniform vec3 uGridDims;
@@ -177,12 +192,44 @@ export const gpuVelocityShader = /* glsl */ `
   uniform float uEnvScent;
   uniform float uEnvHeat;
   uniform sampler2D texScent;
+  // The medium (0.12 slice 3, gpu/GlMedium.ts): fluid velocity in xyz, scar
+  // V in w, 64^3 tiled 8 x 8. The grid helpers below are GlMedium's
+  // GL_GRID_GLSL, copied so the eager engine never imports the lazy medium;
+  // a contract test holds the two copies equal.
+  uniform sampler2D texMedium;
+  uniform float uMediumDrag;
+  uniform float uScarSteer;
+  #define MN 64
+  #define MT 8
+  #define ME 12.0
+  ivec2 texelOf(ivec3 c) {
+    c = clamp(c, ivec3(0), ivec3(MN - 1));
+    return ivec2((c.z % MT) * MN + c.x, (c.z / MT) * MN + c.y);
+  }
+
+  vec4 mediumCell(ivec3 c) { return texelFetch(texMedium, texelOf(c), 0); }
+  // Trilinear, cell centres at integers (MediumReference.velocityAt).
+  vec4 mediumAt(vec3 p) {
+    float mh = 2.0 * ME / float(MN);
+    vec3 g = clamp((p + vec3(ME)) / mh - 0.5, vec3(0.0), vec3(float(MN) - 1.0));
+    vec3 f0 = floor(g);
+    vec3 f = g - f0;
+    ivec3 i = ivec3(f0);
+    vec4 a = mix(mix(mediumCell(i), mediumCell(i + ivec3(1, 0, 0)), f.x),
+                 mix(mediumCell(i + ivec3(0, 1, 0)), mediumCell(i + ivec3(1, 1, 0)), f.x), f.y);
+    vec4 b = mix(mix(mediumCell(i + ivec3(0, 0, 1)), mediumCell(i + ivec3(1, 0, 1)), f.x),
+                 mix(mediumCell(i + ivec3(0, 1, 1)), mediumCell(i + ivec3(1, 1, 1)), f.x), f.y);
+    return mix(a, b, f.z);
+  }
   uniform float uScentN;
   uniform float uScentExtent;
 
   vec2 indexToUv(float i, vec2 res) {
-    float x = mod(i, res.x);
-    float y = floor(i / res.x);
+    // Row from the half-index: at an exact multiple of the width, i / res.x
+    // can land a hair under the integer on the GPU, and floor + mod would
+    // then read texel i - 1. Half a texel of headroom keeps it exact.
+    float y = floor((i + 0.5) / res.x);
+    float x = i - y * res.x;
     return (vec2(x, y) + 0.5) / res;
   }
 
@@ -337,7 +384,7 @@ export const gpuVelocityShader = /* glsl */ `
       }
     }
 
-    vec4 stS = texture2D(textureState, uv);
+    vec4 stS = texture2D(texStateNew, uv);
     // Environment-modulated affinities: the swarm's own fields bend how
     // sociable it is where it has been (scent) and where it is busy (heat).
     float envMod = 1.0;
@@ -454,6 +501,21 @@ export const gpuVelocityShader = /* glsl */ `
         accel += grad * (uScentSteer * min(1.0, gm) / gm);
       }
     }
+    // The medium carries the swarm: a drag toward the fluid's own motion.
+    if (uMediumDrag > 0.0) {
+      accel += (mediumAt(pos).xyz - vel) * uMediumDrag;
+    }
+    // Scars: climb (or flee) the pattern the swarm left behind.
+    if (uScarSteer != 0.0) {
+      float mh = 2.0 * ME / float(MN);
+      float s0 = mediumAt(pos).w;
+      vec3 sg = vec3(mediumAt(pos + vec3(mh, 0.0, 0.0)).w - s0,
+                     mediumAt(pos + vec3(0.0, mh, 0.0)).w - s0,
+                     mediumAt(pos + vec3(0.0, 0.0, mh)).w - s0);
+      float gm = length(sg);
+      if (gm > 1e-5) accel += sg * (uScarSteer * min(1.0, gm * 8.0) / gm);
+    }
+
     // --- Integrate ------------------------------------------------------
     float friction = pow(clamp(uFriction, 0.0, 1.0), uDt * 60.0);
     vel = (vel + accel * uDt) * friction;

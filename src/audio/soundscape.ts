@@ -48,6 +48,8 @@ export interface Soundscape {
   stop(): void;
   /** Glide toward new levels (safe to call from a slow tick). */
   setTargets(levels: SoundscapeLevels, volume: number): void;
+  /** The soundscape as a stream (for a recording), while it plays. */
+  stream(): MediaStream | null;
 }
 
 function noiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
@@ -174,5 +176,11 @@ export function createSoundscape(): Soundscape {
     start,
     stop,
     setTargets,
+    stream() {
+      if (!ctx || !master) return null;
+      const dest = ctx.createMediaStreamDestination();
+      master.connect(dest);
+      return dest.stream;
+    },
   };
 }

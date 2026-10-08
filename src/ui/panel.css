@@ -326,6 +326,37 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* The listen dot (0.12): a slider that can be played by sound, MIDI or OSC. */
+#void-studio .row.listen {
+  grid-template-columns: 84px 1fr 38px 12px;
+}
+#void-studio .listen-dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+#void-studio .listen-dot::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-dim);
+  opacity: 0.55;
+}
+#void-studio .listen-dot:hover::before,
+#void-studio .listen-dot:focus-visible::before {
+  opacity: 1;
+}
+#void-studio .listen-dot.on::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
 #void-studio .row .switch {
   grid-column: 2 / 4;
 }

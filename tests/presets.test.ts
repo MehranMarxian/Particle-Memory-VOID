@@ -29,7 +29,7 @@ function makeMemoryStorage(): Storage & { dump(): string } {
 }
 
 describe("presets", () => {
-  it("defines exactly the eighteen authored presets with unique names", () => {
+  it("defines exactly the nineteen authored presets with unique names", () => {
     expect(PRESET_DEFINITIONS.map((d) => d.name)).toEqual([
       "moon",
       "portrait",
@@ -49,6 +49,7 @@ describe("presets", () => {
       "aurora",
       "sketch",
       "kin",
+      "wake",
     ]);
   });
 

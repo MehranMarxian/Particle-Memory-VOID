@@ -154,6 +154,85 @@ export const defaultEnvironmentParams = (): EnvironmentParams => ({
   heat: 0,
 });
 
+/**
+ * The medium (0.12 slice 3): an incompressible fluid the swarm moves
+ * through and drags along, which keeps swirling after the swarm has gone.
+ * WebGPU only for now; off by default, so every look is unchanged.
+ */
+export interface MediumParams {
+  enabled: boolean;
+  /**
+   * The medium's own eddies (acceleration at full agitation): what makes it
+   * visibly carry the swarm as the memory goes. The panel's Swirl.
+   */
+  stir: number;
+  /** How strongly the swarm drags the medium toward its own motion, 0..1. */
+  brush: number;
+  /** Swirl the medium keeps and sharpens (scaled by agitation). */
+  vorticity: number;
+  /** Per-second retention of the medium's motion (1 = never settles). */
+  dissipation: number;
+  /** How strongly particles are carried by the medium. */
+  drag: number;
+  /**
+   * How much the piece has forgotten, 0..1: still in RECONSTRUCT, turbulent
+   * in VOID. Written by the memory cycle each step (MemorySystem.apply).
+   */
+  agitation: number;
+}
+
+/**
+ * Measured in Mehran's own Chrome (8 Oct), default look, memory released:
+ * the first defaults (stir 2, brush 0.6, drag 1.2) moved the swarm 0.75 in
+ * 5 s against 0.55 with the fluid off - invisible. Dense clusters dragged
+ * the fluid inside them to their own velocity (brush), pinning the medium
+ * exactly where the particles are. Brush 0.15, stir 3, drag 2.5: 2.13
+ * against 0.35, and a remembered shape still holds (1.40 against 1.15).
+ */
+export const defaultMediumParams = (): MediumParams => ({
+  enabled: false,
+  stir: 3,
+  brush: 0.15,
+  vorticity: 2.5,
+  dissipation: 0.5,
+  drag: 2.5,
+  agitation: 0.05,
+});
+
+/**
+ * Scars (0.12 slice 3): Gray-Scott reaction-diffusion on the medium's grid.
+ * Particles that still hold memory seed it; it grows patterns nobody drew,
+ * quiet while the swarm remembers and free when it forgets, and outlives it.
+ */
+export interface ScarParams {
+  enabled: boolean;
+  /** Seed per remembering particle per second. */
+  deposit: number;
+  /** Reaction speed (Gray-Scott iterations per step at full agitation / 8). */
+  speed: number;
+  /** Signed steer up the scar's gradient: particles find the pattern. */
+  steer: number;
+  /** Gray-Scott feed and kill. */
+  feed: number;
+  kill: number;
+  /**
+   * 0..1: how hard the scars are being cleared. Written by the memory cycle
+   * (MemorySystem.apply): 1 while the piece REMEMBERs, so the patterns
+   * fade out as the memory comes back, 0 otherwise.
+   */
+  erase: number;
+}
+
+export const defaultScarParams = (): ScarParams => ({
+  enabled: false,
+  deposit: 1,
+  speed: 1,
+  steer: 1.2,
+  feed: 0.034,
+  kill: 0.063,
+  erase: 0,
+});
+
 export interface EngineParams {
   /**
    * The room's push (v0.11.2). Live input like the pointer: written by the
@@ -172,6 +251,8 @@ export interface EngineParams {
   lifecycle: LifeCycleParams;
   heat: HeatParams;
   environment: EnvironmentParams;
+  medium: MediumParams;
+  scar: ScarParams;
   turbulence: number;
   drift: number;
   gravity: number;
@@ -215,6 +296,8 @@ export const defaultEngineParams = (): EngineParams => ({
   lifecycle: defaultLifeCycleParams(),
   heat: defaultHeatParams(),
   environment: defaultEnvironmentParams(),
+  medium: defaultMediumParams(),
+  scar: defaultScarParams(),
   turbulence: 0.0,
   drift: 0.0,
   gravity: 0.0,

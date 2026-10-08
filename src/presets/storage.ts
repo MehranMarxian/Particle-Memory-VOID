@@ -1,6 +1,7 @@
 import type { EngineParams } from "@/types";
 import type { VisualSettings } from "@/rendering/VisualSettings";
 import type { CameraChoreography } from "@/rendering/cameraChoreography";
+import type { ModulationState } from "@/instrument/modulation";
 import { structuredCloneSafe, type StateSnapshot } from "./presets";
 
 /**
@@ -26,6 +27,8 @@ export interface StoredConfig {
   lastSourceUrl: string | null;
   activePreset: string | null;
   camera?: CameraChoreography;
+  /** The modulation matrix (0.12): band shapes and mappings. Older saves have none. */
+  modulation?: ModulationState;
 }
 
 export interface Storage {
@@ -90,6 +93,7 @@ export function toStoredConfig(opts: {
   lastSourceUrl: string | null;
   activePreset: string | null;
   camera?: CameraChoreography;
+  modulation?: ModulationState;
 }): StoredConfig {
   return {
     version: 2,
@@ -103,6 +107,7 @@ export function toStoredConfig(opts: {
     lastSourceUrl: opts.lastSourceUrl,
     activePreset: opts.activePreset,
     camera: opts.camera ? { ...opts.camera } : undefined,
+    modulation: opts.modulation ? structuredCloneSafe(opts.modulation) : undefined,
   };
 }
 

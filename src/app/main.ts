@@ -1,16 +1,17 @@
 import * as THREE from "three";
 import { ParticleEngine } from "@/particles/ParticleEngine";
-import { GpuParticleEngine } from "@/particles/gpu/GpuParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
 import { defaultEngineParams } from "@/types";
-import { ParticleRenderer, type ComputeTextureSource } from "@/rendering/ParticleRenderer";
+import { ParticleRenderer } from "@/rendering/ParticleRenderer";
 import { cameraTrailDecay, TrailPass, trailDepositScale } from "@/rendering/TrailPass";
 import { cappedPixelRatio, QualityGovernor } from "@/rendering/quality";
 import {
   COLOR_MODES,
   defaultVisualSettings,
   GRADIENT_AXES,
+  isBakedAxis,
   isFieldAxis,
+  isHistoryAxis,
   PARTICLE_SHAPES,
   type ColorMode,
   type GradientAxis,
@@ -19,6 +20,7 @@ import {
 } from "@/rendering/VisualSettings";
 import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
 import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { ParticleHistory, writeHistoryColors } from "@/rendering/history";
 import {
   DEFAULT_CAMERA_CHOREOGRAPHY,
   breatheOffset,
@@ -57,18 +59,18 @@ import {
 } from "@/presets/presets";
 import { createAlternateMatrix, DEFAULT_MATRIX_ROWS, setMatrixRows } from "@/presets/matrices";
 import { HintGate } from "@/ui/hintGate";
-import { carryLiveState } from "@/particles/carryState";
 import { FIXED_DT, scheduleSteps } from "@/app/stepper";
 import {
   DENSITY_CEILING,
-  DENSITY_LEVELS,
   DEFAULT_DENSITY_INDEX,
   TOUCH_DENSITY_INDEX,
+  densityLevels,
   effectiveDensity,
-  wantsCpuBackend,
+  type Backend,
+  type BackendMode,
 } from "@/app/simPolicy";
 import { randomizeParams } from "@/presets/randomize";
-import { applyMacros, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
+import { applyMacro, defaultMacros, ENGINE_MACROS, type MacroName } from "@/presets/macros";
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
@@ -90,9 +92,12 @@ import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlo
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
+import { clampModulation, Modulator } from "@/instrument/modulation";
+import type { ControllerEvents } from "@/instrument/controllers";
 import {
   audioDrive,
   createAudioListener,
+  SILENT_BANDS,
   humanizeAudioError,
   NEUTRAL_DRIVE,
   smoothDrive,
@@ -113,35 +118,7 @@ import { hasWebgl, NoWebglError, showNoWebgl } from "@/ui/noWebgl";
 import { colourSpecies } from "@/particles/colourSpecies";
 import { installFooter } from "@/ui/footer";
 import { MEMORY_FORMS, SPECIES_FROM, type MemoryForm, type SpeciesFrom } from "@/types";
-
-/** The subset of engine behavior the app layer needs (CPU or GPU backend). */
-interface SimEngine {
-  /** The two stigmergic fields, which the field ramp axis samples on the CPU. */
-  readonly scent: { sample(x: number, y: number, z: number): number; peak(): number };
-  readonly heat: { sample(x: number, y: number, z: number): number; peak(): number };
-  count: number;
-  positions: Float32Array;
-  velocities: Float32Array;
-  colors: Float32Array;
-  targets: Float32Array;
-  species: Uint8Array;
-  memoryPerParticle: Float32Array;
-  renderState: Float32Array;
-  lastStepTime: number;
-  simTime: number;
-  /** Sync GPU readbacks the last step performed (the budget tripwire). */
-  readonly lastReadbacks: { count: number; bytes: number };
-  configureGrid(params: ReturnType<typeof defaultEngineParams>): void;
-  step(dt: number, params: ReturnType<typeof defaultEngineParams>, matrix: InteractionMatrix): void;
-  regainMemory(dt: number, rate: number): void;
-  restoreMemory(): void;
-  setSpeciesCount(matrix: InteractionMatrix, n: number, assignment?: Uint8Array): void;
-  meanTargetDistance(): number;
-  /** Ring the swarm: a ripple wavefront born at the pointer, stamped with simTime. */
-  spawnRipple(x: number, y: number, z: number): void;
-  /** GPU only: push `targets` to the target texture after a live retarget. */
-  uploadTargets?(): void;
-}
+import { EngineHost, type SimEngine, type SwarmView } from "@/app/engineHost";
 
 /** Touch-primary device? Decided once at boot; a pointer does not change class mid-session. */
 const coarsePointer =
@@ -165,18 +142,23 @@ const macros = defaultMacros();
 
 // --- Global state --------------------------------------------------------
 let densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
-let currentCount = DENSITY_LEVELS[densityIndex];
+let currentCount = densityLevels("gpu")[densityIndex];
 let engine!: SimEngine;
-let engineMode: "auto" | "gpu" | "cpu" = "auto";
+/** What ?backend= asked for; the host owns the mode from boot on. */
+let bootMode: BackendMode = "auto";
 // ?backend=gpu|cpu forces the backend — boot, the panel switch and the G key
-// all read engineMode, so comparisons between the engines are one URL away.
+// all read the host's mode, so comparisons between the engines are one URL away.
 // An unavailable forced GPU falls back through the existing GPU-unavailable
 // hint path.
 {
   const forced = new URLSearchParams(location.search).get("backend");
-  if (forced === "gpu" || forced === "cpu") engineMode = forced;
+  if (forced === "gpu" || forced === "cpu" || forced === "webgpu") bootMode = forced;
 }
-let activeBackend: "gpu" | "cpu" = "cpu";
+let activeBackend: Backend = "cpu";
+/** The density a webgpu boot asked for, built once the device is ready. */
+let webgpuWantedCount = 0;
+/** Set while a lost device is falling back, so the fallback runs once. */
+let webgpuFalling = false;
 let panelApi: PanelApi | null = null;
 const history: StateSnapshot[] = [];
 let activePreset: string | null = null;
@@ -193,8 +175,9 @@ function scheduleSave(): void {
 function persistNow(): void {
   // A demo never writes to the visitor's instrument state.
   if (!engine || demoMode) return;
+  // Mapped sliders are saved at their bases, not where the sound left them.
   saveConfig(
-    toStoredConfig({
+    modulator.withBases(modTargets(), () => toStoredConfig({
       params,
       visual,
       matrix: matrix.toFlat(),
@@ -205,15 +188,167 @@ function persistNow(): void {
       lastSourceUrl,
       activePreset,
       camera: activeCamera,
-    })
+      modulation: modulator.state,
+    }))
   );
 }
 
 function pushHistory(): void {
-  history.push(captureSnapshot(params, visual, matrix, activeCamera));
+  history.push(modulator.withBases(modTargets(), () => captureSnapshot(params, visual, matrix, activeCamera)));
   if (history.length > 30) history.shift();
+  // What comes next sets the sliders: mapped ones take it as their new base.
+  modulator.rebase();
 }
-let particleRenderer: ParticleRenderer | null = null;
+
+// --- The modulation matrix (0.12 slice 5) ---------------------------------------------
+// Any slider can listen: to a sound band, a MIDI control, an OSC address.
+// The editor, MIDI and OSC are lazy chunks; the matrix itself is small.
+const modulator = new Modulator();
+let modSyncTick = 0;
+const OSC_URL_KEY = "void.osc.url";
+let oscUrl = (() => {
+  try {
+    return window.localStorage.getItem(OSC_URL_KEY) || "ws://localhost:8080";
+  } catch {
+    return "ws://localhost:8080";
+  }
+})();
+let midiLearn: ((channel: number, cc: number) => void) | null = null;
+const controllerEvents: ControllerEvents = {
+  onMidi(channel, cc, value) {
+    modulator.setControl(`midi:${channel}:${cc}`, value);
+    midiLearn?.(channel, cc);
+  },
+  onOsc(address, value) {
+    modulator.setControl(`osc:${address}`, value);
+  },
+  onStatus: (text) => flashHint(text, 3),
+};
+function modTargets(): ReadonlyMap<string, import("@/instrument/modulation").ModTarget> {
+  return panelApi?.targets ?? new Map();
+}
+function ensureMidi(): void {
+  void import("@/instrument/controllers").then((c) => c.startMidi(controllerEvents));
+}
+function ensureOsc(url: string): void {
+  void import("@/instrument/controllers").then((c) => c.connectOsc(url, controllerEvents));
+}
+/** After a load: wake the controllers its mappings listen to (MIDI asks on the next press). */
+function wakeControllers(): void {
+  const m = modulator.state.mappings;
+  if (m.some((x) => x.source.startsWith("osc:"))) ensureOsc(oscUrl);
+  if (m.some((x) => x.source.startsWith("midi:"))) window.addEventListener("pointerdown", ensureMidi, { once: true });
+}
+// --- Look files (0.12 slice 5) ----------------------------------------------------------
+// A look, with what it listens to, as a JSON file: made and read in the browser.
+/** The look as it stands, mapped sliders at their bases. */
+function currentLookFile(lf: typeof import("@/instrument/lookFile")): import("@/instrument/lookFile").LookFile {
+  return modulator.withBases(modTargets(), () =>
+    lf.makeLookFile({
+      name: activePreset ?? "look",
+      params,
+      visual,
+      matrix: matrix.toFlat(),
+      camera: activeCamera,
+      ecology: ecologyParams,
+      modulation: modulator.state,
+    })
+  );
+}
+
+function saveLookFile(): void {
+  void import("@/instrument/lookFile").then((lf) => {
+    const file = currentLookFile(lf);
+    const name = file.name;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
+    a.download = lf.lookFileName(name);
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flashHint("LOOK SAVED", 3);
+  });
+}
+
+function openLookFile(): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.addEventListener("change", () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    void import("@/instrument/lookFile").then(async (lf) => {
+      if (f.size > lf.LOOK_MAX_BYTES) {
+        flashHint("THAT FILE IS LARGER THAN 1 MB", 4);
+        return;
+      }
+      const parsed = lf.parseLookFile(await f.text());
+      if (!parsed.ok) flashHint(parsed.error, 4);
+      else applyLookFile(parsed.look);
+    });
+  });
+  input.click();
+}
+
+function applyLookFile(look: import("@/instrument/lookFile").LookFile): void {
+  pushHistory();
+  abandonEvolution();
+  cancelGenesis();
+  endWitness();
+  activePreset = null;
+  memory.active = memory.auto = false;
+  panelApi?.setState("MANUAL");
+  applySnapshot(look, params, visual, matrix, activeCamera);
+  Object.assign(ecologyParams, look.ecology);
+  // Every parameter held to its slider's range: a file can say anything.
+  for (const t of modTargets().values()) {
+    const lo = Math.min(t.min, t.max);
+    const hi = Math.max(t.min, t.max);
+    const v = t.get();
+    if (!(v >= lo && v <= hi)) t.set(Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
+  }
+  const n = Math.round(Math.sqrt(look.matrix.length));
+  if (n !== speciesCount) applySpeciesCount(n);
+  modulator.load(look.modulation, modTargets());
+  wakeControllers();
+  syncFormAndKin();
+  activeMatrix = matrix;
+  engine.configureGrid(params);
+  applyLook();
+  if (ecologyParams.enabled) installEcology();
+  panelApi?.refresh();
+  panelApi?.setActivePreset(null);
+  scheduleSave();
+  flashHint(`LOOK: ${look.name.toUpperCase()}`, 3);
+}
+
+function openModEditor(target: string, row: HTMLElement): void {
+  void import("@/instrument/modEditor").then((ed) =>
+    ed.openEditor(target, row, {
+      modulator,
+      targets: modTargets(),
+      soundOn: () => audio.active,
+      midi(learn) {
+        midiLearn = learn;
+        if (learn) ensureMidi();
+      },
+      oscUrl: () => oscUrl,
+      connectOsc(url) {
+        oscUrl = url;
+        try {
+          window.localStorage.setItem(OSC_URL_KEY, url);
+        } catch {
+          // Private mode: the address holds for this visit.
+        }
+        ensureOsc(url);
+      },
+      onChange() {
+        scheduleSave();
+        panelApi?.refresh();
+      },
+    })
+  );
+}
+let particleRenderer: SwarmView | null = null;
 let currentSourceName = "synthetic torus";
 let currentSourceDetail = "synthetic memory";
 let pendingHandle: SourceHandle | null = null;
@@ -231,6 +366,15 @@ params.turbulence = 0.02;
 
 const memory = new MemorySystem({ auto: true, startState: "RECONSTRUCT", seed: 815 });
 
+// ?medium=1 (0.12 slice 3, WebGPU only for now): the swarm moves through a
+// medium that remembers it - a fluid it drags, and scars where memory was.
+// ?medium=fluid or ?medium=scars for one of the two.
+{
+  const m = new URLSearchParams(location.search).get("medium");
+  if (m === "1" || m === "fluid") params.medium.enabled = true;
+  if (m === "1" || m === "scars") params.scar.enabled = true;
+}
+
 // --- Look state ------------------------------------------------------------
 // The source's own baked colours are kept aside so switching back from
 // SPECIES/RANDOM to MONOCHROME/SOURCE restores them exactly.
@@ -241,6 +385,12 @@ let lastLookMode = "";
 let subjectRadius = 1;
 /** Frames since a field ramp was last re-baked (see the tick in the render). */
 let fieldTintTick = 0;
+// HISTORY colour (0.12): each particle's traps, observed at the tint rate.
+const particleHistory = new ParticleHistory();
+let historyScratch = new Float32Array(0);
+/** Seconds since the history last looked. */
+let historyDt = 0;
+let historyAxisSeen = "";
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
 
@@ -429,6 +579,16 @@ function applyLookColors(): void {
   } else if (mode === "random") {
     if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
     writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (mode === "gradient" && isHistoryAxis(visual.gradientAxis)) {
+    if (historyScratch.length < engine.count) historyScratch = new Float32Array(engine.count);
+    writeHistoryColors(
+      engine.colors,
+      particleHistory,
+      visual.gradientAxis,
+      engine.count,
+      paletteStops(visual.gradientPalette),
+      historyScratch
+    );
   } else if (mode === "gradient" && isFieldAxis(visual.gradientAxis)) {
     // Field tints are baked from the CPU-side fields, so both backends look the
     // same and no new texture has to reach the shader.
@@ -522,54 +682,9 @@ function setSyntheticKind(kind: "torus" | "crowd"): void {
   buildFromSource(makeSyntheticSource(currentCount));
 }
 
-// --- Engine construction ---------------------------------------------------
-function createCpuEngine(sample: FlatSource, count: number, seed: number, rng: () => number): ParticleEngine {
-  const next = new ParticleEngine(count, speciesCount, seed);
-  for (let i = 0; i < count; i++) {
-    const r = 11 * Math.cbrt(rng());
-    const theta = rng() * Math.PI * 2;
-    const phi = Math.acos(2 * rng() - 1);
-    next.positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    next.positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    next.positions[i * 3 + 2] = r * Math.cos(phi);
-    next.memoryPerParticle[i] = 0.35 + 0.65 * rng();
-    next.targets[i * 3] = sample.positions[i * 3];
-    next.targets[i * 3 + 1] = sample.positions[i * 3 + 1];
-    next.targets[i * 3 + 2] = sample.positions[i * 3 + 2];
-    next.colors[i * 3] = sample.colors[i * 3];
-    next.colors[i * 3 + 1] = sample.colors[i * 3 + 1];
-    next.colors[i * 3 + 2] = sample.colors[i * 3 + 2];
-  }
-  return next;
-}
-
-function createGpuEngine(sample: FlatSource, count: number, _seed: number, rng: () => number): GpuParticleEngine {
-  const positions = new Float32Array(count * 3);
-  const memory = new Float32Array(count);
-  for (let i = 0; i < count; i++) {
-    const r = 11 * Math.cbrt(rng());
-    const theta = rng() * Math.PI * 2;
-    const phi = Math.acos(2 * rng() - 1);
-    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    positions[i * 3 + 2] = r * Math.cos(phi);
-    memory[i] = 0.35 + 0.65 * rng();
-  }
-  return GpuParticleEngine.create(
-    renderer3d,
-    count,
-    speciesCount,
-    sample.positions,
-    sample.colors,
-    positions,
-    memory
-  );
-}
-
+// --- Engine construction: app/engineHost.ts ---------------------------------
 function buildFromSource(sample: FlatSource): void {
   const count = sample.count;
-  const seed = (Math.random() * 1e9) | 0;
-  const rng = mulberry32(seed ^ 0x9e3779b9);
 
   // The subject's own radius, for the RADIAL ramp. Measured once here rather
   // than per frame: it is a property of the source, not of the swarm.
@@ -582,60 +697,37 @@ function buildFromSource(sample: FlatSource): void {
   }
   subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
 
-  let next: SimEngine;
-  let backend: "gpu" | "cpu" = "cpu";
-  // Auto follows the density policy: on a touch-primary device at low
-  // density the CPU engine wins — the GPU path's one fixed position
-  // readback costs the same whatever the count, so at low density it
-  // dominates. Provisional, like simPolicy.ts's rationale (re-measure in
-  // v0.10.0 slice 6).
-  if (!wantsCpuBackend(engineMode, count, coarsePointer)) {
-    try {
-      next = createGpuEngine(sample, count, seed, rng);
-      backend = "gpu";
-    } catch (err) {
-      if (engineMode === "gpu") {
-        flashHint(`GPU UNAVAILABLE: ${(err as Error).message}`, 6);
-        return;
-      }
-      next = createCpuEngine(sample, count, seed, rng);
-    }
-  } else {
-    next = createCpuEngine(sample, count, seed, rng);
-  }
-  next.configureGrid(params);
+  host.build(sample);
+}
 
-  if (engine && "dispose" in engine) (engine as unknown as { dispose: () => void }).dispose();
-  if (particleRenderer) {
-    scene.remove(particleRenderer.points);
-    particleRenderer.dispose();
+/**
+ * A new engine is live (host.onInstalled): bind the app to it. A build
+ * starts the source's look from scratch; a switch carries the live swarm
+ * and keeps the source's pristine colours.
+ */
+function onEngineInstalled(how: "build" | "switch"): void {
+  engine = host.engine;
+  activeBackend = host.backend;
+  particleRenderer = host.view;
+  if (how === "build") {
+    // Count-scoped like every consumer: a backend switch builds the new engine
+    // at the live count with a different capacity, and the pristine copy must
+    // follow the count, not the buffer it was captured from.
+    sourceColors = engine.colors.slice(0, engine.count * 3);
+    // A new engine deals its species round-robin; colour kin is dealt again.
+    appliedSpecies = "mixed";
   }
-  engine = next;
-  activeBackend = backend;
-  particleRenderer = new ParticleRenderer(
-    engine.count,
-    engine.positions,
-    engine.colors,
-    engine.renderState,
-    engine.velocities
-  );
-  if (backend === "gpu" && "getPositionTexture" in next) {
-    // The readback-free render path: vertices sample the compute textures.
-    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
-  }
-  // Count-scoped like every consumer: a backend switch builds the new engine
-  // at the live count with a different capacity, and the pristine copy must
-  // follow the count, not the buffer it was captured from.
-  sourceColors = engine.colors.slice(0, engine.count * 3);
-  // A new engine deals its species round-robin; colour kin is dealt again.
-  appliedSpecies = "mixed";
   if (params.life.species === "colour") assignSpecies();
-  witness.resize(engine.count, WITNESS_SEED);
+  if (how === "build") {
+    witness.resize(engine.count, WITNESS_SEED);
+    particleHistory.reset();
+  }
   installEcology();
   applyLook();
-  scene.add(particleRenderer.points);
-  panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
-  scheduleSave();
+  if (how === "build") {
+    panelApi?.setSourceInfo(currentSourceName, sourceKindLabel(), currentSourceDetail, engine.count);
+    scheduleSave();
+  }
 }
 
 function sourceKindLabel(): string {
@@ -650,82 +742,10 @@ function guessKindLabel(): string {
   return "mesh";
 }
 
-function switchBackend(mode: "auto" | "gpu" | "cpu"): void {
-  engineMode = mode;
-  // Rebuild from the current targets so the memory survives the switch, and
-  // from the source's own colours: engine.colors holds the last *baked*
-  // look, so sampling from it would turn COLOR SOURCE into whatever mode
-  // was active. sourceColors is the pristine copy buildFromSource kept.
-  const pristine = sourceColors ?? engine.colors;
-  const sample: FlatSource = {
-    count: engine.count,
-    positions: engine.targets.slice(),
-    colors: pristine.slice(0, engine.count * 3),
-    normals: new Float32Array(engine.count * 3),
-    weights: new Float32Array(engine.count),
-  };
-  const old = engine;
-  const seed = (Math.random() * 1e9) | 0;
-  const rng = mulberry32(seed ^ 0x9e3779b9);
-  let next: SimEngine;
-  let backend: "gpu" | "cpu" = "cpu";
-  if (mode !== "cpu") {
-    try {
-      next = createGpuEngine(sample, engine.count, seed, rng);
-      backend = "gpu";
-    } catch (err) {
-      flashHint(`GPU UNAVAILABLE: ${(err as Error).message}`, 6);
-      engineMode = "cpu";
-      return;
-    }
-  } else {
-    next = createCpuEngine(sample, engine.count, seed, rng);
-  }
-  // Live state is carried, not reborn: positions, velocities, per-particle
-  // memory, organism clocks and the simulation clock, so the swarm does not
-  // screech to a halt on every G.
-  // The carry reads engine.memoryPerParticle; on the GPU engine that mirror
-  // is a snapshot — the living memory is the velocity texture's w channel.
-  // One switch-time readback keeps the carry honest.
-  if ("syncMemoryMirror" in old) (old as GpuParticleEngine).syncMemoryMirror();
-  carryLiveState(old, next);
-  next.configureGrid(params);
-  if ("uploadInitialState" in next) (next as GpuParticleEngine).uploadInitialState();
-  if ("dispose" in old) (old as unknown as { dispose: () => void }).dispose();
-  if (particleRenderer) {
-    scene.remove(particleRenderer.points);
-    particleRenderer.dispose();
-  }
-  engine = next;
-  activeBackend = backend;
-  particleRenderer = new ParticleRenderer(
-    engine.count,
-    engine.positions,
-    engine.colors,
-    engine.renderState,
-    engine.velocities
-  );
-  if (backend === "gpu" && "getPositionTexture" in next) {
-    particleRenderer.attachCompute(next as unknown as ComputeTextureSource);
-  }
-  // sourceColors stays untouched: it still describes this source, and
-  // re-deriving it from engine.colors would capture whatever look
-  // applyLook baked last.
-  if (params.life.species === "colour") assignSpecies();
-  installEcology();
-  applyLook();
-  scene.add(particleRenderer.points);
-  // The backend toggle is an explicit override, so the count is kept rather
-  // than clamped to the ceiling - clamping would resample the memory and
-  // crop it. The cost is said out loud instead, and the scheduler keeps the
-  // piece alive in slow motion until the density comes down.
-  const ceiling = DENSITY_CEILING[backend];
-  flashHint(
-    engine.count > ceiling
-      ? `SIM BACKEND: ${backend.toUpperCase()} AT ${engine.count.toLocaleString()} - PAST ITS ${ceiling.toLocaleString()} REAL-TIME CEILING, SO IT RUNS SLOW`
-      : `SIM BACKEND: ${backend.toUpperCase()}`,
-    5
-  );
+function switchBackend(mode: BackendMode): void {
+  // sourceColors is the pristine copy buildFromSource kept: engine.colors
+  // holds the last baked look.
+  host.switchTo(mode, sourceColors);
 }
 
 // --- Scene -----------------------------------------------------------------
@@ -763,6 +783,18 @@ stage.appendChild(renderer3d.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x000000, 0.02);
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+
+const host = new EngineHost({
+  renderer: renderer3d,
+  scene,
+  stage,
+  params,
+  speciesCount: () => speciesCount,
+  coarsePointer,
+  hint: (text, seconds) => flashHint(text, seconds),
+  onInstalled: onEngineInstalled,
+});
+host.mode = bootMode;
 camera.position.set(0, 2.5, 16);
 
 // --- Visual style (Phase 4) ---------------------------------------------
@@ -873,10 +905,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     for (let a = 0; a < n; a++)
       for (let b = 0; b < n; b++) matrix.set(a, b, cfg.matrix[a * n + b]);
     currentCount = Math.min(50000, Math.max(1000, cfg.currentCount));
-    densityIndex = DENSITY_LEVELS.indexOf(
-      DENSITY_LEVELS.reduce((a2, b2) => (Math.abs(b2 - currentCount) < Math.abs(a2 - currentCount) ? b2 : a2))
-    );
-    if (densityIndex < 0) densityIndex = 2;
+    densityIndex = nearestDensityIndex(currentCount);
     memory.active = memory.auto = cfg.cycleActive;
     lastSourceName = cfg.lastSourceName;
     lastSourceUrl = cfg.lastSourceUrl;
@@ -889,6 +918,9 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     if (cfg.params.phaseCoupling !== undefined) params.phaseCoupling = cfg.params.phaseCoupling;
     // v1 configs predate the camera and hydrate to the default motion.
     Object.assign(activeCamera, clampCameraChoreography({ ...DEFAULT_CAMERA_CHOREOGRAPHY, ...(cfg.camera ?? {}) }));
+    // Saves from before 0.12 have no matrix: nothing listens.
+    modulator.load(clampModulation(cfg.modulation), new Map());
+    wakeControllers();
   }
 }
 {
@@ -948,14 +980,46 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   }
   // URL params override persisted state.
   const countParam = Number(new URLSearchParams(location.search).get("count"));
-  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= 50000) {
+  // A webgpu boot may ask for more than WebGL2 holds: it starts at the
+  // WebGL2 ceiling and is rebuilt at the asked count once WebGPU is up.
+  const countMax = host.mode === "webgpu" ? DENSITY_CEILING.webgpu : DENSITY_CEILING.gpu;
+  if (Number.isFinite(countParam) && countParam >= 1000 && countParam <= countMax) {
     currentCount = Math.round(countParam);
-    densityIndex = DENSITY_LEVELS.indexOf(
-      DENSITY_LEVELS.reduce((a, b) => (Math.abs(b - currentCount) < Math.abs(a - currentCount) ? b : a))
-    );
+    if (currentCount > DENSITY_CEILING.gpu) {
+      webgpuWantedCount = currentCount;
+      currentCount = DENSITY_CEILING.gpu;
+    }
+    densityIndex = nearestDensityIndex(currentCount);
   }
 }
 buildFromSource(makeSyntheticSource(currentCount));
+if (host.mode === "webgpu") void bootWebGpu();
+
+/**
+ * ?backend=webgpu: the piece has already started on WebGL2. Load the WebGPU
+ * module and device in the background, then hand the live swarm over with
+ * the ordinary carried switch - or stay on WebGL2 and say why.
+ */
+async function bootWebGpu(): Promise<void> {
+  try {
+    await host.loadWebGpu();
+  } catch (err) {
+    if (host.mode === "webgpu") host.mode = "gpu";
+    flashHint(`WEBGPU UNAVAILABLE: ${(err as Error).message.toUpperCase()} - STAYING ON WEBGL2`, 6);
+    return;
+  }
+  // The visitor may have picked another backend while it loaded.
+  if (host.mode !== "webgpu") return;
+  if (webgpuWantedCount > currentCount) {
+    currentCount = webgpuWantedCount;
+    densityIndex = nearestDensityIndex(currentCount);
+    if (pendingHandle) void adoptHandle(pendingHandle);
+    else buildFromSource(makeSyntheticSource(currentCount));
+    flashHint(`SIM BACKEND: WEBGPU AT ${currentCount.toLocaleString()}`, 5);
+  } else {
+    switchBackend("webgpu");
+  }
+}
 
 // --- HUD / UI elements ------------------------------------------------------
 // Overlay elements were folded into the panel (Phase 5.5).
@@ -1237,13 +1301,29 @@ window.addEventListener("drop", (e) => {
 // Density keys rebuild from the current source handle (or the torus).
 
 /** The backend that will run a build at this density, per the current mode. */
-function backendForCount(count: number): "gpu" | "cpu" {
-  return wantsCpuBackend(engineMode, count, coarsePointer) ? "cpu" : "gpu";
+function backendForCount(count: number): Backend {
+  return host.backendForCount(count);
+}
+
+/** The density menu of the backend that will run the next build. */
+function densityMenu(): readonly number[] {
+  return host.densityMenu();
+}
+
+/** The menu step nearest a count. */
+function nearestDensityIndex(count: number): number {
+  const menu = densityMenu();
+  let best = 0;
+  for (let i = 1; i < menu.length; i++) {
+    if (Math.abs(menu[i] - count) < Math.abs(menu[best] - count)) best = i;
+  }
+  return best;
 }
 
 function setDensity(index: number): void {
-  densityIndex = Math.max(0, Math.min(DENSITY_LEVELS.length - 1, index));
-  const requested = DENSITY_LEVELS[densityIndex];
+  const menu = densityMenu();
+  densityIndex = Math.max(0, Math.min(menu.length - 1, index));
+  const requested = menu[densityIndex];
   currentCount = effectiveDensity(requested, backendForCount(requested));
   if (pendingHandle) {
     void adoptHandle(pendingHandle);
@@ -1577,6 +1657,7 @@ const shortcutCtx: ShortcutContext = {
   densityDown: () => setDensity(densityIndex - 1),
   toggleBackend: () => switchBackend(activeBackend === "gpu" ? "cpu" : "gpu"),
   toggleScreensaver: () => void toggleScreensaver(),
+  toggleRecording,
   setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
   toggleGuide: () => guide.toggle(),
   closeGuide: () => guide.close(),
@@ -1600,7 +1681,7 @@ const shortcutCtx: ShortcutContext = {
 
 window.addEventListener("keydown", (e) => {
   if (isTextEntryTarget(e.target)) return;
-  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
+  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey });
 });
 
 // Touch has no keyboard: the guide's key chips dispatch through the same
@@ -1691,7 +1772,8 @@ if (!demoMode) {
         // after refresh. An engine macro takes the wheel from the authored
         // cycle (which would otherwise overwrite these every step);
         // ATMOSPHERE shapes the visual alone and composes with the cycle.
-        applyMacros(macros, params, visual);
+        // This macro only: the others' stored positions may be stale.
+        applyMacro(name, macros[name], params, visual);
         if (ENGINE_MACROS.includes(name) && memory.active) {
           memory.active = false;
           panelApi?.setState("MANUAL");
@@ -1746,6 +1828,7 @@ if (!demoMode) {
           return;
         }
         applySnapshot(snap, params, visual, matrix, activeCamera);
+        modulator.rebase();
         syncFormAndKin();
         applyLook();
         engine.configureGrid(params);
@@ -1793,7 +1876,7 @@ if (!demoMode) {
         memory.active = memory.auto = false;
         panelApi?.setState("MANUAL");
         densityIndex = coarsePointer ? TOUCH_DENSITY_INDEX : DEFAULT_DENSITY_INDEX;
-        currentCount = DENSITY_LEVELS[densityIndex];
+        currentCount = densityMenu()[densityIndex];
         engine.configureGrid(params);
         if (pendingHandle) void adoptHandle(pendingHandle);
         else buildFromSource(makeSyntheticSource(currentCount));
@@ -1826,6 +1909,10 @@ if (!demoMode) {
       onCutoutToggle() {
         void toggleCutout();
       },
+      onListen: openModEditor,
+      onSaveLook: saveLookFile,
+      onOpenLook: openLookFile,
+      isListening: (target) => modulator.mappingFor(target) !== undefined,
       onRelease() {
         memory.setState("VOID");
         panelApi?.setState(memory.state);
@@ -1981,6 +2068,41 @@ function declareGlobalHandle(): void {
     saver,
     toggleScreensaver,
   };
+  // Dev builds only (stripped from production): enough to hold one backend
+  // against another from the console or a test harness.
+  if (import.meta.env.DEV) {
+    Object.assign((window as unknown as Record<string, object>).__void, {
+      backend: () => activeBackend,
+      switchBackend,
+      fps: () => fps,
+      p95: () => p95FrameTime(),
+      /** The post chain, to read the light's targets back. */
+      trail: () => trailPass,
+      /** The modulation matrix, to play it without a microphone or controller. */
+      modulator,
+      /** A look file's text, and opening one from text (no download, no picker). */
+      async lookText(): Promise<string> {
+        return JSON.stringify(currentLookFile(await import("@/instrument/lookFile")));
+      },
+      async openLookText(text: string): Promise<boolean> {
+        const lf = await import("@/instrument/lookFile");
+        const parsed = lf.parseLookFile(text);
+        if (parsed.ok) applyLookFile(parsed.look);
+        return parsed.ok;
+      },
+      /** n fixed steps exactly as the frame loop runs them (a hidden tab gets no rAF). */
+      step(n: number): void {
+        for (let s = 0; s < n; s++) {
+          memory.update(FIXED_DT);
+          memory.apply(params);
+          if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
+          if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
+          engine.step(FIXED_DT, params, activeMatrix);
+          stepEcology(FIXED_DT);
+        }
+      },
+    });
+  }
 }
 
 window.addEventListener("beforeunload", persistNow);
@@ -2349,13 +2471,46 @@ function captureMoment(): void {
   capturePending = true;
 }
 
+/** The canvas the visitor sees: WebGL's, or the WebGPU view's. */
+function presentedCanvas(): HTMLCanvasElement {
+  return particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
+}
+
+// --- Recording (0.12 slice 5): Shift R films the piece and its soundscape. ---------------
+let recording: import("@/instrument/recorder").Recording | null = null;
+let recordingStarting = false;
+function toggleRecording(): void {
+  if (recording) {
+    recording.stop();
+    recording = null;
+    return;
+  }
+  if (recordingStarting) return;
+  recordingStarting = true;
+  void import("@/instrument/recorder").then((rec) => {
+    recordingStarting = false;
+    const name = (currentSourceName || "void").replace(/\.[^.]+$/, "").replace(/[^\w-]+/g, "-").slice(0, 40);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const r = rec.startRecording(presentedCanvas(), ambience.stream(), (blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `void-${name}-${stamp}.webm`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      flashHint("RECORDING SAVED", 3);
+    });
+    if (typeof r === "string") flashHint(r, 4);
+    else recording = r;
+  });
+}
+
 function saveFrame(): void {
   const safeName = (currentSourceName || "void")
     .replace(/\.[^.]+$/, "")
     .replace(/[^\w-]+/g, "-")
     .slice(0, 40);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  renderer3d.domElement.toBlob((blob) => {
+  presentedCanvas().toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -2405,6 +2560,15 @@ function frameInner(now: number): void {
     stepEcology(FIXED_DT);
   }
   accumulator = residual;
+  // A lost WebGPU device: back to WebGL2, once, carrying the last mirror.
+  if (activeBackend === "webgpu" && engine.failed && !webgpuFalling) {
+    webgpuFalling = true;
+    flashHint(`WEBGPU LOST (${engine.failed}) - BACK ON WEBGL2`, 6);
+    host.dropWebGpu();
+    switchBackend("gpu");
+  } else if (activeBackend !== "webgpu") {
+    webgpuFalling = false;
+  }
 
   updateTouch(dt);
   // Life cycle: derive the per-particle life the renderer uses, from the same
@@ -2473,17 +2637,39 @@ function frameInner(now: number): void {
   particleRenderer?.markStateDirty();
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
+  // The modulation matrix plays the sliders that listen before the frame
+  // reads them (physics sliders take hold from the next step).
+  const bands = audio.active ? audio.read() : SILENT_BANDS;
+  if (modulator.active) {
+    modulator.setBands(bands);
+    modulator.step(dt);
+    modulator.apply(modTargets());
+    if (++modSyncTick >= 4) {
+      modSyncTick = 0;
+      panelApi?.syncTargets(modulator.state.mappings.map((m) => m.target));
+    }
+  }
   const effective = { ...visual };
   // A ramp that follows a live field has to be refreshed, but the bake is
   // not free: colours only, at a low rate - lower still on touch, where the
   // tick competes with a much smaller frame budget.
-  if (visual.colorMode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+  if (visual.colorMode === "gradient" && isBakedAxis(visual.gradientAxis)) {
+    historyDt += dt;
     if (++fieldTintTick >= fieldTintRefreshFrames(coarsePointer)) {
       fieldTintTick = 0;
+      if (isHistoryAxis(visual.gradientAxis)) {
+        // A newly chosen trap starts from now: history since you looked.
+        if (historyAxisSeen !== visual.gradientAxis) particleHistory.reset();
+        historyAxisSeen = visual.gradientAxis;
+        particleHistory.update(engine.positions, engine.targets, engine.count, historyDt);
+      }
+      historyDt = 0;
       applyLookColors();
     }
   } else {
     fieldTintTick = 0;
+    historyDt = 0;
+    historyAxisSeen = "";
   }
   if (visual.trails) {
     // Deposit compensation in the same time domain as the retention: at
@@ -2494,8 +2680,9 @@ function frameInner(now: number): void {
   }
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {
-    const bands = audio.read();
-    soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
+    // With no mappings, sound keeps its fixed drive (size, glow, exposure);
+    // once anything listens, the matrix is the drive.
+    soundDrive = modulator.active ? NEUTRAL_DRIVE : smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
     if (ecologyParams.audioReactive) {
       const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity, dt);
@@ -2506,10 +2693,31 @@ function frameInner(now: number): void {
     effective.glow = visual.glow * soundDrive.glow;
     effective.opacity = Math.min(1, effective.opacity * soundDrive.exposure);
   }
-  particleRenderer?.applySettings(effective, renderer3d.getPixelRatio(), radius, subjectRadius);
+  particleRenderer?.applySettings(
+    effective,
+    renderer3d.getPixelRatio(),
+    radius,
+    subjectRadius,
+    renderer3d.domElement.height,
+    renderer3d.domElement.width
+  );
+  // Ribbons need the engine to keep a history; it keeps none while they are off.
+  if ("setRibbons" in engine) (engine as unknown as { setRibbons(on: boolean): void }).setRibbons(effective.ribbons > 0);
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
+  // The light (0.12 slice 4): off unless the look asks. The medium's light
+  // needs a medium to draw from.
+  // Under sustained pressure the governor sheds it before any resolution.
+  const mediumOn = params.medium.enabled || params.scar.enabled;
+  quality.light = { medium: mediumOn && effective.mediumLight > 0, bloom: effective.bloom > 0 };
+  trailPass.bloom = quality.allowBloom ? effective.bloom : 0;
+  trailPass.toneMap = effective.toneMap;
+  trailPass.mediumLight = mediumOn && quality.allowMedium ? effective.mediumLight : 0;
+  trailPass.medium =
+    mediumOn && "getMediumTexture" in engine
+      ? (engine as unknown as { getMediumTexture(): THREE.Texture | null }).getMediumTexture()
+      : null;
   // A fast orbit (or a pinch zoom) clears the afterimage instead of
   // smearing the whole image across itself.
   const angular = Math.abs(azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);
@@ -2517,7 +2725,27 @@ function frameInner(now: number): void {
   prevFrameAzimuth = azimuthNow;
   prevFrameRadius = radiusNow;
   trailPass.decay = cameraTrailDecay(visual.trailDecay, angular + zoomJump * 2);
-  trailPass.render(scene, camera, dt);
+  if (particleRenderer && !(particleRenderer instanceof ParticleRenderer)) {
+    // WebGPU draws the swarm on its own canvas, with the same trail and present.
+    const t = trailSize();
+    particleRenderer.render(
+      camera,
+      dt,
+      {
+        enabled: trailPass.enabled,
+        decay: trailPass.decay,
+        exposure: trailPass.exposure,
+        bloom: trailPass.bloom,
+        toneMap: trailPass.toneMap,
+        mediumLight: trailPass.mediumLight,
+        ribbons: effective.ribbons,
+      },
+      t.w,
+      t.h
+    );
+  } else {
+    trailPass.render(scene, camera, dt);
+  }
   // Capture takes the present-pass pixels in the same task as the render:
   // with preserveDrawingBuffer off, the buffer is valid only until compositing.
   if (capturePending) {
@@ -2551,7 +2779,7 @@ function frameInner(now: number): void {
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
-      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend === "gpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
+      `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend !== "cpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
       `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
       (coarsePointer
         ? `guide: the ? button - tap any key in it to run it`

@@ -3,12 +3,15 @@ import {
   clampVisualSettings,
   defaultVisualSettings,
   GRADIENT_AXES,
-  isFieldAxis,
+  isBakedAxis,
   PARTICLE_SHAPES,
   type VisualSettings,
 } from "./VisualSettings";
 import { packGradientStops, paletteStops } from "./palette";
 import { SHAPE_FIELD_GLSL } from "./shapes";
+import { STRETCH_MAX, STRETCH_SECONDS } from "./stretch";
+import type { RibbonHistory } from "./ribbons";
+import type { GlRibbons } from "./glRibbons";
 import { packComputeRefs } from "@/particles/gpu/computeHelpers";
 
 /**
@@ -21,6 +24,8 @@ export interface ComputeTextureSource {
   getPositionTexture(): THREE.Texture;
   getStateTexture(): THREE.Texture;
   getVelocityTexture(): THREE.Texture;
+  /** The ribbon history, while ribbons are on (0.12). */
+  getRibbonHistory?(): RibbonHistory | null;
 }
 
 /**
@@ -57,6 +62,11 @@ export class ParticleRenderer {
   private lastPalette = "";
   /** The compute-texture source, when the GPU engine is attached. */
   private computeSource: ComputeTextureSource | null = null;
+  /** Ribbons (0.12): drawn from the GPU engine's history; none on the CPU path. */
+  private ribbons: GlRibbons | null = null;
+  private ribbonsLoading = false;
+  private ribbonOpacity = 0;
+  private ribbonView = { w: 1, h: 1, pr: 1, mono: true, fog: 0.02 };
   /** Binds the aRef attribute while no compute source is attached. */
   private readonly refBuffer: Float32Array;
   /** Placeholder sampler value so the CPU path binds a valid texture. */
@@ -128,6 +138,8 @@ export class ParticleRenderer {
         uFocus: { value: 17 },
         uDof: { value: 0.25 },
         uFogDensity: { value: 0.02 },
+        uStretch: { value: 0 },
+        uViewportH: { value: 1 },
         uCompute: { value: 0 },
         uComputePos: { value: this.placeholderTex },
         uComputeState: { value: this.placeholderTex },
@@ -159,10 +171,13 @@ export class ParticleRenderer {
         uniform vec4 uStopD;
         uniform float uStopCount;
         uniform float uRadialScale;
+        uniform float uStretch;
+        uniform float uViewportH;
         varying vec3 vColor;
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
+        varying vec3 vStretch;
         // Authored ramps, stops packed as rgb + position along the axis.
         vec3 gradientColor(float t) {
           float x = clamp(t, 0.0, 1.0);
@@ -228,6 +243,19 @@ export class ParticleRenderer {
           vShape = mix(uShape, aShape, uShapeBySpecies);
           vState = state4.xyz;
           gl_Position = projectionMatrix * mv;
+          // Velocity stretch (0.12 slice 4): the sprite drawn long along its
+          // motion on screen, narrower across it, its light conserved.
+          vStretch = vec3(1.0, 0.0, 1.0);
+          if (uStretch > 0.0) {
+            vec4 c1 = projectionMatrix * (modelViewMatrix * vec4(p + vel * ${STRETCH_SECONDS.toFixed(3)}, 1.0));
+            vec2 aspect = vec2(projectionMatrix[1][1] / projectionMatrix[0][0], 1.0);
+            vec2 d = (c1.xy / c1.w - gl_Position.xy / gl_Position.w) * 0.5 * uViewportH * aspect;
+            float len = length(d);
+            float e = 1.0 + uStretch * min(len / max(gl_PointSize, 1.0), ${STRETCH_MAX.toFixed(1)});
+            vStretch = vec3(len > 1e-4 ? d / len : vec2(1.0, 0.0), e);
+            gl_PointSize *= e;
+            vFade /= sqrt(e);
+          }
         }
       `,
       fragmentShader: /* glsl */ `
@@ -238,11 +266,19 @@ export class ParticleRenderer {
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
+        varying vec3 vStretch;
         ${SHAPE_FIELD_GLSL}
         void main() {
           vec3 col = vColor;
           col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.94, 0.97, 1.04), uMonochrome);
           vec2 uv = gl_PointCoord - 0.5;
+          if (vStretch.z > 1.0) {
+            // Into the stretched sprite's frame: along the motion the point
+            // is the shape's length; across, it is 1/sqrt(e) of the width.
+            vec2 dir = vec2(vStretch.x, -vStretch.y); // point coords run down
+            float e = vStretch.z;
+            uv = vec2(dot(uv, dir), dot(uv, vec2(-dir.y, dir.x)) * e * sqrt(e));
+          }
           // One 0..1 field per sprite: the same two thresholds draw every
           // shape, and shape 0 is the original disc, bit for bit.
           float field = shapeField(vShape, uv);
@@ -294,6 +330,7 @@ export class ParticleRenderer {
     }
     if (this.colorsDirty) {
       this.colorAttr.needsUpdate = true;
+      this.ribbons?.markColorsDirty();
       this.colorsDirty = false;
     }
     if (this.lifeDirty) {
@@ -332,13 +369,22 @@ export class ParticleRenderer {
 
   setCount(count: number): void {
     this.geometry.setDrawRange(0, count);
+    this.ribbons?.setCount(count);
   }
 
   /**
    * `subjectRadius` is the source's own radius, measured once per source, and
    * only used by the RADIAL gradient axis.
    */
-  applySettings(settings: VisualSettings, pixelRatio: number, focusDistance: number, subjectRadius = 1): void {
+  applySettings(
+    settings: VisualSettings,
+    pixelRatio: number,
+    focusDistance: number,
+    subjectRadius = 1,
+    /** The drawing buffer's height in pixels (velocity stretch measures on screen). */
+    viewportHeight = 1,
+    viewportWidth = 1
+  ): void {
     const s = clampVisualSettings(settings);
     const u = this.material.uniforms;
     u.uSize.value = s.particleSize;
@@ -347,7 +393,7 @@ export class ParticleRenderer {
     u.uMonochrome.value = s.colorMode === "monochrome" ? 1 : 0;
     // A field axis is baked per particle on the CPU, so the shader ramp must
     // stay off for it: two sources of colour would fight.
-    u.uGradient.value = s.colorMode === "gradient" && !isFieldAxis(s.gradientAxis) ? 1 : 0;
+    u.uGradient.value = s.colorMode === "gradient" && !isBakedAxis(s.gradientAxis) ? 1 : 0;
     u.uGradAxis.value = Math.max(0, GRADIENT_AXES.indexOf(s.gradientAxis));
     if (s.gradientPalette !== this.lastPalette) {
       this.lastPalette = s.gradientPalette;
@@ -365,9 +411,25 @@ export class ParticleRenderer {
     u.uFocus.value = Math.max(0.5, focusDistance);
     u.uDof.value = s.dof;
     u.uFogDensity.value = s.fogDensity;
+    u.uStretch.value = s.stretch;
+    u.uViewportH.value = viewportHeight;
+    this.ribbonOpacity = s.ribbons;
+    this.ribbonView = { w: viewportWidth, h: viewportHeight, pr: pixelRatio, mono: s.colorMode === "monochrome", fog: s.fogDensity };
+    const history = this.computeSource?.getRibbonHistory?.() ?? null;
+    if (history && !this.ribbons && !this.ribbonsLoading) {
+      // The engine has a history to draw: fetch the strips (a lazy chunk).
+      this.ribbonsLoading = true;
+      void import("./glRibbons").then((m) => {
+        this.ribbons = new m.GlRibbons(this.refBuffer, this.colorAttr.array as Float32Array, this.geometry.drawRange.count);
+        this.points.add(this.ribbons.mesh);
+      });
+    }
+    const v = this.ribbonView;
+    this.ribbons?.update(history, this.ribbonOpacity, v.mono, v.fog, v.w, v.h, v.pr);
   }
 
   dispose(): void {
+    this.ribbons?.dispose();
     this.geometry.dispose();
     this.material.dispose();
     this.placeholderTex.dispose();

@@ -24,11 +24,16 @@ export const COLOR_MODES: readonly ColorMode[] = ["monochrome", "source", "speci
  * distance from the camera (DEPTH), its distance from the subject's centre
  * (RADIAL, which makes the ramp read as a volume rather than a plane), or one
  * of the two stigmergic fields (SCENT, where the swarm has been; HEAT, where it
- * is working hardest right now).
+ * is working hardest right now). Since 0.12, HISTORY: what each particle has
+ * lived through (APPROACH, SPEED, DWELL - rendering/history.ts).
  */
-export type GradientAxis = "age" | "depth" | "radial" | "scent" | "heat";
+/** The HISTORY axes (rendering/history.ts keeps the traps). */
+export type HistoryAxis = "approach" | "speed" | "dwell";
+export const HISTORY_AXES: readonly HistoryAxis[] = ["approach", "speed", "dwell"];
 
-export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial", "scent", "heat"];
+export type GradientAxis = "age" | "depth" | "radial" | "scent" | "heat" | HistoryAxis;
+
+export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial", "scent", "heat", ...HISTORY_AXES];
 
 /**
  * Field axes are *baked* from the CPU-side fields rather than evaluated in the
@@ -39,6 +44,15 @@ export const FIELD_AXES: readonly GradientAxis[] = ["scent", "heat"];
 
 export function isFieldAxis(axis: GradientAxis): boolean {
   return axis === "scent" || axis === "heat";
+}
+
+export function isHistoryAxis(axis: GradientAxis): axis is HistoryAxis {
+  return (HISTORY_AXES as readonly string[]).includes(axis);
+}
+
+/** Axes baked into per-particle colours on the CPU (fields and history): the shader's ramp stays off. */
+export function isBakedAxis(axis: GradientAxis): boolean {
+  return isFieldAxis(axis) || isHistoryAxis(axis);
 }
 
 /** Sprite shape, resolved analytically in the fragment shader. */
@@ -71,6 +85,16 @@ export interface VisualSettings {
   dof: number;
   /** Exponential fog density — the black space between camera and subject. */
   fogDensity: number;
+  /** The light (0.12): bloom strength, 0 = off. */
+  bloom: number;
+  /** The view transform: ACES (the piece's own) or AgX (gentler with dense colour). */
+  toneMap: "aces" | "agx";
+  /** Light drawn from the medium - wakes and scars glowing in the space. 0 = off. */
+  mediumLight: number;
+  /** Velocity stretch: sprites drawn long along their motion. 0 = round. */
+  stretch: number;
+  /** Ribbons: each particle's last moments drawn as a fading strip. 0 = none. */
+  ribbons: number;
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
@@ -86,6 +110,11 @@ export const defaultVisualSettings = (): VisualSettings => ({
   shapeBySpecies: false,
   dof: 0.15,
   fogDensity: 0.02,
+  bloom: 0,
+  toneMap: "aces",
+  mediumLight: 0,
+  stretch: 0,
+  ribbons: 0,
 });
 
 /**
@@ -111,6 +140,12 @@ export function clampVisualSettings(s: VisualSettings): VisualSettings {
     shapeBySpecies: !!s.shapeBySpecies,
     dof: cl(s.dof, 0, 1),
     fogDensity: cl(s.fogDensity, 0, 0.2),
+    // Settings saved before 0.12 have none of these: they fall to "off".
+    bloom: cl(s.bloom, 0, 2),
+    toneMap: s.toneMap === "agx" ? "agx" : "aces",
+    mediumLight: cl(s.mediumLight, 0, 3),
+    stretch: cl(s.stretch, 0, 1),
+    ribbons: cl(s.ribbons, 0, 1),
   };
 }
 

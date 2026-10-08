@@ -44,6 +44,7 @@ export const ICONS = {
   field: { d: "M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h7" },
   heat: { d: "M12 2.5c1 4 5.5 5.5 5.5 10.5a5.5 5.5 0 0 1-11 0c0-3 1.8-4.3 2.4-6.8 1.4 1 2.6 2.3 2.6 4.3 1.8-1.6 1.5-5.3.5-8z" },
   ecology: { d: "M5 20c0-9 6-15 15-15 0 9-6 15-15 15zM5 20l8-8" },
+  medium: { d: "M2 9c2.5-2.6 5-2.6 7.5 0s5 2.6 7.5 0 3.5-1.6 5-1.6M2 15c2.5-2.6 5-2.6 7.5 0s5 2.6 7.5 0 3.5-1.6 5-1.6" },
   visual: { d: "M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7S2 12 2 12z" + c(12, 12, 3) },
   evolve: { d: "M12 21v-9M12 12L6.5 6.5M12 12l5.5-5.5" + c(5.5, 5, 2) + c(18.5, 5, 2) },
   lab: { d: "M9 3h6M10 3v6.5L4.8 18.3A2 2 0 0 0 6.5 21.3h11a2 2 0 0 0 1.7-3L14 9.5V3M7 15h10" },
@@ -61,6 +62,9 @@ export const ICONS = {
   looks: { d: "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" },
   more: { d: "M5 12h.01M12 12h.01M19 12h.01", width: 3 },
   layout: { d: "M3 4h18v16H3zM3 9h18M9 9v11" },
+  saveLook: { d: "M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" },
+  openLook: { d: "M12 15V3M7 8l5-5 5 5M4 17v3h16v-3" },
+  record: { d: c(12, 12, 6), fill: true },
 } satisfies Record<string, IconSpec>;
 
 export type IconName = keyof typeof ICONS;

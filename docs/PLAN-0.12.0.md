@@ -14,6 +14,165 @@ gives the engine something to remember.
 
 ---
 
+## 0. Scope after the Next Build Plan (7 Oct 2026)
+
+The *VOID: Next Build Plan* (2 Oct 2026) keeps this plan's spine and splits
+the work into **two releases**:
+
+- **0.12 "The Cathedral"**: slices 1–5 below. Engine, medium, light and
+  instrument.
+  - Slice 3 also carries **the medium**: the brush grid gets a pressure
+    projection (an incompressible fluid after Pavel Dobryakov's MIT
+    WebGL-Fluid-Simulation, with vorticity mapped to memory state). The
+    scent field gets **scar tissue** (Gray-Scott reaction-diffusion,
+    reimplemented from the papers, not from GPL code). Gate: the swarm's
+    wakes and scars visibly outlive it, and a portrait still reads in
+    RECONSTRUCT with the medium on. The WebGL2 path runs a 64³ grid.
+  - Slice 4 also carries **HISTORY colour**: orbit-trap style per-particle
+    history (nearest approach, peak speed, time in a cluster).
+  - Slice 5 also carries **OSC as a mapping source**, beside audio and MIDI,
+    in the same mapping UI.
+- **0.13 "The Studio"**: the Studio Link (OSC relay, `void.tox`, state
+  channels), AI perception (DEPTH lift, splat memories, tap CUTOUT),
+  **discovery** (slice 6 below moves here), and the structure pass out to
+  Scope and StreamDiffusionTD.
+
+**Slice 1 is done:** see `docs/ADR-0001-webgpu-engine.md`. The engine is raw
+WebGPU/WGSL in a lazy chunk, beside the unchanged WebGL2 stack. 500k costs
+0.44 ms per frame on the reference GPU.
+
+**Slice 2, first cut (7 Oct 2026), opt-in with `?backend=webgpu`.** Default
+visitors run exactly what they ran before: auto never picks WebGPU, and the
+engine is a 13.3 kB lazy chunk (eager JS 207.3 kB of 220).
+
+- `particles/webgpu/`: the WebGL2 force model in WGSL, line for line. The
+  neighbour grid is a GPU counting sort over a spatial hash, with a cell
+  filter so colliding buckets never double-count. Scent and heat deposit
+  and decay on the GPU. CPU consumers read async mirrors and nothing waits
+  on the GPU, except one exact mirror before a backend switch.
+- `rendering/webgpu/WebGpuSwarmView.ts`: ParticleRenderer and TrailPass in
+  WGSL (sprites, shapes generated from the same table as the GLSL, HDR
+  trail, ACES present), on a canvas under the UI. The WebGL canvas goes
+  transparent but keeps every input listener.
+- Boot: the piece starts on WebGL2 as always, the device loads in the
+  background, and the live swarm is handed over by the ordinary carried
+  switch. A lost device falls back to WebGL2 once, with a hint.
+- Scale: a neighbour budget (full scan up to 50k, bounded and unbiased
+  stride sampling above), and density compensation above 50k so a 500k
+  swarm carries the forces and light of a 50k one. Measured on the RTX
+  4070 Ti, full step with neighbour forces: 50k about 6 ms, 500k about
+  19 ms, 1M about 15 ms (sparser cells), main thread 0.02 ms a step.
+  Before the GPU fields and the budget, 500k cost 22 ms of CPU and 1.2 s
+  of GPU a step.
+- Tests: `webgpu-hash-grid` (the grid against brute force, collisions
+  included; budget, stride partition, compensation) and `webgpu-contract`
+  (the Sim uniform's offsets computed from the WGSL struct, every field
+  written and read, the shape fields in step with the GLSL).
+
+Open for the rest of slice 2:
+
+- **Parity at density is not settled.** From one converged 12k state, two
+  seconds later: WebGL2 0.046, WebGPU 0.115, the CPU engine (the canonical
+  force model) 0.263 mean target distance. At 4k all three agree (about
+  0.16). WebGPU sits between the two existing engines, which already
+  disagree with each other; that disagreement needs its own look.
+- Moments on WebGPU: Genesis, Witness (the crowd memory, the count,
+  the lights going out) and Exhibition were run live and hold. Presence
+  needs a camera and was checked in code only: every retarget is followed
+  by an upload. Ecology stays CPU only, as on WebGL2.
+- The panel's particle slider still ends at 50k; 100k-1M are reached with
+  `[` `]` or `?count=`.
+- Density compensation is an artistic default, not physics: the artist
+  should judge the 500k and 1M looks.
+- The `main.ts` split: `app/engineHost.ts` is out (backend choice, the
+  engine factories, the carried switch, the WebGPU loader, the swarm
+  view), with its own tests; main.ts keeps the app's reactions behind one
+  `onInstalled` callback. `looks` and `moments` are still to do.
+
+**Slice 3a, the medium (7 Oct 2026), opt-in with `?backend=webgpu&medium=1`**
+(`medium=fluid` or `medium=scars` for one of the two). WebGPU only for now.
+
+- `particles/medium/mediumReference.ts`: the math on the CPU, tested. A 3D
+  stable-fluids medium (the swarm's drag, wind, vorticity confinement
+  scaled by how much the piece forgets, advection, Jacobi projection) and
+  Gray-Scott scars. Measured in 3D, not carried over from 2D: diffusion
+  under 1/6; seeds raise V and leave U to the reaction (pinning U every
+  step fed it to saturation); seeds spread to the six neighbours (a
+  one-cell seed dies); only memory held in place seeds (scars trace the
+  shape, not the paths); F 0.034 / k 0.063, fade 0.005.
+- `particles/webgpu/mediumWgsl.ts`, `WebGpuMedium.ts`: the same passes on a
+  64³ grid over [-12, 12]³; particles are carried by the fluid (drag 1.2)
+  and climb the scars (steer 1.2). The memory cycle's blend drives it:
+  still in RECONSTRUCT, stirred in VOID.
+- Measured on the dev GPU at 12k: 2.8 ms a step with the medium on. Torus
+  held in RECONSTRUCT (0.38 mean target distance), dissolving in VOID
+  (2.4 after 20 s), fluid settling to rms 0.005 and stirring to 0.02,
+  scars about 1% of the box while held, growing to about 24% after.
+- Since: the WebGL2 port (`gpu/GlMedium.ts`, lazy, 3.6 kB): 64³ tiled
+  8 × 8 in one 512² float texture, deposits as additive points read from
+  the engine's own textures, the same passes as fragment shaders. Same
+  behaviour as WebGPU (RECONSTRUCT: fluid settles, scars ~1%; VOID: it
+  stirs and the scars grow; REMEMBER: they withdraw), 5-7 ms a step at
+  12k. The MEDIUM panel section and the Wake look; scars clear across
+  REMEMBER.
+- Smoke check (8 Oct): toggling MEDIUM changed nothing visible. The medium
+  had no motion of its own - only the swarm dragged it - so carrying the
+  swarm by it only pulled the swarm toward its own average. It now has
+  two drives: the stir (large slow eddies scaled by agitation, the
+  panel's Swirl) and the hand (dragging the pointer moves the fluid
+  itself; the wake keeps moving after release). In VOID the swarm now
+  travels 1.75 world units in 5 s with the medium, 0.11-0.20 without,
+  on both GPU paths; RECONSTRUCT still holds (0.33).
+- Open: the CPU backend (touch, low density) has no medium yet - the
+  reference could run it at 24³; Ripples still push the particles, not
+  the medium.
+
+**Slice 4, the light (8 Oct 2026).** Everything is off by default; the
+default looks render as before. Wake uses bloom, AgX and the medium light.
+
+- Bloom: a dual-filter chain (soft-knee prefilter, five halvings, tent
+  upsample). AgX beside ACES, decoded to the piece's linear-out convention:
+  undecoded, its toe lifted black to grey.
+- The medium's light, in place of the plan's blurred density volume: the
+  scars' surfaces found along each view ray and lit at their rims, three
+  layers deep, so Gray-Scott's tubes read as translucent membranes where no
+  particle is. A summed volume was a grey veil (the scars are a labyrinth
+  every ray crosses), and the fluid's speed lit the whole box. Capped at
+  384 px, jittered and blended over frames; ~1-1.5 ms on the RTX 4070 Ti.
+- Velocity stretch (point sprites drawn long along their screen motion,
+  light conserved), ribbons (a 12-slot position ring kept by the GPU
+  engines only while on; the CPU engine draws none), and HISTORY colour
+  (APPROACH, SPEED, DWELL as gradient axes, orbit-trap traps baked on the
+  CPU like the field axes).
+- WebGPU has all of it (WebGpuLight, the view's present and ribbon pass).
+- The governor sheds the medium light, then bloom, before resolution, and
+  skips rungs a look does not use. Captures take the presented canvas, so
+  they include the whole chain.
+- Not done: the plan's GPU radix depth sort and lens effects (chromatic
+  aberration, vignette, streaks, flare) - additive sprites need no sort,
+  and the lens effects were left for a look that asks for them. The p95
+  gate was checked by cost (each pass timed), not on a weak machine.
+
+**Slice 5, the instrument (8 Oct 2026).**
+
+- The modulation matrix (`instrument/modulation.ts`): a listen dot beside
+  every slider over a live object (58) maps it to a sound band (LEVEL,
+  BASS, MID, TREBLE, each shaped once by gain, curve, attack and decay), a
+  MIDI control (learned) or an OSC address, played between FROM and TO
+  times GAIN. Mapped sliders move on screen; their bases are what saves,
+  undo and files hold. A look without mappings keeps sound's fixed drive.
+- MIDI over Web MIDI; OSC over a WebSocket bridge (binary OSC with
+  bundles, or JSON), since a browser cannot open UDP - the 0.13 relay will
+  be one such bridge.
+- Look files: SAVE and OPEN in the looks dock; JSON, 1 MB cap, every value
+  validated (types from the defaults, the existing clamps, then each
+  parameter to its slider's range). The gate - a look carrying mappings
+  round-trips through a file - is a test.
+- Recording on Shift R, not R (R randomizes the organism): WebM of the
+  presented canvas plus the soundscape, with a REC mark outside the canvas.
+- Editor, MIDI/OSC, look files and recorder are lazy chunks; eager JS is
+  216.9 kB of 220.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise
