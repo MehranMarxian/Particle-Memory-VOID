@@ -153,6 +153,26 @@ default looks render as before. Wake uses bloom, AgX and the medium light.
   and the lens effects were left for a look that asks for them. The p95
   gate was checked by cost (each pass timed), not on a weak machine.
 
+**Slice 5, the instrument (8 Oct 2026).**
+
+- The modulation matrix (`instrument/modulation.ts`): a listen dot beside
+  every slider over a live object (58) maps it to a sound band (LEVEL,
+  BASS, MID, TREBLE, each shaped once by gain, curve, attack and decay), a
+  MIDI control (learned) or an OSC address, played between FROM and TO
+  times GAIN. Mapped sliders move on screen; their bases are what saves,
+  undo and files hold. A look without mappings keeps sound's fixed drive.
+- MIDI over Web MIDI; OSC over a WebSocket bridge (binary OSC with
+  bundles, or JSON), since a browser cannot open UDP - the 0.13 relay will
+  be one such bridge.
+- Look files: SAVE and OPEN in the looks dock; JSON, 1 MB cap, every value
+  validated (types from the defaults, the existing clamps, then each
+  parameter to its slider's range). The gate - a look carrying mappings
+  round-trips through a file - is a test.
+- Recording on Shift R, not R (R randomizes the organism): WebM of the
+  presented canvas plus the soundscape, with a REC mark outside the canvas.
+- Editor, MIDI/OSC, look files and recorder are lazy chunks; eager JS is
+  216.9 kB of 220.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise
