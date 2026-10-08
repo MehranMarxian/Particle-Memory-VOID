@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src tests spike vite.config.ts"
+    "lint": "eslint src tests spike vite.config.ts",
+    "studio-link": "node studio-link/relay.mjs"
   },
   "dependencies": {
     "three": "^0.171.0"

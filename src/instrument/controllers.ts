@@ -150,6 +150,32 @@ export function connectOsc(url: string, events: ControllerEvents): void {
   osc = ws;
 }
 
+function oscPad(text: string): Uint8Array {
+  const b = new TextEncoder().encode(text);
+  const out = new Uint8Array((b.length + 4) & ~3);
+  out.set(b);
+  return out;
+}
+
+/** An OSC message of float arguments. Pure. */
+export function encodeOsc(address: string, values: readonly number[]): Uint8Array {
+  const a = oscPad(address);
+  const t = oscPad("," + "f".repeat(values.length));
+  const out = new Uint8Array(a.length + t.length + values.length * 4);
+  out.set(a);
+  out.set(t, a.length);
+  const view = new DataView(out.buffer);
+  values.forEach((v, i) => view.setFloat32(a.length + t.length + i * 4, v));
+  return out;
+}
+
+/** Send OSC to the bridge, when it is open. Returns whether it went. */
+export function sendOsc(packet: Uint8Array): boolean {
+  if (!osc || osc.readyState !== WebSocket.OPEN) return false;
+  osc.send(packet);
+  return true;
+}
+
 export function disconnectOsc(): void {
   osc?.close();
   osc = null;
