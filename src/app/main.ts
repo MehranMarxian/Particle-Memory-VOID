@@ -1889,6 +1889,8 @@ function declareGlobalHandle(): void {
       switchBackend,
       fps: () => fps,
       p95: () => p95FrameTime(),
+      /** The post chain, to read the light's targets back. */
+      trail: () => trailPass,
       /** n fixed steps exactly as the frame loop runs them (a hidden tab gets no rAF). */
       step(n: number): void {
         for (let s = 0; s < n; s++) {
@@ -2442,6 +2444,16 @@ function frameInner(now: number): void {
   // Always route through the HDR chain: tone-mapping + dither run even
   // when trails are off.
   trailPass.enabled = visual.trails;
+  // The light (0.12 slice 4): off unless the look asks. The medium's light
+  // needs a medium to draw from.
+  trailPass.bloom = effective.bloom;
+  trailPass.toneMap = effective.toneMap;
+  const mediumOn = params.medium.enabled || params.scar.enabled;
+  trailPass.mediumLight = mediumOn ? effective.mediumLight : 0;
+  trailPass.medium =
+    mediumOn && "getMediumTexture" in engine
+      ? (engine as unknown as { getMediumTexture(): THREE.Texture | null }).getMediumTexture()
+      : null;
   // A fast orbit (or a pinch zoom) clears the afterimage instead of
   // smearing the whole image across itself.
   const angular = Math.abs(azimuthNow - prevFrameAzimuth) / Math.max(dt, 1e-3);

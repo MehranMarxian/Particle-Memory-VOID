@@ -71,6 +71,12 @@ export interface VisualSettings {
   dof: number;
   /** Exponential fog density — the black space between camera and subject. */
   fogDensity: number;
+  /** The light (0.12): bloom strength, 0 = off. */
+  bloom: number;
+  /** The view transform: ACES (the piece's own) or AgX (gentler with dense colour). */
+  toneMap: "aces" | "agx";
+  /** Light drawn from the medium - wakes and scars glowing in the space. 0 = off. */
+  mediumLight: number;
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
@@ -86,6 +92,9 @@ export const defaultVisualSettings = (): VisualSettings => ({
   shapeBySpecies: false,
   dof: 0.15,
   fogDensity: 0.02,
+  bloom: 0,
+  toneMap: "aces",
+  mediumLight: 0,
 });
 
 /**
@@ -111,6 +120,10 @@ export function clampVisualSettings(s: VisualSettings): VisualSettings {
     shapeBySpecies: !!s.shapeBySpecies,
     dof: cl(s.dof, 0, 1),
     fogDensity: cl(s.fogDensity, 0, 0.2),
+    // Settings saved before 0.12 have none of these: they fall to "off".
+    bloom: cl(s.bloom, 0, 2),
+    toneMap: s.toneMap === "agx" ? "agx" : "aces",
+    mediumLight: cl(s.mediumLight, 0, 3),
   };
 }
 

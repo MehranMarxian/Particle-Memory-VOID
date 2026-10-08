@@ -719,6 +719,11 @@ export class GpuParticleEngine {
     this.lastReadbacks.bytes += this.texW * this.texH * 16;
   }
 
+  /** The medium's grid for the light (fluid xyz, scar V in w), once it runs. */
+  getMediumTexture(): THREE.Texture | null {
+    return this.medium ? this.medium.sample : null;
+  }
+
   /**
    * The medium (0.12 slice 3): loaded on first use, then stepped from the
    * particles' own textures - deposits are drawn on the GPU, nothing is read

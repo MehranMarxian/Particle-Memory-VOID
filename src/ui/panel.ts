@@ -1057,6 +1057,7 @@ export function createPanel(opts: {
     "The swarm moves through a medium it drags along; its wakes drift on after it has gone."
   );
   addObjSlider(mediumBody, "Swirl", params.medium, "stir", 0, 6, 0.1, num, "How strongly the medium stirs as the memory goes. Still while it remembers, carrying the swarm in eddies as it forgets. Drag through it: it follows your hand.");
+  addObjSlider(mediumBody, "Light", visual, "mediumLight", 0, 3, 0.05, num, "The medium's own light: wakes and scars glowing in the space, even where no particle is.");
   addToggle(
     mediumBody,
     "Scars",
@@ -1110,6 +1111,16 @@ export function createPanel(opts: {
   addObjSlider(visBody, "Opacity", visual, "opacity", 0.05, 1, 0.01, num);
   addObjSlider(visBody, "Depth", visual, "dof", 0, 1, 0.01, num, "Depth-of-field focus falloff.");
   addObjSlider(visBody, "Fog", visual, "fogDensity", 0, 0.12, 0.002, (v) => v.toFixed(3));
+  addObjSlider(visBody, "Bloom", visual, "bloom", 0, 2, 0.05, num, "Light that spills from the brightest places.");
+  addToggle(
+    visBody,
+    "Tone",
+    () => visual.toneMap === "agx",
+    (v) => (visual.toneMap = v ? "agx" : "aces"),
+    "AGX",
+    "ACES",
+    "How light becomes the image: ACES is the piece's own; AgX keeps colour in dense light."
+  );
   trailControls(visBody);
   colorControls(visBody);
   shapeControls(visBody);

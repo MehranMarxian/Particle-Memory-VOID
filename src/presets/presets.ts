@@ -715,6 +715,10 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       trailDecay: 0.72,
       dof: 0.15,
       fogDensity: 0.04,
+      // The light (0.12 slice 4): what the swarm left behind glows.
+      bloom: 0.5,
+      toneMap: "agx",
+      mediumLight: 1.2,
     },
     camera: { orbitSpeed: 0.01, zoomAmplitude: 1.5, zoomPeriodSeconds: 100, elevationWander: 0.05, path: "orbit" },
   },
