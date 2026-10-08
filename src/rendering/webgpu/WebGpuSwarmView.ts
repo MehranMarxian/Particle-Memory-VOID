@@ -1,5 +1,5 @@
 import type * as THREE from "three";
-import { clampVisualSettings, GRADIENT_AXES, isFieldAxis, PARTICLE_SHAPES, type VisualSettings } from "../VisualSettings";
+import { clampVisualSettings, GRADIENT_AXES, isBakedAxis, PARTICLE_SHAPES, type VisualSettings } from "../VisualSettings";
 import { packGradientStops, paletteStops } from "../palette";
 import { SHAPE_FIELD_WGSL } from "../shapes";
 import { trailRetention, type ToneMap } from "../TrailPass";
@@ -380,7 +380,7 @@ export class WebGpuSwarmView {
     v[36] = s.opacity;
     v[37] = s.glow;
     v[38] = s.colorMode === "monochrome" ? 1 : 0;
-    v[39] = s.colorMode === "gradient" && !isFieldAxis(s.gradientAxis) ? 1 : 0;
+    v[39] = s.colorMode === "gradient" && !isBakedAxis(s.gradientAxis) ? 1 : 0;
     v[40] = Math.max(0, GRADIENT_AXES.indexOf(s.gradientAxis));
     if (s.gradientPalette !== this.lastPalette) {
       this.lastPalette = s.gradientPalette;

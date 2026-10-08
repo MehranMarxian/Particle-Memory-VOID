@@ -9,7 +9,9 @@ import {
   COLOR_MODES,
   defaultVisualSettings,
   GRADIENT_AXES,
+  isBakedAxis,
   isFieldAxis,
+  isHistoryAxis,
   PARTICLE_SHAPES,
   type ColorMode,
   type GradientAxis,
@@ -18,6 +20,7 @@ import {
 } from "@/rendering/VisualSettings";
 import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
 import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { ParticleHistory, writeHistoryColors } from "@/rendering/history";
 import {
   DEFAULT_CAMERA_CHOREOGRAPHY,
   breatheOffset,
@@ -226,6 +229,12 @@ let lastLookMode = "";
 let subjectRadius = 1;
 /** Frames since a field ramp was last re-baked (see the tick in the render). */
 let fieldTintTick = 0;
+// HISTORY colour (0.12): each particle's traps, observed at the tint rate.
+const particleHistory = new ParticleHistory();
+let historyScratch = new Float32Array(0);
+/** Seconds since the history last looked. */
+let historyDt = 0;
+let historyAxisSeen = "";
 /** Appearance genes of the current champion, once the search has found one. */
 let phenotypeLook: Phenotype | null = null;
 
@@ -414,6 +423,16 @@ function applyLookColors(): void {
   } else if (mode === "random") {
     if (lastLookMode !== "random") lookSeed = (Math.random() * 1e9) | 0;
     writeRandomColors(engine.colors, engine.count, lookSeed);
+  } else if (mode === "gradient" && isHistoryAxis(visual.gradientAxis)) {
+    if (historyScratch.length < engine.count) historyScratch = new Float32Array(engine.count);
+    writeHistoryColors(
+      engine.colors,
+      particleHistory,
+      visual.gradientAxis,
+      engine.count,
+      paletteStops(visual.gradientPalette),
+      historyScratch
+    );
   } else if (mode === "gradient" && isFieldAxis(visual.gradientAxis)) {
     // Field tints are baked from the CPU-side fields, so both backends look the
     // same and no new texture has to reach the shader.
@@ -543,7 +562,10 @@ function onEngineInstalled(how: "build" | "switch"): void {
     appliedSpecies = "mixed";
   }
   if (params.life.species === "colour") assignSpecies();
-  if (how === "build") witness.resize(engine.count, WITNESS_SEED);
+  if (how === "build") {
+    witness.resize(engine.count, WITNESS_SEED);
+    particleHistory.reset();
+  }
   installEcology();
   applyLook();
   if (how === "build") {
@@ -2411,13 +2433,23 @@ function frameInner(now: number): void {
   // A ramp that follows a live field has to be refreshed, but the bake is
   // not free: colours only, at a low rate - lower still on touch, where the
   // tick competes with a much smaller frame budget.
-  if (visual.colorMode === "gradient" && isFieldAxis(visual.gradientAxis)) {
+  if (visual.colorMode === "gradient" && isBakedAxis(visual.gradientAxis)) {
+    historyDt += dt;
     if (++fieldTintTick >= fieldTintRefreshFrames(coarsePointer)) {
       fieldTintTick = 0;
+      if (isHistoryAxis(visual.gradientAxis)) {
+        // A newly chosen trap starts from now: history since you looked.
+        if (historyAxisSeen !== visual.gradientAxis) particleHistory.reset();
+        historyAxisSeen = visual.gradientAxis;
+        particleHistory.update(engine.positions, engine.targets, engine.count, historyDt);
+      }
+      historyDt = 0;
       applyLookColors();
     }
   } else {
     fieldTintTick = 0;
+    historyDt = 0;
+    historyAxisSeen = "";
   }
   if (visual.trails) {
     // Deposit compensation in the same time domain as the retention: at

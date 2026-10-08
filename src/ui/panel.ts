@@ -532,7 +532,7 @@ export function createPanel(opts: {
         visual.gradientAxis = v as GradientAxis;
         lookChanged();
       },
-      "What the ramp is mapped across: a particle's own life, its distance from the camera or the centre, or the scent and heat it moves through.",
+      "What the ramp is mapped across: a particle's own life, its distance from the camera or the centre, the scent and heat it moves through - or its history: how near it once came home, the fastest it ever moved, how long it has stayed in company.",
       () => visual.colorMode === "gradient"
     );
   }

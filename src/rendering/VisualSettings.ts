@@ -24,11 +24,16 @@ export const COLOR_MODES: readonly ColorMode[] = ["monochrome", "source", "speci
  * distance from the camera (DEPTH), its distance from the subject's centre
  * (RADIAL, which makes the ramp read as a volume rather than a plane), or one
  * of the two stigmergic fields (SCENT, where the swarm has been; HEAT, where it
- * is working hardest right now).
+ * is working hardest right now). Since 0.12, HISTORY: what each particle has
+ * lived through (APPROACH, SPEED, DWELL - rendering/history.ts).
  */
-export type GradientAxis = "age" | "depth" | "radial" | "scent" | "heat";
+/** The HISTORY axes (rendering/history.ts keeps the traps). */
+export type HistoryAxis = "approach" | "speed" | "dwell";
+export const HISTORY_AXES: readonly HistoryAxis[] = ["approach", "speed", "dwell"];
 
-export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial", "scent", "heat"];
+export type GradientAxis = "age" | "depth" | "radial" | "scent" | "heat" | HistoryAxis;
+
+export const GRADIENT_AXES: readonly GradientAxis[] = ["age", "depth", "radial", "scent", "heat", ...HISTORY_AXES];
 
 /**
  * Field axes are *baked* from the CPU-side fields rather than evaluated in the
@@ -39,6 +44,15 @@ export const FIELD_AXES: readonly GradientAxis[] = ["scent", "heat"];
 
 export function isFieldAxis(axis: GradientAxis): boolean {
   return axis === "scent" || axis === "heat";
+}
+
+export function isHistoryAxis(axis: GradientAxis): axis is HistoryAxis {
+  return (HISTORY_AXES as readonly string[]).includes(axis);
+}
+
+/** Axes baked into per-particle colours on the CPU (fields and history): the shader's ramp stays off. */
+export function isBakedAxis(axis: GradientAxis): boolean {
+  return isFieldAxis(axis) || isHistoryAxis(axis);
 }
 
 /** Sprite shape, resolved analytically in the fragment shader. */
