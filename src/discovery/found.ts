@@ -17,8 +17,8 @@ export interface FoundLook {
 }
 
 export const FOUND_KEY = "void.found.v1";
-/** The row keeps this many; a better find replaces the weakest. */
-export const FOUND_MAX = 12;
+/** The row keeps this many (Mehran: four is enough); a better find replaces the weakest. */
+export const FOUND_MAX = 4;
 
 /** Add a find. Full row: it replaces the weakest, if it is better; otherwise the row is unchanged. */
 export function addFound(list: readonly FoundLook[], item: FoundLook): FoundLook[] {
@@ -75,7 +75,11 @@ export function loadFound(storage: Pick<Storage, "getItem"> | null = safeStorage
   try {
     const raw = storage?.getItem(FOUND_KEY);
     const list = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(list) ? list.filter(isFound).slice(0, FOUND_MAX) : [];
+    if (!Array.isArray(list)) return [];
+    // A longer list (saved before the row held four) keeps its best, in the order found.
+    const valid = list.filter(isFound);
+    const best = new Set([...valid].sort((x, y) => y.score - x.score).slice(0, FOUND_MAX));
+    return valid.filter((f) => best.has(f));
   } catch {
     return [];
   }

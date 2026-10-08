@@ -404,6 +404,31 @@ function forgetFound(id: string): void {
   panelApi?.setFound(foundItems());
 }
 
+// --- Studio Link (0.13): VOID's state out as OSC, through the relay. ---------------------
+let studioLinked = false;
+let lastBands = SILENT_BANDS;
+function toggleStudio(): void {
+  studioLinked = !studioLinked;
+  void import("@/instrument/studio").then((st) => {
+    if (!studioLinked) {
+      st.stopStudio();
+      flashHint("STUDIO LINK OFF", 2);
+      return;
+    }
+    st.startStudio(oscUrl, controllerEvents, () => ({
+      state: MEMORY_STATE_ORDER.indexOf(memory.state),
+      blend: memory.blend,
+      memory: memory.active ? memory.memoryStrength : params.memory.strength,
+      level: lastBands.level,
+      bass: lastBands.bass,
+      mid: lastBands.mid,
+      treble: lastBands.treble,
+      count: engine.count,
+      fps,
+    }));
+  });
+}
+
 function openModEditor(target: string, row: HTMLElement): void {
   void import("@/instrument/modEditor").then((ed) =>
     ed.openEditor(target, row, {
@@ -1995,6 +2020,8 @@ if (!demoMode) {
       onListen: openModEditor,
       onSaveLook: saveLookFile,
       onDiscover: toggleDiscovery,
+      onStudioToggle: toggleStudio,
+      isStudioLinked: () => studioLinked,
       onFoundLook: applyFound,
       onForgetFound: forgetFound,
       onOpenLook: openLookFile,
@@ -2730,6 +2757,7 @@ function frameInner(now: number): void {
   // The modulation matrix plays the sliders that listen before the frame
   // reads them (physics sliders take hold from the next step).
   const bands = audio.active ? audio.read() : SILENT_BANDS;
+  lastBands = bands;
   if (modulator.active) {
     modulator.setBands(bands);
     modulator.step(dt);

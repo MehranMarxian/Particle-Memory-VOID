@@ -86,6 +86,9 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** STUDIO LINK (0.13): VOID's state out as OSC through the relay; and whether it is on. */
+  onStudioToggle?(): void;
+  isStudioLinked?(): boolean;
   /** DISCOVER (0.13): start or stop the background search for new looks. */
   onDiscover?(): void;
   /** A Found card was chosen, or forgotten. */
@@ -1259,6 +1262,17 @@ export function createPanel(opts: {
     syncFns.push(paintSim);
   }
   addToggle(labBody, "Ghost", () => pointer.ghost, (v) => (pointer.ghost = v), "ON", "OFF", "Replay the hand VOID recorded while the screensaver runs.");
+  if (callbacks.onStudioToggle) {
+    addToggle(
+      labBody,
+      "Studio link",
+      () => callbacks.isStudioLinked?.() ?? false,
+      () => callbacks.onStudioToggle?.(),
+      "ON",
+      "OFF",
+      "Send VOID's state out as OSC (/void/state, /void/blend, the sound...) through the Studio Link relay: node studio-link/relay.mjs"
+    );
+  }
   addObjSlider(labBody, "Sync", params, "phaseCoupling", 0, 4, 0.05, num, "Couples particle rhythms into a shared heartbeat.");
   addObjSlider(labBody, "Scent affinity", params.environment, "scent", -2, 2, 0.05, num, "How much its own trail makes the swarm stickier (negative: looser).");
   addObjSlider(labBody, "Heat affinity", params.environment, "heat", -2, 2, 0.05, num, "How much its own warmth makes the swarm stickier (negative: looser).");

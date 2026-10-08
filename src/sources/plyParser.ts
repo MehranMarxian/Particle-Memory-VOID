@@ -5,6 +5,14 @@ import { emptyFlat, type FlatSource } from "./types";
  * normals when present. Supports ASCII and binary (little/big endian).
  * The geometric structure of the cloud is preserved; normalization only
  * centers and uniformly scales the bounding box.
+ *
+ * Splat memories (0.13): a 3D Gaussian-splat scene saved as PLY carries no
+ * red/green/blue but its colour as spherical harmonics (f_dc_0..2, the
+ * view-independent term) and an opacity before its sigmoid. Both are read:
+ * the colour is the splat's base colour, and nearly transparent splats
+ * (the haze a capture leaves around a subject) are dropped. The scene is
+ * turned right way up (captures come from COLMAP, y down) and framed on
+ * where its splats actually are, not on the far floaters.
  */
 
 export interface PlyData {
@@ -13,6 +21,10 @@ export interface PlyData {
   colors: Float32Array | null;
   normals: Float32Array | null;
   format: "ascii" | "binary_little_endian" | "binary_big_endian";
+  /** Per-point opacity 0..1, for Gaussian splats. */
+  opacity?: Float32Array | null;
+  /** A Gaussian-splat scene (framed robustly, turned right way up). */
+  splat?: boolean;
 }
 
 interface PlyProperty {
@@ -58,6 +70,10 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
   const hasNormal = ["nx", "ny", "nz"].every((n) =>
     vertexEl.props.some((p) => p.name === n && !p.isList)
   );
+  const hasDc = ["f_dc_0", "f_dc_1", "f_dc_2"].every((n) =>
+    vertexEl.props.some((p) => p.name === n && !p.isList)
+  );
+  const hasOpacity = vertexEl.props.some((p) => p.name === "opacity" && !p.isList);
 
   const dataStart = headerEnd.dataStart;
   const rest = bytes.subarray(dataStart);
@@ -65,9 +81,11 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
   const out: PlyData = {
     count: vertexEl.count,
     positions: new Float32Array(vertexEl.count * 3),
-    colors: hasColor ? new Float32Array(vertexEl.count * 3) : null,
+    colors: hasColor || hasDc ? new Float32Array(vertexEl.count * 3) : null,
     normals: hasNormal ? new Float32Array(vertexEl.count * 3) : null,
     format,
+    opacity: hasOpacity ? new Float32Array(vertexEl.count) : null,
+    splat: hasDc,
   };
 
   if (format === "ascii") {
@@ -75,7 +93,67 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
   } else {
     parseBinary(rest, vertexEl, out, format === "binary_little_endian");
   }
-  return out;
+  return out.splat ? finishSplats(out) : out;
+}
+
+/** Splats fainter than this are the capture's haze, not the subject. */
+export const SPLAT_MIN_OPACITY = 0.15;
+
+/**
+ * A splat scene as a memory: the faint splats dropped, the rest turned
+ * right way up (y and z flipped: COLMAP's y points down). Pure.
+ */
+export function finishSplats(ply: PlyData): PlyData {
+  const keep: number[] = [];
+  for (let i = 0; i < ply.count; i++) if (!ply.opacity || ply.opacity[i] >= SPLAT_MIN_OPACITY) keep.push(i);
+  const n = keep.length;
+  if (n === 0) throw new Error("PLY: every splat is transparent");
+  const positions = new Float32Array(n * 3);
+  const colors = new Float32Array(n * 3);
+  const opacity = new Float32Array(n);
+  keep.forEach((i, k) => {
+    positions[k * 3] = ply.positions[i * 3];
+    positions[k * 3 + 1] = -ply.positions[i * 3 + 1];
+    positions[k * 3 + 2] = -ply.positions[i * 3 + 2];
+    for (let c = 0; c < 3; c++) colors[k * 3 + c] = ply.colors ? ply.colors[i * 3 + c] : 0.7;
+    opacity[k] = ply.opacity ? ply.opacity[i] : 1;
+  });
+  return { count: n, positions, colors, normals: null, format: ply.format, opacity, splat: true };
+}
+
+/** The view-independent colour of a splat: 0.5 + C0 * f_dc, clamped. */
+const SH_C0 = 0.28209479177387814;
+const shColor = (v: number) => clamp01(0.5 + SH_C0 * v);
+const sigmoid = (v: number) => 1 / (1 + Math.exp(-v));
+
+/**
+ * The .splat format (a common web export of Gaussian splats): 32 bytes a
+ * splat - position (3 float32), scale (3 float32), colour and opacity
+ * (4 uint8), rotation (4 uint8). Little endian.
+ */
+export function parseSplat(buffer: ArrayBuffer): PlyData {
+  const ROW = 32;
+  if (buffer.byteLength === 0 || buffer.byteLength % ROW !== 0) throw new Error("SPLAT: the file is not a whole number of splats");
+  const count = buffer.byteLength / ROW;
+  const view = new DataView(buffer);
+  const out: PlyData = {
+    count,
+    positions: new Float32Array(count * 3),
+    colors: new Float32Array(count * 3),
+    normals: null,
+    format: "binary_little_endian",
+    opacity: new Float32Array(count),
+    splat: true,
+  };
+  for (let i = 0; i < count; i++) {
+    const at = i * ROW;
+    for (let c = 0; c < 3; c++) {
+      out.positions[i * 3 + c] = view.getFloat32(at + c * 4, true);
+      out.colors![i * 3 + c] = view.getUint8(at + 24 + c) / 255;
+    }
+    out.opacity![i] = view.getUint8(at + 27) / 255;
+  }
+  return finishSplats(out);
 }
 
 function findHeaderEnd(bytes: Uint8Array): { textEnd: number; dataStart: number } {
@@ -224,6 +302,10 @@ function assign(
     case "red": out.colors![i * 3] = isColorByte ? v / 255 : clamp01(v); break;
     case "green": out.colors![i * 3 + 1] = isColorByte ? v / 255 : clamp01(v); break;
     case "blue": out.colors![i * 3 + 2] = isColorByte ? v / 255 : clamp01(v); break;
+    case "f_dc_0": out.colors![i * 3] = shColor(v); break;
+    case "f_dc_1": out.colors![i * 3 + 1] = shColor(v); break;
+    case "f_dc_2": out.colors![i * 3 + 2] = shColor(v); break;
+    case "opacity": out.opacity![i] = sigmoid(v); break;
     case "nx": out.normals![i * 3] = v; break;
     case "ny": out.normals![i * 3 + 1] = v; break;
     case "nz": out.normals![i * 3 + 2] = v; break;
@@ -235,14 +317,46 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/** Center on the bounding box and uniformly scale so the largest dimension is `size`. */
+/** The value `q` of the way through `values` (sorted copy). */
+function quantile(values: Float32Array, stride: number, offset: number, count: number, q: number): number {
+  const a = new Float32Array(count);
+  for (let i = 0; i < count; i++) a[i] = values[i * stride + offset];
+  a.sort();
+  return a[Math.min(count - 1, Math.max(0, Math.floor(q * (count - 1))))];
+}
+
+/**
+ * Center on the bounding box and uniformly scale so the largest dimension is
+ * `size`. A splat scene is framed on its 2nd-98th percentiles instead - a
+ * capture's floaters sit far out and would shrink the subject to a dot -
+ * and the splats outside a margin around that frame are dropped.
+ */
 export function normalizePly(ply: PlyData, size = 9): void {
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  for (let i = 0; i < ply.count; i++) {
-    const x = ply.positions[i * 3], y = ply.positions[i * 3 + 1], z = ply.positions[i * 3 + 2];
-    if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+  if (ply.splat && ply.count >= 50) {
+    const q = (axis: number, at: number) => quantile(ply.positions, 3, axis, ply.count, at);
+    [minX, minY, minZ] = [q(0, 0.02), q(1, 0.02), q(2, 0.02)];
+    [maxX, maxY, maxZ] = [q(0, 0.98), q(1, 0.98), q(2, 0.98)];
+    const mx = (maxX - minX) * 0.25, my = (maxY - minY) * 0.25, mz = (maxZ - minZ) * 0.25;
+    let n = 0;
+    for (let i = 0; i < ply.count; i++) {
+      const x = ply.positions[i * 3], y = ply.positions[i * 3 + 1], z = ply.positions[i * 3 + 2];
+      if (x < minX - mx || x > maxX + mx || y < minY - my || y > maxY + my || z < minZ - mz || z > maxZ + mz) continue;
+      for (let c = 0; c < 3; c++) {
+        ply.positions[n * 3 + c] = ply.positions[i * 3 + c];
+        if (ply.colors) ply.colors[n * 3 + c] = ply.colors[i * 3 + c];
+      }
+      if (ply.opacity) ply.opacity[n] = ply.opacity[i];
+      n++;
+    }
+    if (n > 0) ply.count = n;
+  } else {
+    for (let i = 0; i < ply.count; i++) {
+      const x = ply.positions[i * 3], y = ply.positions[i * 3 + 1], z = ply.positions[i * 3 + 2];
+      if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+    }
   }
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
   const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;

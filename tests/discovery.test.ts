@@ -143,6 +143,9 @@ describe("discovery: the Found row", () => {
     expect(loadFound(storage).map((f) => f.id)).toEqual(["x"]);
     store.set("void.found.v1", JSON.stringify([{ id: "bad", thumb: "javascript:alert(1)" }, look("y", 0.9)]));
     expect(loadFound(storage).map((f) => f.id)).toEqual(["y"]);
+    // An older, longer row keeps its best FOUND_MAX.
+    store.set("void.found.v1", JSON.stringify(Array.from({ length: FOUND_MAX + 3 }, (_, i) => look(`z${i}`, i / 10))));
+    expect(loadFound(storage).map((f) => f.id)).toEqual(Array.from({ length: FOUND_MAX }, (_, i) => `z${i + 3}`));
     store.set("void.found.v1", "{not json");
     expect(loadFound(storage)).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { parsePly, normalizePly, plyToSource } from "./plyParser";
+import { parsePly, parseSplat, normalizePly, plyToSource } from "./plyParser";
 import { sampleImage, type ImageDataLike } from "./imageSampler";
 import { collectMeshes, sampleMesh } from "./meshSampler";
 import { TARGET_WORLD_SIZE, type FlatSource, type SourceHandle, type SourceKind } from "./types";
@@ -7,7 +7,7 @@ import { TARGET_WORLD_SIZE, type FlatSource, type SourceHandle, type SourceKind 
 export const FORMAT_REGISTRY: Record<SourceKind, string[]> = {
   image: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
   mesh: ["glb", "gltf", "obj", "stl"],
-  pointcloud: ["ply"],
+  pointcloud: ["ply", "splat"],
   synthetic: [],
 };
 
@@ -126,12 +126,12 @@ export async function loadSource(
 
   if (detected === "pointcloud") {
     const buffer = await data.arrayBuffer();
-    const ply = parsePly(buffer);
+    const ply = extensionOf(name) === "splat" ? parseSplat(buffer) : parsePly(buffer);
     normalizePly(ply, TARGET_WORLD_SIZE);
     return {
       name,
       kind: detected,
-      detail: `${ply.count.toLocaleString()} points`,
+      detail: `${ply.count.toLocaleString()} ${ply.splat ? "splats" : "points"}`,
       resample: (count) => plyToSource(ply, count),
     };
   }
