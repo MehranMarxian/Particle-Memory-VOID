@@ -2,6 +2,57 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.12.0] - 2026-10-09 - "The Cathedral"
+
+Scale, a medium to live in, light, and an instrument to play it with
+(`docs/PLAN-0.12.0.md`, slices 1-5). Everything new is off until a look or
+the visitor turns it on: the looks that shipped before render as they did.
+The eager bundle is 216.9 kB gzip of its 220 kB budget; every new part
+loads on demand.
+
+### Added: the WebGPU engine
+- A third backend in raw WebGPU/WGSL (`?backend=webgpu`, opt-in): the
+  WebGL2 force model line for line, a GPU spatial hash for the neighbours,
+  and its own renderer. The piece boots on WebGL2 and hands the live swarm
+  over; a lost device falls back once, with a hint. 500k particles cost
+  under half a millisecond of simulation on the reference GPU.
+- Parity across all three engines: the WebGL2 species matrix now acts, and
+  the CPU engine deals every species.
+
+### Added: the medium (MEDIUM)
+- The swarm lives in a fluid: a 64³ incompressible medium (stable fluids,
+  vorticity confinement) that it drags and is carried by. Still while the
+  piece remembers, stirred in eddies as it forgets; drag through it and
+  it follows your hand.
+- **Scars**: Gray-Scott reaction-diffusion seeded where memory is held.
+  They outlive the swarm, steer it, and withdraw as it remembers.
+- On WebGPU and WebGL2. New look: **Wake** - *"What leaves still moves the
+  world it left. Forgetting is not an empty place."*
+
+### Added: the light
+- **Bloom**, and **AgX** beside ACES (VISUAL > Tone).
+- **The medium's light** (MEDIUM > Light): the scars' surfaces glowing at
+  their rims, translucent membranes in the space where no particle is.
+- **Stretch**: fast particles drawn as streaks along their motion.
+- **Ribbons**: each particle's last moments as a thin fading path (GPU
+  backends).
+- **HISTORY colour**: three gradient axes for what each particle has lived
+  through - APPROACH (how near it came home), SPEED (the fastest it moved),
+  DWELL (how long it stayed in a crowd).
+- The quality governor sheds the medium's light, then bloom, before any
+  resolution. Captures include the whole chain.
+
+### Added: the instrument
+- **The modulation matrix**: a listen dot beside every slider maps it to a
+  sound band (LEVEL, BASS, MID, TREBLE, each shaped by gain, curve, attack
+  and decay), a MIDI control (learned by moving it) or an OSC address
+  (through a WebSocket bridge), over a range of the slider's own.
+- **Look files**: SAVE and OPEN a look, with what it listens to, as JSON.
+  Opened files are validated, capped at 1 MB, and held to every slider's
+  range.
+- **Shift R** records the piece and its soundscape to WebM, with a REC mark
+  outside the frame. (R still randomizes the organism.)
+
 ## [0.11.2] - 2026-10-01
 
 What the piece learned from OpenCV. It uses the ideas, not the library:
