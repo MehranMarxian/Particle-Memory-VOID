@@ -77,7 +77,7 @@ import { GestureTracker } from "@/input/touchGestures";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
-import { humanizeSourceError, unsupportedFormatMessage } from "@/sources/formats";
+import { humanizeSourceError, SOURCE_ACCEPT, unsupportedFormatMessage } from "@/sources/formats";
 import { sourceNameFromUrl } from "@/sources/loaders";
 import { installRecovery, reportRecovery } from "@/ui/recovery";
 import {
@@ -1133,6 +1133,8 @@ async function bootWebGpu(): Promise<void> {
 // Overlay elements were folded into the panel (Phase 5.5).
 const dropzone = document.getElementById("dropzone")!;
 const fileInput = document.getElementById("filepicker") as HTMLInputElement;
+// The picker accepts what the loaders read (the HTML list is only its first paint).
+fileInput.accept = SOURCE_ACCEPT;
 
 // --- Source card: YOUR MEMORY (empty / loading / error / ready) ---------------
 let sourceUi: SourceUiState = { phase: "empty" };
