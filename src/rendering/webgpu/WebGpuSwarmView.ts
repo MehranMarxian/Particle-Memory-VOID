@@ -2,7 +2,8 @@ import type * as THREE from "three";
 import { clampVisualSettings, GRADIENT_AXES, isFieldAxis, PARTICLE_SHAPES, type VisualSettings } from "../VisualSettings";
 import { packGradientStops, paletteStops } from "../palette";
 import { SHAPE_FIELD_WGSL } from "../shapes";
-import { trailRetention } from "../TrailPass";
+import { trailRetention, type ToneMap } from "../TrailPass";
+import { WebGpuLight } from "./WebGpuLight";
 import type { WebGpuContext, WebGpuParticleEngine } from "@/particles/webgpu/WebGpuParticleEngine";
 import { densityCompensation } from "@/particles/webgpu/hashGrid";
 
@@ -17,7 +18,8 @@ import { densityCompensation } from "@/particles/webgpu/hashGrid";
  * Same look, by construction: the sprite math (size, breathing, velocity
  * bloom, depth of field, fog, sleep and stress light, gradients, shapes) is
  * the GLSL's; the trail is the same time-true fade into an HDR target; the
- * present is the same exposure, ACES fit and dither.
+ * present is the same exposure, ACES fit and dither. The light (slice 4)
+ * is LightChain's, in WGSL: WebGpuLight.
  *
  * The canvas sits at z-index 0 with pointer-events off: the WebGL canvas
  * underneath keeps every input listener, the UI stays above.
@@ -135,10 +137,12 @@ fn fs(in: Out) -> @location(0) vec4f {
 `;
 
 const QUAD_WGSL = /* wgsl */ `
-struct Post { decay: f32, exposure: f32, frame: f32, _p: f32 }
+struct Post { decay: f32, exposure: f32, frame: f32, bloom: f32, fog: f32, agx: f32, _p0: f32, _p1: f32 }
 @group(0) @binding(0) var<uniform> post: Post;
 @group(0) @binding(1) var src: texture_2d<f32>;
 @group(0) @binding(2) var smp: sampler;
+@group(0) @binding(3) var bloomTex: texture_2d<f32>;
+@group(0) @binding(4) var fogTex: texture_2d<f32>;
 
 struct Out { @builtin(position) p: vec4f, @location(0) uv: vec2f }
 
@@ -159,11 +163,32 @@ fn fade(in: Out) -> @location(0) vec4f {
 fn aces(x: vec3f) -> vec3f {
   return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
 }
+// TrailPass's AGX_GLSL: the polynomial AgX, decoded to the piece's linear-out convention.
+fn agxContrast(x: vec3f) -> vec3f {
+  let x2 = x * x;
+  let x4 = x2 * x2;
+  return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+fn agx(c0: vec3f) -> vec3f {
+  let inset = mat3x3f(0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+                      0.0784335999999992, 0.878468636469772, 0.0784336,
+                      0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  let minEv = -12.47393;
+  let maxEv = 4.026069;
+  var c = inset * max(c0, vec3f(1e-10));
+  c = clamp(log2(c), vec3f(minEv), vec3f(maxEv));
+  c = (c - minEv) / (maxEv - minEv);
+  return pow(clamp(agxContrast(c), vec3f(0.0), vec3f(1.0)), vec3f(2.2));
+}
 fn hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453); }
 
 @fragment
 fn present(in: Out) -> @location(0) vec4f {
-  var c = aces(textureSample(src, smp, in.uv).rgb * post.exposure);
+  // The frame, the medium's light (not fed back into the trail), the bloom.
+  let hdr = (textureSample(src, smp, in.uv).rgb + textureSample(fogTex, smp, in.uv).rgb * post.fog) * post.exposure
+          + textureSample(bloomTex, smp, in.uv).rgb * post.bloom;
+  var c = aces(hdr);
+  if (post.agx > 0.5) { c = agx(hdr); }
   // Dither kills additive banding (TrailPass's present, bit for bit).
   c += (hash(in.p.xy + post.frame) - 0.5) / 255.0;
   return vec4f(c, 1.0);
@@ -175,6 +200,11 @@ export interface TrailSettings {
   /** Per-frame retention at 60 fps (TrailPass.decay). */
   decay: number;
   exposure: number;
+  /** The light (0.12 slice 4), as TrailPass carries it. */
+  bloom: number;
+  toneMap: ToneMap;
+  /** The medium's own light; 0 or no medium = off. */
+  mediumLight: number;
 }
 
 export class WebGpuSwarmView {
@@ -202,6 +232,9 @@ export class WebGpuSwarmView {
   private lastPalette = "";
   private count: number;
   private frameNo = 0;
+  private light: WebGpuLight | null = null;
+  /** Stands in for the light's textures when it is off. */
+  private readonly black: GPUTexture;
 
   constructor(
     ctx: WebGpuContext,
@@ -237,7 +270,7 @@ export class WebGpuSwarmView {
     this.viewBuffer = d.createBuffer({ size: VIEW_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     // Fade and present read different uniforms in the same submit: one buffer each.
     this.postBuffers = [0, 1].map(() =>
-      d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      d.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     ) as [GPUBuffer, GPUBuffer];
     this.colorBuffer = d.createBuffer({
       size: Math.max(16, engine.count * 16),
@@ -248,6 +281,11 @@ export class WebGpuSwarmView {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     this.sampler = d.createSampler({ magFilter: "linear", minFilter: "linear" });
+    this.black = d.createTexture({
+      size: [1, 1],
+      format: HDR_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
 
     const sprite = d.createShaderModule({ code: SPRITE_WGSL });
     const additive: GPUBlendState = {
@@ -384,8 +422,7 @@ export class WebGpuSwarmView {
     v[33] = h;
     const q = this.device.queue;
     q.writeBuffer(this.viewBuffer, 0, v);
-    q.writeBuffer(this.postBuffers[0], 0, new Float32Array([trailRetention(trail.decay, dt), 0, 0, 0]));
-    q.writeBuffer(this.postBuffers[1], 0, new Float32Array([0, trail.exposure, ++this.frameNo, 0]));
+    q.writeBuffer(this.postBuffers[0], 0, new Float32Array([trailRetention(trail.decay, dt), 0, 0, 0, 0, 0, 0, 0]));
 
     const enc = this.device.createCommandEncoder();
     const pass = enc.beginRenderPass({
@@ -403,6 +440,31 @@ export class WebGpuSwarmView {
     pass.draw(6, this.count);
     pass.end();
 
+    // The light: bloom of this frame, light from the medium. Off costs nothing.
+    const medium = trail.mediumLight > 0 ? this.engine.getMediumBuffer() : null;
+    let bloomTex = this.black;
+    let fogTex = this.black;
+    if (trail.bloom > 0 || medium) {
+      this.light ??= new WebGpuLight(this.device);
+      this.light.setSize(w, h);
+      if (trail.bloom > 0) bloomTex = this.light.bloom(enc, t.a, trail.exposure);
+      if (medium) fogTex = this.light.mediumLight(enc, camera, medium, trail.mediumLight);
+    }
+    q.writeBuffer(
+      this.postBuffers[1],
+      0,
+      new Float32Array([
+        0,
+        trail.exposure,
+        ++this.frameNo,
+        bloomTex === this.black ? 0 : trail.bloom,
+        fogTex === this.black ? 0 : 1,
+        trail.toneMap === "agx" ? 1 : 0,
+        0,
+        0,
+      ])
+    );
+
     const present = enc.beginRenderPass({
       colorAttachments: [
         {
@@ -414,7 +476,19 @@ export class WebGpuSwarmView {
       ],
     });
     present.setPipeline(this.presentPipe);
-    present.setBindGroup(0, this.quadGroup(this.presentPipe, this.postBuffers[1], t.a));
+    present.setBindGroup(
+      0,
+      this.device.createBindGroup({
+        layout: this.presentPipe.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.postBuffers[1] } },
+          { binding: 1, resource: t.a.createView() },
+          { binding: 2, resource: this.sampler },
+          { binding: 3, resource: bloomTex.createView() },
+          { binding: 4, resource: fogTex.createView() },
+        ],
+      })
+    );
     present.draw(3);
     present.end();
     q.submit([enc.finish()]);
@@ -450,6 +524,9 @@ export class WebGpuSwarmView {
     this.targets?.a.destroy();
     this.targets?.b.destroy();
     this.targets = null;
+    this.light?.dispose();
+    this.light = null;
+    this.black.destroy();
     for (const b of [this.viewBuffer, ...this.postBuffers, this.colorBuffer, this.lifeShapeBuffer]) b.destroy();
     try {
       this.context.unconfigure();

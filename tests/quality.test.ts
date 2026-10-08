@@ -88,6 +88,33 @@ describe("the quality governor", () => {
     expect(climbedAt).toBeGreaterThanOrEqual(9);
   });
 
+  it("sheds the medium's light, then bloom, before any resolution (0.12)", () => {
+    const g = new QualityGovernor(22, 13, 0.4, 8, 1.5);
+    g.light = { medium: true, bloom: true };
+    const steps: string[] = [];
+    for (let f = 0; f < 80; f++) {
+      if (g.feed(33, 0.1) !== null) steps.push(`${g.scale}|${g.allowMedium}|${g.allowBloom}`);
+    }
+    expect(steps).toEqual(["1|false|true", "1|false|false", "0.85|false|false", "0.7|false|false", "0.55|false|false"]);
+  });
+
+  it("skips light the look does not use: bloom only sheds bloom, then resolution", () => {
+    const g = new QualityGovernor(22, 13, 0.4, 8, 1.5);
+    g.light = { medium: false, bloom: true };
+    const scales: string[] = [];
+    for (let f = 0; f < 40; f++) if (g.feed(33, 0.1) !== null) scales.push(`${g.scale}|${g.allowBloom}`);
+    expect(scales.slice(0, 2)).toEqual(["1|false", "0.85|false"]);
+  });
+
+  it("gives the light back last, after the resolution", () => {
+    const g = new QualityGovernor(22, 13, 0.3, 1.0, 1.5);
+    g.light = { medium: true, bloom: true };
+    for (let s = 0; s < 200; s++) g.feed(40, 0.1); // the floor
+    const steps: string[] = [];
+    for (let f = 0; f < 200; f++) if (g.feed(10, 0.1) !== null) steps.push(`${g.scale}|${g.allowMedium}|${g.allowBloom}`);
+    expect(steps).toEqual(["0.7|false|false", "0.85|false|false", "1|false|false", "1|false|true", "1|true|true"]);
+  });
+
   it("the comfortable middle decays both verdicts", () => {
     const g = new QualityGovernor(22, 13, 0.4, 8, 3);
     for (let s = 0; s < 20; s++) g.feed(40, 0.1); // 2s of pressure, no step yet

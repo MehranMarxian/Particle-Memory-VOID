@@ -2446,10 +2446,12 @@ function frameInner(now: number): void {
   trailPass.enabled = visual.trails;
   // The light (0.12 slice 4): off unless the look asks. The medium's light
   // needs a medium to draw from.
-  trailPass.bloom = effective.bloom;
-  trailPass.toneMap = effective.toneMap;
+  // Under sustained pressure the governor sheds it before any resolution.
   const mediumOn = params.medium.enabled || params.scar.enabled;
-  trailPass.mediumLight = mediumOn ? effective.mediumLight : 0;
+  quality.light = { medium: mediumOn && effective.mediumLight > 0, bloom: effective.bloom > 0 };
+  trailPass.bloom = quality.allowBloom ? effective.bloom : 0;
+  trailPass.toneMap = effective.toneMap;
+  trailPass.mediumLight = mediumOn && quality.allowMedium ? effective.mediumLight : 0;
   trailPass.medium =
     mediumOn && "getMediumTexture" in engine
       ? (engine as unknown as { getMediumTexture(): THREE.Texture | null }).getMediumTexture()
@@ -2467,7 +2469,14 @@ function frameInner(now: number): void {
     particleRenderer.render(
       camera,
       dt,
-      { enabled: trailPass.enabled, decay: trailPass.decay, exposure: trailPass.exposure },
+      {
+        enabled: trailPass.enabled,
+        decay: trailPass.decay,
+        exposure: trailPass.exposure,
+        bloom: trailPass.bloom,
+        toneMap: trailPass.toneMap,
+        mediumLight: trailPass.mediumLight,
+      },
       t.w,
       t.h
     );

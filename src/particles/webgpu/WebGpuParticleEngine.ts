@@ -498,6 +498,11 @@ export class WebGpuParticleEngine {
     this.lastStepTime = (performance.now() - t0) / 1000;
   }
 
+  /** The medium's grid for the light (one vec4 per cell, scar V in w), once it runs. */
+  getMediumBuffer(): GPUBuffer | null {
+    return this.medium ? this.medium.sample : null;
+  }
+
   /** The medium's step, before the particles' velocity pass reads it. */
   private encodeMedium(enc: GPUCommandEncoder, dt: number, params: EngineParams): void {
     if (!this.medium) {
