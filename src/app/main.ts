@@ -1657,6 +1657,7 @@ const shortcutCtx: ShortcutContext = {
   densityDown: () => setDensity(densityIndex - 1),
   toggleBackend: () => switchBackend(activeBackend === "gpu" ? "cpu" : "gpu"),
   toggleScreensaver: () => void toggleScreensaver(),
+  toggleRecording,
   setMemoryState: (index) => memory.setState(MEMORY_STATE_ORDER[index]),
   toggleGuide: () => guide.toggle(),
   closeGuide: () => guide.close(),
@@ -1680,7 +1681,7 @@ const shortcutCtx: ShortcutContext = {
 
 window.addEventListener("keydown", (e) => {
   if (isTextEntryTarget(e.target)) return;
-  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
+  handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey });
 });
 
 // Touch has no keyboard: the guide's key chips dispatch through the same
@@ -2470,15 +2471,46 @@ function captureMoment(): void {
   capturePending = true;
 }
 
+/** The canvas the visitor sees: WebGL's, or the WebGPU view's. */
+function presentedCanvas(): HTMLCanvasElement {
+  return particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
+}
+
+// --- Recording (0.12 slice 5): Shift R films the piece and its soundscape. ---------------
+let recording: import("@/instrument/recorder").Recording | null = null;
+let recordingStarting = false;
+function toggleRecording(): void {
+  if (recording) {
+    recording.stop();
+    recording = null;
+    return;
+  }
+  if (recordingStarting) return;
+  recordingStarting = true;
+  void import("@/instrument/recorder").then((rec) => {
+    recordingStarting = false;
+    const name = (currentSourceName || "void").replace(/\.[^.]+$/, "").replace(/[^\w-]+/g, "-").slice(0, 40);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const r = rec.startRecording(presentedCanvas(), ambience.stream(), (blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `void-${name}-${stamp}.webm`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      flashHint("RECORDING SAVED", 3);
+    });
+    if (typeof r === "string") flashHint(r, 4);
+    else recording = r;
+  });
+}
+
 function saveFrame(): void {
   const safeName = (currentSourceName || "void")
     .replace(/\.[^.]+$/, "")
     .replace(/[^\w-]+/g, "-")
     .slice(0, 40);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const shot =
-    particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
-  shot.toBlob((blob) => {
+  presentedCanvas().toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);

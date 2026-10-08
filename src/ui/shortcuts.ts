@@ -51,6 +51,14 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     hint: "A fresh species matrix, never seen before.",
   },
   {
+    group: "SYSTEM",
+    display: "Shift R",
+    // Shift + R: the key column's R is the organism's.
+    keys: [],
+    label: "Record",
+    hint: "Film the piece and its soundscape to a WebM file; again to stop.",
+  },
+  {
     group: "MEMORY",
     display: "N",
     keys: ["N"],
@@ -246,12 +254,15 @@ export interface ShortcutContext {
   toggleWind(): void;
   /** EXHIBITION: the authored programme, inside the screensaver. */
   startExhibition(): void;
+  /** Shift R (0.12): start or stop filming the piece. */
+  toggleRecording?(): void;
 }
 
 export interface KeyModifiers {
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
+  shiftKey?: boolean;
 }
 
 /** True when the event target is a text-entry surface we must not disturb. */
@@ -328,7 +339,8 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       ctx.cycleMatrix();
       return true;
     case "R":
-      ctx.randomizeMatrix();
+      if (modifiers.shiftKey && ctx.toggleRecording) ctx.toggleRecording();
+      else ctx.randomizeMatrix();
       return true;
     case "F":
       ctx.toggleFullscreen();
