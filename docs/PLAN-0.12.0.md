@@ -127,6 +127,32 @@ Open for the rest of slice 2:
   reference could run it at 24³; Ripples still push the particles, not
   the medium.
 
+**Slice 4, the light (8 Oct 2026).** Everything is off by default; the
+default looks render as before. Wake uses bloom, AgX and the medium light.
+
+- Bloom: a dual-filter chain (soft-knee prefilter, five halvings, tent
+  upsample). AgX beside ACES, decoded to the piece's linear-out convention:
+  undecoded, its toe lifted black to grey.
+- The medium's light, in place of the plan's blurred density volume: the
+  scars' surfaces found along each view ray and lit at their rims, three
+  layers deep, so Gray-Scott's tubes read as translucent membranes where no
+  particle is. A summed volume was a grey veil (the scars are a labyrinth
+  every ray crosses), and the fluid's speed lit the whole box. Capped at
+  384 px, jittered and blended over frames; ~1-1.5 ms on the RTX 4070 Ti.
+- Velocity stretch (point sprites drawn long along their screen motion,
+  light conserved), ribbons (a 12-slot position ring kept by the GPU
+  engines only while on; the CPU engine draws none), and HISTORY colour
+  (APPROACH, SPEED, DWELL as gradient axes, orbit-trap traps baked on the
+  CPU like the field axes).
+- WebGPU has all of it (WebGpuLight, the view's present and ribbon pass).
+- The governor sheds the medium light, then bloom, before resolution, and
+  skips rungs a look does not use. Captures take the presented canvas, so
+  they include the whole chain.
+- Not done: the plan's GPU radix depth sort and lens effects (chromatic
+  aberration, vignette, streaks, flare) - additive sprites need no sort,
+  and the lens effects were left for a look that asks for them. The p95
+  gate was checked by cost (each pass timed), not on a weak machine.
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise
