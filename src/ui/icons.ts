@@ -62,6 +62,9 @@ export const ICONS = {
   looks: { d: "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" },
   more: { d: "M5 12h.01M12 12h.01M19 12h.01", width: 3 },
   layout: { d: "M3 4h18v16H3zM3 9h18M9 9v11" },
+  saveLook: { d: "M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" },
+  openLook: { d: "M12 15V3M7 8l5-5 5 5M4 17v3h16v-3" },
+  record: { d: c(12, 12, 6), fill: true },
 } satisfies Record<string, IconSpec>;
 
 export type IconName = keyof typeof ICONS;

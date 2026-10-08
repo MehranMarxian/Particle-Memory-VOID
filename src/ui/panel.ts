@@ -1,3 +1,4 @@
+import type { ModTarget } from "@/instrument/modulation";
 import type { EngineParams } from "@/types";
 import type { AudioSource } from "@/audio/audioReactive";
 import {
@@ -85,6 +86,13 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** SAVE / OPEN (0.12): the look as a file, with what it listens to. */
+  onSaveLook?(): void;
+  onOpenLook?(): void;
+  /** A slider's listen dot was pressed (0.12): open its mapping beside `row`. */
+  onListen?(target: string, row: HTMLElement): void;
+  /** Whether a slider is listening to something right now. */
+  isListening?(target: string): boolean;
 }
 
 export interface PanelApi {
@@ -101,6 +109,10 @@ export interface PanelApi {
   clearHint(): void;
   toggleVisible(): void;
   refresh(): void;
+  /** Every slider the modulation matrix can play, by id ("<object>.<key>"). */
+  readonly targets: ReadonlyMap<string, ModTarget>;
+  /** Repaint these sliders only (the matrix moved them). */
+  syncTargets(ids: Iterable<string>): void;
 }
 
 export type StudioPanel = "tools" | "props" | "looks";
@@ -227,6 +239,18 @@ export function createPanel(opts: {
   const syncAll = () => {
     for (const fn of syncFns) fn();
   };
+
+  // The modulation matrix's targets (0.12): every slider over a known live
+  // object, named "<object>.<key>" so a mapping survives a save and a file.
+  const objectNames = new Map<object, string>();
+  const nameObject = (obj: object, name: string) => {
+    if (!objectNames.has(obj)) objectNames.set(obj, name);
+  };
+  nameObject(params, "params");
+  for (const [k, v] of Object.entries(params)) if (v && typeof v === "object" && !Array.isArray(v)) nameObject(v, `params.${k}`);
+  for (const [k, v] of Object.entries({ visual, sound, soundscape, evolve, pointer, ecology, wind })) nameObject(v, k);
+  const targets = new Map<string, ModTarget>();
+  const targetSync = new Map<string, Array<() => void>>();
   let evolveReadout: HTMLElement | null = null;
 
   const studio = document.createElement("div");
@@ -370,6 +394,47 @@ export function createPanel(opts: {
       true,
       tip
     );
+    const name = objectNames.get(obj);
+    const row = body.lastElementChild as HTMLElement | null;
+    if (!name || !row) return;
+    const id = `${name}.${key}`;
+    if (!targets.has(id)) {
+      targets.set(id, {
+        id,
+        label,
+        min,
+        max,
+        get: () => Number(o[key] ?? 0),
+        set: (v) => {
+          o[key] = v;
+        },
+      });
+    }
+    // The row's own repaint, so the matrix can move just this slider.
+    const paint = syncFns[syncFns.length - 1];
+    const list = targetSync.get(id) ?? [];
+    list.push(paint);
+    targetSync.set(id, list);
+    // The listen dot: map this slider to a sound band, MIDI or OSC.
+    if (!callbacks.onListen) return;
+    row.classList.add("listen");
+    const dot = document.createElement("button");
+    dot.className = "listen-dot";
+    dot.type = "button";
+    dot.setAttribute("aria-label", `${label}: listen`);
+    dot.title = "Listen: let sound, MIDI or OSC play this slider";
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      callbacks.onListen?.(id, row);
+    });
+    row.appendChild(dot);
+    const paintDot = () => {
+      const on = callbacks.isListening?.(id) ?? false;
+      dot.classList.toggle("on", on);
+      dot.setAttribute("aria-pressed", String(on));
+    };
+    paintDot();
+    syncFns.push(paintDot);
   }
 
   function addToggle(
@@ -1268,6 +1333,8 @@ export function createPanel(opts: {
   iconBtn(looksActions, "randomize", "random", "RANDOM", () => callbacks.onRandomize(), "A brand-new organism (undo is always there)");
   iconBtn(looksActions, "undo", "undo", "UNDO", () => callbacks.onUndo(), "Go back one step");
   iconBtn(looksActions, "reset", "reset", "RESET", () => callbacks.onReset(), "Back to the beginning");
+  if (callbacks.onSaveLook) iconBtn(looksActions, "save-look", "saveLook", "SAVE", () => callbacks.onSaveLook?.(), "Save this look as a file, with what it listens to");
+  if (callbacks.onOpenLook) iconBtn(looksActions, "open-look", "openLook", "OPEN", () => callbacks.onOpenLook?.(), "Open a look file");
 
   studio.appendChild(status);
 
@@ -1382,6 +1449,10 @@ export function createPanel(opts: {
 
   return {
     element: studio,
+    targets,
+    syncTargets(ids) {
+      for (const id of ids) for (const fn of targetSync.get(id) ?? []) fn();
+    },
     setSourceInfo(name, kind, detail, count) {
       // The chip is the door: what VOID remembers, and the tap that changes it.
       sourceChip.textContent = `${name} · ${count.toLocaleString()}`;

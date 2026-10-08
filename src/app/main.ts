@@ -92,9 +92,12 @@ import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlo
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
+import { clampModulation, Modulator } from "@/instrument/modulation";
+import type { ControllerEvents } from "@/instrument/controllers";
 import {
   audioDrive,
   createAudioListener,
+  SILENT_BANDS,
   humanizeAudioError,
   NEUTRAL_DRIVE,
   smoothDrive,
@@ -172,8 +175,9 @@ function scheduleSave(): void {
 function persistNow(): void {
   // A demo never writes to the visitor's instrument state.
   if (!engine || demoMode) return;
+  // Mapped sliders are saved at their bases, not where the sound left them.
   saveConfig(
-    toStoredConfig({
+    modulator.withBases(modTargets(), () => toStoredConfig({
       params,
       visual,
       matrix: matrix.toFlat(),
@@ -184,13 +188,165 @@ function persistNow(): void {
       lastSourceUrl,
       activePreset,
       camera: activeCamera,
-    })
+      modulation: modulator.state,
+    }))
   );
 }
 
 function pushHistory(): void {
-  history.push(captureSnapshot(params, visual, matrix, activeCamera));
+  history.push(modulator.withBases(modTargets(), () => captureSnapshot(params, visual, matrix, activeCamera)));
   if (history.length > 30) history.shift();
+  // What comes next sets the sliders: mapped ones take it as their new base.
+  modulator.rebase();
+}
+
+// --- The modulation matrix (0.12 slice 5) ---------------------------------------------
+// Any slider can listen: to a sound band, a MIDI control, an OSC address.
+// The editor, MIDI and OSC are lazy chunks; the matrix itself is small.
+const modulator = new Modulator();
+let modSyncTick = 0;
+const OSC_URL_KEY = "void.osc.url";
+let oscUrl = (() => {
+  try {
+    return window.localStorage.getItem(OSC_URL_KEY) || "ws://localhost:8080";
+  } catch {
+    return "ws://localhost:8080";
+  }
+})();
+let midiLearn: ((channel: number, cc: number) => void) | null = null;
+const controllerEvents: ControllerEvents = {
+  onMidi(channel, cc, value) {
+    modulator.setControl(`midi:${channel}:${cc}`, value);
+    midiLearn?.(channel, cc);
+  },
+  onOsc(address, value) {
+    modulator.setControl(`osc:${address}`, value);
+  },
+  onStatus: (text) => flashHint(text, 3),
+};
+function modTargets(): ReadonlyMap<string, import("@/instrument/modulation").ModTarget> {
+  return panelApi?.targets ?? new Map();
+}
+function ensureMidi(): void {
+  void import("@/instrument/controllers").then((c) => c.startMidi(controllerEvents));
+}
+function ensureOsc(url: string): void {
+  void import("@/instrument/controllers").then((c) => c.connectOsc(url, controllerEvents));
+}
+/** After a load: wake the controllers its mappings listen to (MIDI asks on the next press). */
+function wakeControllers(): void {
+  const m = modulator.state.mappings;
+  if (m.some((x) => x.source.startsWith("osc:"))) ensureOsc(oscUrl);
+  if (m.some((x) => x.source.startsWith("midi:"))) window.addEventListener("pointerdown", ensureMidi, { once: true });
+}
+// --- Look files (0.12 slice 5) ----------------------------------------------------------
+// A look, with what it listens to, as a JSON file: made and read in the browser.
+/** The look as it stands, mapped sliders at their bases. */
+function currentLookFile(lf: typeof import("@/instrument/lookFile")): import("@/instrument/lookFile").LookFile {
+  return modulator.withBases(modTargets(), () =>
+    lf.makeLookFile({
+      name: activePreset ?? "look",
+      params,
+      visual,
+      matrix: matrix.toFlat(),
+      camera: activeCamera,
+      ecology: ecologyParams,
+      modulation: modulator.state,
+    })
+  );
+}
+
+function saveLookFile(): void {
+  void import("@/instrument/lookFile").then((lf) => {
+    const file = currentLookFile(lf);
+    const name = file.name;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
+    a.download = lf.lookFileName(name);
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flashHint("LOOK SAVED", 3);
+  });
+}
+
+function openLookFile(): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.addEventListener("change", () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    void import("@/instrument/lookFile").then(async (lf) => {
+      if (f.size > lf.LOOK_MAX_BYTES) {
+        flashHint("THAT FILE IS LARGER THAN 1 MB", 4);
+        return;
+      }
+      const parsed = lf.parseLookFile(await f.text());
+      if (!parsed.ok) flashHint(parsed.error, 4);
+      else applyLookFile(parsed.look);
+    });
+  });
+  input.click();
+}
+
+function applyLookFile(look: import("@/instrument/lookFile").LookFile): void {
+  pushHistory();
+  abandonEvolution();
+  cancelGenesis();
+  endWitness();
+  activePreset = null;
+  memory.active = memory.auto = false;
+  panelApi?.setState("MANUAL");
+  applySnapshot(look, params, visual, matrix, activeCamera);
+  Object.assign(ecologyParams, look.ecology);
+  // Every parameter held to its slider's range: a file can say anything.
+  for (const t of modTargets().values()) {
+    const lo = Math.min(t.min, t.max);
+    const hi = Math.max(t.min, t.max);
+    const v = t.get();
+    if (!(v >= lo && v <= hi)) t.set(Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
+  }
+  const n = Math.round(Math.sqrt(look.matrix.length));
+  if (n !== speciesCount) applySpeciesCount(n);
+  modulator.load(look.modulation, modTargets());
+  wakeControllers();
+  syncFormAndKin();
+  activeMatrix = matrix;
+  engine.configureGrid(params);
+  applyLook();
+  if (ecologyParams.enabled) installEcology();
+  panelApi?.refresh();
+  panelApi?.setActivePreset(null);
+  scheduleSave();
+  flashHint(`LOOK: ${look.name.toUpperCase()}`, 3);
+}
+
+function openModEditor(target: string, row: HTMLElement): void {
+  void import("@/instrument/modEditor").then((ed) =>
+    ed.openEditor(target, row, {
+      modulator,
+      targets: modTargets(),
+      soundOn: () => audio.active,
+      midi(learn) {
+        midiLearn = learn;
+        if (learn) ensureMidi();
+      },
+      oscUrl: () => oscUrl,
+      connectOsc(url) {
+        oscUrl = url;
+        try {
+          window.localStorage.setItem(OSC_URL_KEY, url);
+        } catch {
+          // Private mode: the address holds for this visit.
+        }
+        ensureOsc(url);
+      },
+      onChange() {
+        scheduleSave();
+        panelApi?.refresh();
+      },
+    })
+  );
 }
 let particleRenderer: SwarmView | null = null;
 let currentSourceName = "synthetic torus";
@@ -762,6 +918,9 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
     if (cfg.params.phaseCoupling !== undefined) params.phaseCoupling = cfg.params.phaseCoupling;
     // v1 configs predate the camera and hydrate to the default motion.
     Object.assign(activeCamera, clampCameraChoreography({ ...DEFAULT_CAMERA_CHOREOGRAPHY, ...(cfg.camera ?? {}) }));
+    // Saves from before 0.12 have no matrix: nothing listens.
+    modulator.load(clampModulation(cfg.modulation), new Map());
+    wakeControllers();
   }
 }
 {
@@ -1668,6 +1827,7 @@ if (!demoMode) {
           return;
         }
         applySnapshot(snap, params, visual, matrix, activeCamera);
+        modulator.rebase();
         syncFormAndKin();
         applyLook();
         engine.configureGrid(params);
@@ -1748,6 +1908,10 @@ if (!demoMode) {
       onCutoutToggle() {
         void toggleCutout();
       },
+      onListen: openModEditor,
+      onSaveLook: saveLookFile,
+      onOpenLook: openLookFile,
+      isListening: (target) => modulator.mappingFor(target) !== undefined,
       onRelease() {
         memory.setState("VOID");
         panelApi?.setState(memory.state);
@@ -1913,6 +2077,18 @@ function declareGlobalHandle(): void {
       p95: () => p95FrameTime(),
       /** The post chain, to read the light's targets back. */
       trail: () => trailPass,
+      /** The modulation matrix, to play it without a microphone or controller. */
+      modulator,
+      /** A look file's text, and opening one from text (no download, no picker). */
+      async lookText(): Promise<string> {
+        return JSON.stringify(currentLookFile(await import("@/instrument/lookFile")));
+      },
+      async openLookText(text: string): Promise<boolean> {
+        const lf = await import("@/instrument/lookFile");
+        const parsed = lf.parseLookFile(text);
+        if (parsed.ok) applyLookFile(parsed.look);
+        return parsed.ok;
+      },
       /** n fixed steps exactly as the frame loop runs them (a hidden tab gets no rAF). */
       step(n: number): void {
         for (let s = 0; s < n; s++) {
@@ -2429,6 +2605,18 @@ function frameInner(now: number): void {
   particleRenderer?.markStateDirty();
   // Keep perceived exposure constant: afterimage accumulation divides the
   // per-frame energy by (1 - decay), so scale opacity down when trails are on.
+  // The modulation matrix plays the sliders that listen before the frame
+  // reads them (physics sliders take hold from the next step).
+  const bands = audio.active ? audio.read() : SILENT_BANDS;
+  if (modulator.active) {
+    modulator.setBands(bands);
+    modulator.step(dt);
+    modulator.apply(modTargets());
+    if (++modSyncTick >= 4) {
+      modSyncTick = 0;
+      panelApi?.syncTargets(modulator.state.mappings.map((m) => m.target));
+    }
+  }
   const effective = { ...visual };
   // A ramp that follows a live field has to be refreshed, but the bake is
   // not free: colours only, at a low rate - lower still on touch, where the
@@ -2460,8 +2648,9 @@ function frameInner(now: number): void {
   }
   // Sound shapes how the swarm looks; the physics stays with memory and life.
   if (audio.active) {
-    const bands = audio.read();
-    soundDrive = smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
+    // With no mappings, sound keeps its fixed drive (size, glow, exposure);
+    // once anything listens, the matrix is the drive.
+    soundDrive = modulator.active ? NEUTRAL_DRIVE : smoothDrive(soundDrive, audioDrive(bands, sound.sensitivity), dt);
     soundLevel = bands.level;
     if (ecologyParams.audioReactive) {
       const mapped = ecologyDriveFromAudio(bands, ecologyOnset, sound.sensitivity, dt);
