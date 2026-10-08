@@ -66,7 +66,7 @@ VOID remembers three kinds of source:
 |------|---------|
 | Image | PNG, JPG, WEBP, BMP, GIF |
 | 3D model | GLB, GLTF, OBJ, STL |
-| Point cloud | PLY |
+| Point cloud | PLY (including Gaussian-splat scenes), SPLAT |
 
 Bring one in three ways:
 

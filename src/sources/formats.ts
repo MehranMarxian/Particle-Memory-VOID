@@ -16,7 +16,7 @@ export interface SourceFormatGroup {
 export const SOURCE_FORMAT_GROUPS: readonly SourceFormatGroup[] = [
   { label: "IMAGE", kind: "image", extensions: ["PNG", "JPG", "WEBP", "BMP", "GIF"] },
   { label: "3D MODEL", kind: "mesh", extensions: ["GLB", "GLTF", "OBJ", "STL"] },
-  { label: "POINT CLOUD", kind: "pointcloud", extensions: ["PLY"] },
+  { label: "POINT CLOUD", kind: "pointcloud", extensions: ["PLY", "SPLAT"] },
 ];
 
 /** File-picker accept string, derived from the real registry. */
@@ -47,6 +47,8 @@ export function humanizeSourceError(name: string, err: unknown): string {
     return `${name}: THIS .GLTF REFERENCES EXTERNAL FILES (A .BIN OR TEXTURES) - PACK IT AS A .GLB AND DROP THAT INSTEAD`;
   }
   if (/PLY: missing 'ply' magic/i.test(raw)) return `${name}: NOT A VALID PLY POINT CLOUD`;
+  if (/SPLAT:/i.test(raw)) return `${name}: THE SPLAT FILE IS MALFORMED`;
+  if (/every splat is transparent/i.test(raw)) return `${name}: EVERY SPLAT IS TRANSPARENT`;
   if (/PLY:/i.test(raw)) return `${name}: THE POINT CLOUD IS MALFORMED`;
   if (/failed to fetch/i.test(raw)) return `COULD NOT FETCH ${name}`;
   const clean = raw.replace(/\s+/g, " ").trim();
