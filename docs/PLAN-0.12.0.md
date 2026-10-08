@@ -190,7 +190,7 @@ default looks render as before. Wake uses bloom, AgX and the medium light.
   every earlier find. About 0.5-0.9 s a trial in Node.
 - Gate, measured: from a cold start in the browser, 3 finds in the first
   minute and 5 within two (47 trials). Human review: Mehran's.
-- The Found row (up to 12, the weakest replaced) lives in this browser,
+- The Found row (four - Mehran: "4 is enough" - the weakest replaced) lives in this browser,
   with dot-plot thumbnails and names drawn from each genome; a find applies
   as a whole look and keeps what the sliders listen to. Fields and births
   stay off in a find, as in its trial.
