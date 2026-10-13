@@ -12,8 +12,10 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
  * reachable from the entry is gzipped right here, and the build FAILS if
  * their gzip total exceeds the budget (docs/PLAN-0.9.0.md, part 2). The
  * lazily-loaded example loaders are dynamic entries and do not count.
+ * Raised from 220 to 230 kB for 0.13 (Mehran's call, 13 Oct 2026: "a
+ * little"); new features still load on demand where they can.
  */
-const EAGER_GZIP_BUDGET_BYTES = 220 * 1024;
+const EAGER_GZIP_BUDGET_BYTES = 230 * 1024;
 
 function eagerGzipBudget(): Plugin {
   return {
