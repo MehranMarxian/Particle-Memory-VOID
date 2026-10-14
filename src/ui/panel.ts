@@ -1,4 +1,5 @@
 import type { ModTarget } from "@/instrument/modulation";
+import { FORM_IDS } from "@/sources/formIds";
 import type { EngineParams } from "@/types";
 import type { AudioSource } from "@/audio/audioReactive";
 import {
@@ -86,6 +87,13 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** PROGRAMME (0.13): add the memory now, remove a step, play or stop. */
+  onProgrammeAdd?(): void;
+  onProgrammeRemove?(index: number): void;
+  onProgrammePlay?(): void;
+  /** FORMS (0.13): remember a form; and which form the memory is now, if any. */
+  onForm?(id: string): void;
+  currentForm?(): string;
   /** STUDIO LINK (0.13): VOID's state out as OSC through the relay; and whether it is on. */
   onStudioToggle?(): void;
   isStudioLinked?(): boolean;
@@ -125,6 +133,8 @@ export interface PanelApi {
   setFound(items: readonly { id: string; name: string; thumb: string; tip: string }[]): void;
   /** DISCOVER's state, and a line on what it has done. */
   setDiscovering(on: boolean, status: string): void;
+  /** The programme's steps, whether it plays, and which step is on (-1: none). */
+  setProgramme(steps: readonly string[], playing: boolean, index: number): void;
 }
 
 export type StudioPanel = "tools" | "props" | "looks";
@@ -238,6 +248,8 @@ export function createPanel(opts: {
   presence: { enabled: boolean };
   /** The room's movement (WIND); strength is 0..2. */
   wind: { enabled: boolean; strength: number };
+  /** The programme's settings (0.13): seconds each memory is given. */
+  programme?: { seconds: number };
   /** CUTOUT's live state: a picture that can be cut, is cut, or is being cut. */
   cutout?: () => { available: boolean; active: boolean; busy: boolean };
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
@@ -261,6 +273,7 @@ export function createPanel(opts: {
   nameObject(params, "params");
   for (const [k, v] of Object.entries(params)) if (v && typeof v === "object" && !Array.isArray(v)) nameObject(v, `params.${k}`);
   for (const [k, v] of Object.entries({ visual, sound, soundscape, evolve, pointer, ecology, wind })) nameObject(v, k);
+  if (opts.programme) nameObject(opts.programme, "programme");
   const targets = new Map<string, ModTarget>();
   const targetSync = new Map<string, Array<() => void>>();
   let evolveReadout: HTMLElement | null = null;
@@ -1077,6 +1090,17 @@ export function createPanel(opts: {
   addObjSlider(memBody, "Memory", params.memory, "strength", 0, 20, 0.1, (v) => v.toFixed(1), "How strongly particles try to return to their source.");
   addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
   addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
+  addObjSlider(memBody, "Morph", params.memory, "morph", 0, 1, 0.05, num, "When the memory changes, how long and how wild the swarm's journey into the new one is. 0: it is reborn there instead.");
+  if (callbacks.onForm) {
+    addChoiceRow(
+      memBody,
+      "Forms",
+      FORM_IDS,
+      () => callbacks.currentForm?.() ?? "",
+      (id) => callbacks.onForm?.(id),
+      "Remember a form instead of a picture: the swarm travels into it."
+    );
+  }
   formControls(memBody);
   addChoiceRow(
     memBody,
@@ -1207,6 +1231,48 @@ export function createPanel(opts: {
   const soundBody = section("SOUND", "sound");
   soundControls(soundBody);
   addNote(soundBody, "AUDIO STAYS IN THIS TAB - ANALYSED AND SYNTHESISED LOCALLY");
+
+  // The programme (0.13): memories played in turn, morphing one into the next.
+  let paintProgramme: (steps: readonly string[], playing: boolean, index: number) => void = () => {};
+  if (callbacks.onProgrammePlay && opts.programme) {
+    const progBody = section("PROGRAMME", "exhibit");
+    const stepsEl = document.createElement("div");
+    stepsEl.className = "choice-grid programme-steps";
+    const actions = document.createElement("div");
+    actions.className = "choice-grid";
+    const addBtn = document.createElement("button");
+    addBtn.className = "chip";
+    addBtn.textContent = "+ THIS MEMORY";
+    addBtn.title = "Add the memory you have now (a form, or what you brought) to the programme";
+    addBtn.addEventListener("click", () => callbacks.onProgrammeAdd?.());
+    const playBtn = document.createElement("button");
+    playBtn.className = "chip";
+    playBtn.textContent = "PLAY";
+    playBtn.addEventListener("click", () => callbacks.onProgrammePlay?.());
+    actions.append(addBtn, playBtn);
+    const note = document.createElement("div");
+    note.className = "programme-note";
+    progBody.append(stepsEl, actions, note);
+    addObjSlider(progBody, "Step", opts.programme, "seconds", 8, 180, 1, (v) => `${v.toFixed(0)}s`, "How long each memory is held before the next is found.");
+    paintProgramme = (steps, playing, index) => {
+      stepsEl.replaceChildren();
+      steps.forEach((label, i) => {
+        const chip = document.createElement("button");
+        chip.className = "chip";
+        chip.classList.toggle("on", playing && i === index);
+        chip.textContent = `${i + 1} ${label} ×`;
+        chip.title = "Remove from the programme";
+        chip.setAttribute("aria-label", `Step ${i + 1}, ${label}: remove`);
+        chip.addEventListener("click", () => callbacks.onProgrammeRemove?.(i));
+        stepsEl.appendChild(chip);
+      });
+      note.textContent = steps.length ? "" : "Add memories, then PLAY: each is found, held, and let go into the next.";
+      playBtn.textContent = playing ? "STOP" : "PLAY";
+      playBtn.classList.toggle("on", playing);
+      playBtn.setAttribute("aria-pressed", String(playing));
+    };
+    paintProgramme([], false, -1);
+  }
 
   const evolveBody = section("EVOLVE", "evolve");
   addToggle(
@@ -1524,6 +1590,7 @@ export function createPanel(opts: {
       for (const id of ids) for (const fn of targetSync.get(id) ?? []) fn();
     },
     setFound: renderFound,
+    setProgramme: (steps, playing, index) => paintProgramme(steps, playing, index),
     setDiscovering(on, status) {
       if (!discoverBtn) return;
       discoverBtn.classList.toggle("on", on);

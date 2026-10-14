@@ -57,6 +57,12 @@ export interface MemoryParams {
   reconstructionEase: number;
   /** How an image source is sampled into targets. The engines never read it. */
   form: MemoryForm;
+  /**
+   * Metamorphosis (0.13): how long and how wild the journey from one memory
+   * to the next is, 0..1. 0 keeps the old way - the swarm is reborn into
+   * the new memory. The engines never read it.
+   */
+  morph: number;
 }
 
 /** Physarum-style stigmergic trail field (memory as a scent). */
@@ -283,6 +289,7 @@ export const defaultMemoryParams = (): MemoryParams => ({
   decay: 0.0,
   reconstructionEase: 1.0,
   form: "tone",
+  morph: 0.5,
 });
 
 export const defaultEngineParams = (): EngineParams => ({

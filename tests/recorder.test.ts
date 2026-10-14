@@ -17,7 +17,12 @@ describe("recording (0.12 slice 5)", () => {
 
   it("Shift R records; R alone still randomizes the organism", () => {
     const calls: string[] = [];
-    const ctx = { randomizeMatrix: () => calls.push("random"), toggleRecording: () => calls.push("record") } as unknown as ShortcutContext;
+    const ctx = {
+      randomizeMatrix: () => calls.push("random"),
+      toggleRecording: () => calls.push("record"),
+      captureMoment: () => calls.push("capture"),
+      captureHiRes: () => calls.push("capture-4k"),
+    } as unknown as ShortcutContext;
     expect(handleKey("R", ctx, { shiftKey: true })).toBe(true);
     expect(handleKey("r", ctx)).toBe(true);
     expect(calls).toEqual(["record", "random"]);
@@ -25,5 +30,10 @@ describe("recording (0.12 slice 5)", () => {
     expect(row?.shiftKeys).toEqual(["R"]);
     // Every documented shifted key dispatches with Shift held.
     for (const r of SHORTCUT_ROWS) for (const k of r.shiftKeys ?? []) expect(handleKey(k, ctx, { shiftKey: true })).toBe(true);
+    // Shift M is the 4K still; M alone the ordinary one.
+    calls.length = 0;
+    handleKey("M", ctx, { shiftKey: true });
+    handleKey("m", ctx);
+    expect(calls).toEqual(["capture-4k", "capture"]);
   });
 });

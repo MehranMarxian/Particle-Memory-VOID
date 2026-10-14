@@ -169,6 +169,14 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     group: "SYSTEM",
+    display: "Shift M",
+    keys: [],
+    shiftKeys: ["M"],
+    label: "Capture in 4K",
+    hint: "Save this moment 3840 pixels wide, whatever the screen.",
+  },
+  {
+    group: "SYSTEM",
     display: "S",
     keys: ["S"],
     label: "Screensaver",
@@ -259,6 +267,8 @@ export interface ShortcutContext {
   startExhibition(): void;
   /** Shift R (0.12): start or stop filming the piece. */
   toggleRecording?(): void;
+  /** Shift M (0.13): capture the moment in 4K. */
+  captureHiRes?(): void;
 }
 
 export interface KeyModifiers {
@@ -358,7 +368,8 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
       ctx.togglePause();
       return true;
     case "M":
-      ctx.captureMoment();
+      if (modifiers.shiftKey && ctx.captureHiRes) ctx.captureHiRes();
+      else ctx.captureMoment();
       return true;
     case "]":
     case "+":

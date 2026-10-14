@@ -93,6 +93,9 @@ import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import { clampModulation, Modulator } from "@/instrument/modulation";
+import { Morph } from "@/morph/morph";
+import { Programme, PROGRAMME_KEY, type ProgrammeEvent, type ProgrammeStep } from "@/morph/programme";
+import { FORM_IDS } from "@/sources/formIds";
 import type { FoundLook } from "@/discovery/found";
 import type { ControllerEvents } from "@/instrument/controllers";
 import {
@@ -805,7 +808,148 @@ function buildFromSource(sample: FlatSource): void {
   }
   subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
 
+  if (morphInto(sample)) return;
   host.build(sample);
+}
+
+// --- Forms (0.13): memories made of geometry, loaded on the first one chosen. -------------
+let currentForm = "";
+function rememberForm(id: string): void {
+  void import("@/sources/forms").then((f) => {
+    const handle = f.formHandle(id);
+    if (!handle) return;
+    ++sourceLoadSeq;
+    lastSourceUrl = null;
+    void adoptHandle(handle).then(() => {
+      currentForm = id;
+      panelApi?.refresh();
+    });
+  });
+}
+
+// --- The programme (0.13): memories played in turn, one forgetting itself into the next. ---
+const programme = new Programme();
+try {
+  programme.load(window.localStorage.getItem(PROGRAMME_KEY), FORM_IDS);
+} catch {
+  // No storage: the programme starts empty.
+}
+/** The visit's own memories in the programme (files are not kept across visits). */
+const programmeHandles = new Map<string, SourceHandle>();
+
+function saveProgramme(): void {
+  try {
+    window.localStorage.setItem(PROGRAMME_KEY, programme.serialize());
+  } catch {
+    // Private mode: the programme lasts this visit.
+  }
+}
+
+function paintProgramme(): void {
+  panelApi?.setProgramme(
+    programme.steps.map((s) => s.label),
+    programme.playing,
+    programme.index
+  );
+}
+
+function addToProgramme(): void {
+  let step: ProgrammeStep;
+  if (currentForm) step = { kind: "form", id: currentForm, label: currentForm.toUpperCase() };
+  else if (pendingHandle) {
+    const id = `m${Date.now().toString(36)}${programmeHandles.size}`;
+    programmeHandles.set(id, pendingHandle);
+    step = { kind: "memory", id, label: pendingHandle.name.replace(/\.[^.]+$/, "").slice(0, 20).toUpperCase() };
+  } else {
+    flashHint("BRING A MEMORY OR CHOOSE A FORM FIRST", 3);
+    return;
+  }
+  if (!programme.add(step)) flashHint("THE PROGRAMME IS FULL", 3);
+  else flashHint(`PROGRAMME: ${step.label}`, 2);
+  saveProgramme();
+  paintProgramme();
+}
+
+function removeFromProgramme(index: number): void {
+  const step = programme.steps[index];
+  programme.remove(index);
+  if (step?.kind === "memory") programmeHandles.delete(step.id);
+  saveProgramme();
+  paintProgramme();
+}
+
+function toggleProgramme(): void {
+  if (programme.playing) {
+    programme.stop();
+    flashHint("PROGRAMME STOPPED", 2);
+  } else {
+    const ev = programme.start();
+    if (!ev) flashHint("ADD MEMORIES TO THE PROGRAMME FIRST", 3);
+    else runProgramme(ev);
+  }
+  // The step length lives on its slider: keep it with the steps.
+  saveProgramme();
+  paintProgramme();
+}
+
+function runProgramme(ev: ProgrammeEvent): void {
+  if (ev.type === "release") {
+    memory.setState("DRIFT");
+    return;
+  }
+  // The programme owns the states while it plays.
+  memory.auto = false;
+  memory.setState("RECONSTRUCT");
+  if (ev.step.kind === "form") rememberForm(ev.step.id);
+  else {
+    const handle = programmeHandles.get(ev.step.id);
+    if (handle) {
+      ++sourceLoadSeq;
+      void adoptHandle(handle);
+    }
+  }
+  paintProgramme();
+}
+
+// --- Metamorphosis (0.13): one memory becoming another ------------------------------------
+// A new memory for a living swarm of the same size is not a rebirth: the
+// particles' places travel from the old form to the new one (morph/morph.ts),
+// and the memory's spring carries the swarm after them.
+let morph: Morph | null = null;
+
+function morphInto(sample: FlatSource): boolean {
+  if (!engine || demoMode || params.memory.morph <= 0 || sample.count !== engine.count || presenceHome) return false;
+  const n = engine.count * 3;
+  const to = sample.positions.slice(0, n);
+  const toColors = sample.colors.slice(0, n);
+  // Colours travel too, when the look shows the memory's own.
+  const blendColors = visual.colorMode === "source";
+  morph = new Morph(
+    engine.targets.slice(0, n),
+    to,
+    engine.count,
+    { amount: params.memory.morph, seed: Math.random() * 100 },
+    blendColors ? engine.colors.slice(0, n) : null,
+    blendColors ? toColors : null
+  );
+  sourceColors = toColors;
+  if (params.life.species === "colour") assignSpecies();
+  particleHistory.reset();
+  scheduleSave();
+  return true;
+}
+
+/** Move the journey on by a frame; the memory is exactly the new one when it ends. */
+function stepMorph(dt: number): void {
+  if (!morph) return;
+  const colors = visual.colorMode === "source" ? engine.colors : null;
+  const done = morph.tick(dt, engine.targets, colors);
+  engine.uploadTargets?.();
+  if (colors) particleRenderer?.markColorsDirty();
+  if (done) {
+    morph = null;
+    applyLook();
+  }
 }
 
 /**
@@ -1254,6 +1398,7 @@ function sourceLoadSuperseded(mySeq: number): boolean {
 }
 
 async function adoptHandle(handle: SourceHandle): Promise<void> {
+  currentForm = "";
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
     const sample = handle.resample(currentCount, undefined, params.memory.form);
@@ -1709,6 +1854,7 @@ const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
   togglePause: () => togglePause(),
   captureMoment: () => captureMoment(),
+  captureHiRes,
   toggleColor: () => {
     visual.colorMode = nextColorMode(visual.colorMode);
     applyLook();
@@ -1869,6 +2015,7 @@ if (!demoMode) {
     backend: () => activeBackend,
     presence,
     wind,
+    programme,
     cutout: cutoutState,
     callbacks: {
       onTogglePause() {
@@ -2022,6 +2169,11 @@ if (!demoMode) {
       onListen: openModEditor,
       onSaveLook: saveLookFile,
       onDiscover: toggleDiscovery,
+      onForm: rememberForm,
+      onProgrammeAdd: addToProgramme,
+      onProgrammeRemove: removeFromProgramme,
+      onProgrammePlay: toggleProgramme,
+      currentForm: () => currentForm,
       onStudioToggle: toggleStudio,
       isStudioLinked: () => studioLinked,
       onFoundLook: applyFound,
@@ -2077,6 +2229,7 @@ if (!demoMode) {
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
+  paintProgramme();
   void import("@/discovery/found").then((f) => {
     found = f.loadFound();
     panelApi?.setFound(foundItems());
@@ -2590,6 +2743,40 @@ function captureMoment(): void {
   capturePending = true;
 }
 
+// --- 4K stills (0.13): the moment rendered 3840 wide, whatever the screen. ---------------
+/** The long side of a 4K still. */
+const HI_RES_LONG_SIDE = 3840;
+/** Frames rendered at 4K before the capture, so trails and bloom refill at that size. */
+const HI_RES_WARMUP = 20;
+let hiResFrames = 0;
+let hiResLabel = "";
+
+function captureHiRes(): void {
+  if (hiResFrames > 0) return;
+  const canvas = presentedCanvas();
+  const long = Math.max(canvas.width, canvas.height);
+  const gl = renderer3d.getContext();
+  const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  const k = Math.min(HI_RES_LONG_SIDE, maxSize) / Math.max(1, long);
+  if (k <= 1.05) {
+    captureMoment();
+    return;
+  }
+  applyQualityScale(quality.scale * k);
+  hiResFrames = HI_RES_WARMUP;
+  hiResLabel = "-4k";
+  flashHint("CAPTURING IN 4K", 2);
+}
+
+/** Per frame, after the render: count the warm-up down, capture, and give the screen back its size. */
+function stepHiRes(): void {
+  if (hiResFrames <= 0) return;
+  if (--hiResFrames > 0) return;
+  saveFrame();
+  hiResLabel = "";
+  applyQualityScale(quality.scale);
+}
+
 /** The canvas the visitor sees: WebGL's, or the WebGPU view's. */
 function presentedCanvas(): HTMLCanvasElement {
   return particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
@@ -2629,11 +2816,12 @@ function saveFrame(): void {
     .replace(/[^\w-]+/g, "-")
     .slice(0, 40);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const label = hiResLabel;
   presentedCanvas().toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `void-${safeName}-${stamp}.png`;
+    a.download = `void-${safeName}-${stamp}${label}.png`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     flashHint("MOMENT SAVED", 3);
@@ -2657,7 +2845,8 @@ function frameInner(now: number): void {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   frameTimes[frameTimesIdx++ % FRAME_TIME_WINDOW] = dt;
-  if (quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
+  // The governor waits while a 4K still renders (its frames are slow on purpose).
+  if (hiResFrames === 0 && quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
@@ -2667,6 +2856,11 @@ function frameInner(now: number): void {
   if (simPaused) {
     // The moment holds: no steps, no catch-up debt when play resumes.
     accumulator = 0;
+  }
+  if (!simPaused) {
+    stepMorph(dt);
+    const cue = programme.tick(dt);
+    if (cue) runProgramme(cue);
   }
   for (let s = 0; s < steps && !simPaused; s++) {
     memory.update(FIXED_DT);
@@ -2872,6 +3066,7 @@ function frameInner(now: number): void {
     capturePending = false;
     saveFrame();
   }
+  stepHiRes();
 
   frames++;
   if (splash && !splashGone && frames > 2) {
