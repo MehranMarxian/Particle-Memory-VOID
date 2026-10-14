@@ -1854,6 +1854,7 @@ const shortcutCtx: ShortcutContext = {
   togglePanel: () => panelApi?.toggleVisible(),
   togglePause: () => togglePause(),
   captureMoment: () => captureMoment(),
+  captureHiRes,
   toggleColor: () => {
     visual.colorMode = nextColorMode(visual.colorMode);
     applyLook();
@@ -2742,6 +2743,40 @@ function captureMoment(): void {
   capturePending = true;
 }
 
+// --- 4K stills (0.13): the moment rendered 3840 wide, whatever the screen. ---------------
+/** The long side of a 4K still. */
+const HI_RES_LONG_SIDE = 3840;
+/** Frames rendered at 4K before the capture, so trails and bloom refill at that size. */
+const HI_RES_WARMUP = 20;
+let hiResFrames = 0;
+let hiResLabel = "";
+
+function captureHiRes(): void {
+  if (hiResFrames > 0) return;
+  const canvas = presentedCanvas();
+  const long = Math.max(canvas.width, canvas.height);
+  const gl = renderer3d.getContext();
+  const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  const k = Math.min(HI_RES_LONG_SIDE, maxSize) / Math.max(1, long);
+  if (k <= 1.05) {
+    captureMoment();
+    return;
+  }
+  applyQualityScale(quality.scale * k);
+  hiResFrames = HI_RES_WARMUP;
+  hiResLabel = "-4k";
+  flashHint("CAPTURING IN 4K", 2);
+}
+
+/** Per frame, after the render: count the warm-up down, capture, and give the screen back its size. */
+function stepHiRes(): void {
+  if (hiResFrames <= 0) return;
+  if (--hiResFrames > 0) return;
+  saveFrame();
+  hiResLabel = "";
+  applyQualityScale(quality.scale);
+}
+
 /** The canvas the visitor sees: WebGL's, or the WebGPU view's. */
 function presentedCanvas(): HTMLCanvasElement {
   return particleRenderer instanceof ParticleRenderer || !particleRenderer ? renderer3d.domElement : particleRenderer.canvas;
@@ -2781,11 +2816,12 @@ function saveFrame(): void {
     .replace(/[^\w-]+/g, "-")
     .slice(0, 40);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const label = hiResLabel;
   presentedCanvas().toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `void-${safeName}-${stamp}.png`;
+    a.download = `void-${safeName}-${stamp}${label}.png`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     flashHint("MOMENT SAVED", 3);
@@ -2809,7 +2845,8 @@ function frameInner(now: number): void {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   frameTimes[frameTimesIdx++ % FRAME_TIME_WINDOW] = dt;
-  if (quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
+  // The governor waits while a 4K still renders (its frames are slow on purpose).
+  if (hiResFrames === 0 && quality.feed(dt * 1000, dt) !== null) applyQualityScale(quality.scale);
   accumulator += dt;
   // Fixed steps, capped catch-up: when the machine cannot keep up, the
   // scheduler sheds the backlog and the piece runs in slow motion instead
@@ -3029,6 +3066,7 @@ function frameInner(now: number): void {
     capturePending = false;
     saveFrame();
   }
+  stepHiRes();
 
   frames++;
   if (splash && !splashGone && frames > 2) {
