@@ -31,6 +31,8 @@ export function kindLabel(kind: SourceKind | "synthetic"): string {
       return "3D MODEL";
     case "pointcloud":
       return "POINT CLOUD";
+    case "video":
+      return "VIDEO";
     default:
       return "SYNTHETIC";
   }

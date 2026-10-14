@@ -911,6 +911,31 @@ function runProgramme(ev: ProgrammeEvent): void {
   paintProgramme();
 }
 
+// --- Moving memories (0.13): a video's frames become the memory, a few times a second. ----
+/** How often a moving memory is resampled (the spring smooths between). */
+const LIVE_HZ = 12;
+let liveClock = 0;
+
+function stepLiveMemory(dt: number): void {
+  const live = pendingHandle?.live;
+  if (!live) return;
+  live.setPlaying(!simPaused);
+  // A morph into the video finishes first; the visitor's own silhouette wins over it.
+  if (simPaused || morph || presenceHome) return;
+  liveClock += dt;
+  if (liveClock < 1 / LIVE_HZ) return;
+  liveClock = 0;
+  const s = live.frame(engine.count);
+  const n = Math.min(s.count, engine.count) * 3;
+  engine.targets.set(s.positions.subarray(0, n));
+  engine.uploadTargets?.();
+  sourceColors = s.colors.slice(0, n);
+  if (visual.colorMode === "source") {
+    engine.colors.set(sourceColors);
+    particleRenderer?.markColorsDirty();
+  }
+}
+
 // --- Metamorphosis (0.13): one memory becoming another ------------------------------------
 // A new memory for a living swarm of the same size is not a rebirth: the
 // particles' places travel from the old form to the new one (morph/morph.ts),
@@ -1399,6 +1424,8 @@ function sourceLoadSuperseded(mySeq: number): boolean {
 
 async function adoptHandle(handle: SourceHandle): Promise<void> {
   currentForm = "";
+  // A moving memory left behind stops moving (it may come back in the programme).
+  if (pendingHandle && pendingHandle !== handle) pendingHandle.live?.setPlaying(false);
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
     const sample = handle.resample(currentCount, undefined, params.memory.form);
@@ -2857,6 +2884,7 @@ function frameInner(now: number): void {
     // The moment holds: no steps, no catch-up debt when play resumes.
     accumulator = 0;
   }
+  stepLiveMemory(dt);
   if (!simPaused) {
     stepMorph(dt);
     const cue = programme.tick(dt);
