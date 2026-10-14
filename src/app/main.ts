@@ -94,6 +94,8 @@ import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import { clampModulation, Modulator } from "@/instrument/modulation";
 import { Morph } from "@/morph/morph";
+import { Programme, PROGRAMME_KEY, type ProgrammeEvent, type ProgrammeStep } from "@/morph/programme";
+import { FORM_IDS } from "@/sources/formIds";
 import type { FoundLook } from "@/discovery/found";
 import type { ControllerEvents } from "@/instrument/controllers";
 import {
@@ -823,6 +825,90 @@ function rememberForm(id: string): void {
       panelApi?.refresh();
     });
   });
+}
+
+// --- The programme (0.13): memories played in turn, one forgetting itself into the next. ---
+const programme = new Programme();
+try {
+  programme.load(window.localStorage.getItem(PROGRAMME_KEY), FORM_IDS);
+} catch {
+  // No storage: the programme starts empty.
+}
+/** The visit's own memories in the programme (files are not kept across visits). */
+const programmeHandles = new Map<string, SourceHandle>();
+
+function saveProgramme(): void {
+  try {
+    window.localStorage.setItem(PROGRAMME_KEY, programme.serialize());
+  } catch {
+    // Private mode: the programme lasts this visit.
+  }
+}
+
+function paintProgramme(): void {
+  panelApi?.setProgramme(
+    programme.steps.map((s) => s.label),
+    programme.playing,
+    programme.index
+  );
+}
+
+function addToProgramme(): void {
+  let step: ProgrammeStep;
+  if (currentForm) step = { kind: "form", id: currentForm, label: currentForm.toUpperCase() };
+  else if (pendingHandle) {
+    const id = `m${Date.now().toString(36)}${programmeHandles.size}`;
+    programmeHandles.set(id, pendingHandle);
+    step = { kind: "memory", id, label: pendingHandle.name.replace(/\.[^.]+$/, "").slice(0, 20).toUpperCase() };
+  } else {
+    flashHint("BRING A MEMORY OR CHOOSE A FORM FIRST", 3);
+    return;
+  }
+  if (!programme.add(step)) flashHint("THE PROGRAMME IS FULL", 3);
+  else flashHint(`PROGRAMME: ${step.label}`, 2);
+  saveProgramme();
+  paintProgramme();
+}
+
+function removeFromProgramme(index: number): void {
+  const step = programme.steps[index];
+  programme.remove(index);
+  if (step?.kind === "memory") programmeHandles.delete(step.id);
+  saveProgramme();
+  paintProgramme();
+}
+
+function toggleProgramme(): void {
+  if (programme.playing) {
+    programme.stop();
+    flashHint("PROGRAMME STOPPED", 2);
+  } else {
+    const ev = programme.start();
+    if (!ev) flashHint("ADD MEMORIES TO THE PROGRAMME FIRST", 3);
+    else runProgramme(ev);
+  }
+  // The step length lives on its slider: keep it with the steps.
+  saveProgramme();
+  paintProgramme();
+}
+
+function runProgramme(ev: ProgrammeEvent): void {
+  if (ev.type === "release") {
+    memory.setState("DRIFT");
+    return;
+  }
+  // The programme owns the states while it plays.
+  memory.auto = false;
+  memory.setState("RECONSTRUCT");
+  if (ev.step.kind === "form") rememberForm(ev.step.id);
+  else {
+    const handle = programmeHandles.get(ev.step.id);
+    if (handle) {
+      ++sourceLoadSeq;
+      void adoptHandle(handle);
+    }
+  }
+  paintProgramme();
 }
 
 // --- Metamorphosis (0.13): one memory becoming another ------------------------------------
@@ -1928,6 +2014,7 @@ if (!demoMode) {
     backend: () => activeBackend,
     presence,
     wind,
+    programme,
     cutout: cutoutState,
     callbacks: {
       onTogglePause() {
@@ -2082,6 +2169,9 @@ if (!demoMode) {
       onSaveLook: saveLookFile,
       onDiscover: toggleDiscovery,
       onForm: rememberForm,
+      onProgrammeAdd: addToProgramme,
+      onProgrammeRemove: removeFromProgramme,
+      onProgrammePlay: toggleProgramme,
       currentForm: () => currentForm,
       onStudioToggle: toggleStudio,
       isStudioLinked: () => studioLinked,
@@ -2138,6 +2228,7 @@ if (!demoMode) {
   document.body.appendChild(panelApi.element);
   panelApi.setSourceInfo(currentSourceName, "synthetic", currentSourceDetail, engine.count);
   panelApi.setActivePreset(activePreset);
+  paintProgramme();
   void import("@/discovery/found").then((f) => {
     found = f.loadFound();
     panelApi?.setFound(foundItems());
@@ -2729,7 +2820,11 @@ function frameInner(now: number): void {
     // The moment holds: no steps, no catch-up debt when play resumes.
     accumulator = 0;
   }
-  if (!simPaused) stepMorph(dt);
+  if (!simPaused) {
+    stepMorph(dt);
+    const cue = programme.tick(dt);
+    if (cue) runProgramme(cue);
+  }
   for (let s = 0; s < steps && !simPaused; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
