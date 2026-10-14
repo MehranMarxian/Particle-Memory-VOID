@@ -196,6 +196,28 @@ default looks render as before. Wake uses bloom, AgX and the medium light.
   stay off in a find, as in its trial.
 - Eager JS 218.0 kB of 220: the budget is nearly spent.
 
+**0.13 decisions (13 Oct 2026, Mehran).** The Found row keeps four. The
+Studio Link (relay, state out) shipped; its TouchDesigner side is untested
+(no TouchDesigner here). Splat memories shipped. No AI features and no
+model downloads for now. The eager budget is 230 kB. The next build takes
+its cue from particles.casberry.in, through VOID's own lens.
+
+**Metamorphosis (14 Oct 2026).**
+
+- Morph: a new memory for a living swarm of the same size is a journey,
+  not a rebirth. Each particle's place travels from the old form to the
+  new, staggered from the new form's heart outward, arcing along a smooth
+  flow so neighbours move in streams; the memory's spring carries the swarm
+  after it, and the memory's own colours cross-fade. MEMORY > Morph sets
+  how long and how wild (1.2-8 s); 0 is the old rebirth.
+- Forms (MEMORY > Forms): sphere, cube, double helix, torus knot,
+  tesseract, galaxy, Lorenz attractor, Mobius strip. A lazy chunk.
+- Programme (new section): memories played in turn - each morphed into,
+  held (RECONSTRUCT), let go (DRIFT) into the next. Forms persist; a brought
+  memory lasts the visit.
+- Shift M: the moment as a 4K still (3840 on the long side).
+- Next: moving memories (a short video as the memory).
+
 ## 1. What 3D Life Sim actually does (from its source)
 
 It's **not** a classic particle-life simulation (species plus a pairwise
