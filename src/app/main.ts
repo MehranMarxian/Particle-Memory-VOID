@@ -810,6 +810,21 @@ function buildFromSource(sample: FlatSource): void {
   host.build(sample);
 }
 
+// --- Forms (0.13): memories made of geometry, loaded on the first one chosen. -------------
+let currentForm = "";
+function rememberForm(id: string): void {
+  void import("@/sources/forms").then((f) => {
+    const handle = f.formHandle(id);
+    if (!handle) return;
+    ++sourceLoadSeq;
+    lastSourceUrl = null;
+    void adoptHandle(handle).then(() => {
+      currentForm = id;
+      panelApi?.refresh();
+    });
+  });
+}
+
 // --- Metamorphosis (0.13): one memory becoming another ------------------------------------
 // A new memory for a living swarm of the same size is not a rebirth: the
 // particles' places travel from the old form to the new one (morph/morph.ts),
@@ -1297,6 +1312,7 @@ function sourceLoadSuperseded(mySeq: number): boolean {
 }
 
 async function adoptHandle(handle: SourceHandle): Promise<void> {
+  currentForm = "";
   setSourceUi(nextSourceUiState(sourceUi, { type: "processing" }));
   try {
     const sample = handle.resample(currentCount, undefined, params.memory.form);
@@ -2065,6 +2081,8 @@ if (!demoMode) {
       onListen: openModEditor,
       onSaveLook: saveLookFile,
       onDiscover: toggleDiscovery,
+      onForm: rememberForm,
+      currentForm: () => currentForm,
       onStudioToggle: toggleStudio,
       isStudioLinked: () => studioLinked,
       onFoundLook: applyFound,

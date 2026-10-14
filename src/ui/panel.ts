@@ -1,4 +1,5 @@
 import type { ModTarget } from "@/instrument/modulation";
+import { FORM_IDS } from "@/sources/formIds";
 import type { EngineParams } from "@/types";
 import type { AudioSource } from "@/audio/audioReactive";
 import {
@@ -86,6 +87,9 @@ export interface PanelCallbacks {
   onFormChange?(): void;
   /** CUTOUT: forget the picture's background, or bring it back. */
   onCutoutToggle?(): void;
+  /** FORMS (0.13): remember a form; and which form the memory is now, if any. */
+  onForm?(id: string): void;
+  currentForm?(): string;
   /** STUDIO LINK (0.13): VOID's state out as OSC through the relay; and whether it is on. */
   onStudioToggle?(): void;
   isStudioLinked?(): boolean;
@@ -1078,6 +1082,16 @@ export function createPanel(opts: {
   addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
   addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
   addObjSlider(memBody, "Morph", params.memory, "morph", 0, 1, 0.05, num, "When the memory changes, how long and how wild the swarm's journey into the new one is. 0: it is reborn there instead.");
+  if (callbacks.onForm) {
+    addChoiceRow(
+      memBody,
+      "Forms",
+      FORM_IDS,
+      () => callbacks.currentForm?.() ?? "",
+      (id) => callbacks.onForm?.(id),
+      "Remember a form instead of a picture: the swarm travels into it."
+    );
+  }
   formControls(memBody);
   addChoiceRow(
     memBody,
