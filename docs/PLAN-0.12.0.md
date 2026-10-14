@@ -216,7 +216,11 @@ its cue from particles.casberry.in, through VOID's own lens.
   held (RECONSTRUCT), let go (DRIFT) into the next. Forms persist; a brought
   memory lasts the visit.
 - Shift M: the moment as a 4K still (3840 on the long side).
-- Next: moving memories (a short video as the memory).
+- Moving memories (14 Oct): MP4, WebM or MOV as the memory. It plays muted
+  and looping; twelve times a second its frame is sampled like a photograph,
+  with a fixed seed so each particle keeps its place, and the memory's spring
+  keeps the swarm a little behind the picture. It waits for a morph, pauses
+  with the piece, and can be a programme step. A lazy chunk.
 
 ## 1. What 3D Life Sim actually does (from its source)
 

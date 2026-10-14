@@ -19,7 +19,7 @@ export interface FlatSource {
 
 export type { SampleMode };
 
-export type SourceKind = "image" | "mesh" | "pointcloud" | "synthetic";
+export type SourceKind = "image" | "mesh" | "pointcloud" | "video" | "synthetic";
 
 export interface SourceHandle {
   name: string;
@@ -38,6 +38,16 @@ export interface SourceHandle {
   cutOut?(): Promise<SourceHandle | null>;
   /** On a cut-out handle: the picture as it was, to bring the background back. */
   original?: SourceHandle;
+  /**
+   * A memory that moves (0.13, video): the current frame as `count`
+   * particles, sampled with a fixed seed so each particle keeps its place;
+   * playing follows the piece's own pause.
+   */
+  live?: {
+    frame(count: number): FlatSource;
+    setPlaying(on: boolean): void;
+    dispose(): void;
+  };
 }
 
 export const TARGET_WORLD_SIZE = 9;

@@ -10,7 +10,7 @@ import { nextSourceUiState, kindLabel, type SourceUiState } from "@/ui/sourceFlo
 
 describe("source format display groups", () => {
   it("only lists formats the loaders actually support (docs cannot drift)", () => {
-    expect(SOURCE_FORMAT_GROUPS.length).toBe(3);
+    expect(SOURCE_FORMAT_GROUPS.length).toBe(4); // image, mesh, point cloud, video (0.13)
     for (const group of SOURCE_FORMAT_GROUPS) {
       const registry = FORMAT_REGISTRY[group.kind];
       for (const ext of group.extensions) {
@@ -24,6 +24,7 @@ describe("source format display groups", () => {
     expect(kinds.has("image")).toBe(true);
     expect(kinds.has("mesh")).toBe(true);
     expect(kinds.has("pointcloud")).toBe(true);
+    expect(kinds.has("video")).toBe(true);
   });
 
   it("derives the file-picker accept list from the real registry", () => {
@@ -31,6 +32,13 @@ describe("source format display groups", () => {
       expect(SOURCE_ACCEPT).toContain("." + ext);
     }
     expect(SOURCE_ACCEPT).toContain(".jpeg"); // alias stays accepted
+  });
+
+  it("the page's own picker lists the same formats before the app loads", async () => {
+    const { readFileSync } = await import("node:fs");
+    const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const accept = /id="filepicker"[\s\S]*?accept="([^"]+)"/.exec(html)![1];
+    expect(accept.split(",").sort()).toEqual(SOURCE_ACCEPT.split(",").sort());
   });
 
   it("names the file and the supported formats when rejecting one", () => {
@@ -102,6 +110,7 @@ describe("source lifecycle state machine", () => {
     expect(kindLabel("image")).toBe("IMAGE");
     expect(kindLabel("mesh")).toBe("3D MODEL");
     expect(kindLabel("pointcloud")).toBe("POINT CLOUD");
+    expect(kindLabel("video")).toBe("VIDEO");
     expect(kindLabel("synthetic")).toBe("SYNTHETIC");
   });
 });

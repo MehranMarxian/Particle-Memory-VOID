@@ -8,6 +8,7 @@ export const FORMAT_REGISTRY: Record<SourceKind, string[]> = {
   image: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
   mesh: ["glb", "gltf", "obj", "stl"],
   pointcloud: ["ply", "splat"],
+  video: ["mp4", "webm", "mov", "m4v"],
   synthetic: [],
 };
 
@@ -116,12 +117,19 @@ export async function loadSource(
         ...FORMAT_REGISTRY.image,
         ...FORMAT_REGISTRY.mesh,
         ...FORMAT_REGISTRY.pointcloud,
+        ...FORMAT_REGISTRY.video,
       ].join(", ")})`
     );
   }
 
   if (detected === "image") {
     return imageHandle(name, await imageToData(data));
+  }
+
+  if (detected === "video") {
+    // A moving memory (0.13): loaded on demand, like the mesh loaders.
+    const { videoHandle } = await import("./video");
+    return videoHandle(name, data);
   }
 
   if (detected === "pointcloud") {
