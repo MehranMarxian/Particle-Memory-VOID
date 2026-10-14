@@ -1077,6 +1077,7 @@ export function createPanel(opts: {
   addObjSlider(memBody, "Memory", params.memory, "strength", 0, 20, 0.1, (v) => v.toFixed(1), "How strongly particles try to return to their source.");
   addObjSlider(memBody, "Decay", params.memory, "decay", 0, 3, 0.01, num, "How quickly individual particles forget.");
   addObjSlider(memBody, "Reconstruction", params.memory, "reconstructionEase", 0.5, 4, 0.05, num, "How the pull eases with distance.");
+  addObjSlider(memBody, "Morph", params.memory, "morph", 0, 1, 0.05, num, "When the memory changes, how long and how wild the swarm's journey into the new one is. 0: it is reborn there instead.");
   formControls(memBody);
   addChoiceRow(
     memBody,

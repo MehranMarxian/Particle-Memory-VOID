@@ -93,6 +93,7 @@ import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
 import { createSoundscape, soundscapeLevels } from "@/audio/soundscape";
 import { clampModulation, Modulator } from "@/instrument/modulation";
+import { Morph } from "@/morph/morph";
 import type { FoundLook } from "@/discovery/found";
 import type { ControllerEvents } from "@/instrument/controllers";
 import {
@@ -805,7 +806,49 @@ function buildFromSource(sample: FlatSource): void {
   }
   subjectRadius = Math.max(0.001, Math.sqrt(radiusSq));
 
+  if (morphInto(sample)) return;
   host.build(sample);
+}
+
+// --- Metamorphosis (0.13): one memory becoming another ------------------------------------
+// A new memory for a living swarm of the same size is not a rebirth: the
+// particles' places travel from the old form to the new one (morph/morph.ts),
+// and the memory's spring carries the swarm after them.
+let morph: Morph | null = null;
+
+function morphInto(sample: FlatSource): boolean {
+  if (!engine || demoMode || params.memory.morph <= 0 || sample.count !== engine.count || presenceHome) return false;
+  const n = engine.count * 3;
+  const to = sample.positions.slice(0, n);
+  const toColors = sample.colors.slice(0, n);
+  // Colours travel too, when the look shows the memory's own.
+  const blendColors = visual.colorMode === "source";
+  morph = new Morph(
+    engine.targets.slice(0, n),
+    to,
+    engine.count,
+    { amount: params.memory.morph, seed: Math.random() * 100 },
+    blendColors ? engine.colors.slice(0, n) : null,
+    blendColors ? toColors : null
+  );
+  sourceColors = toColors;
+  if (params.life.species === "colour") assignSpecies();
+  particleHistory.reset();
+  scheduleSave();
+  return true;
+}
+
+/** Move the journey on by a frame; the memory is exactly the new one when it ends. */
+function stepMorph(dt: number): void {
+  if (!morph) return;
+  const colors = visual.colorMode === "source" ? engine.colors : null;
+  const done = morph.tick(dt, engine.targets, colors);
+  engine.uploadTargets?.();
+  if (colors) particleRenderer?.markColorsDirty();
+  if (done) {
+    morph = null;
+    applyLook();
+  }
 }
 
 /**
@@ -2668,6 +2711,7 @@ function frameInner(now: number): void {
     // The moment holds: no steps, no catch-up debt when play resumes.
     accumulator = 0;
   }
+  if (!simPaused) stepMorph(dt);
   for (let s = 0; s < steps && !simPaused; s++) {
     memory.update(FIXED_DT);
     memory.apply(params);
