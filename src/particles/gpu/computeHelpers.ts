@@ -47,3 +47,25 @@ export function estimateVelocities(
     out[i] = (curr[i] - prev[i]) * inv;
   }
 }
+
+/**
+ * Targets (xyz per particle) as the GPU engines take them: four floats a
+ * particle, w = 1 (WebGL2's target texture) or the particle's species
+ * (WebGPU folds it in). A 4D clip uploads every frame, so the out array is
+ * the caller's to keep. Pure: both engines pack through it, and the tests
+ * hold them to the CPU engine's own targets.
+ */
+export function packTargetTexels(
+  targets: Float32Array,
+  count: number,
+  out: Float32Array,
+  species: Uint8Array | null = null
+): Float32Array {
+  for (let i = 0; i < count; i++) {
+    out[i * 4] = targets[i * 3];
+    out[i * 4 + 1] = targets[i * 3 + 1];
+    out[i * 4 + 2] = targets[i * 3 + 2];
+    out[i * 4 + 3] = species ? species[i] : 1;
+  }
+  return out;
+}

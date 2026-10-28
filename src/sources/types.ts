@@ -1,4 +1,5 @@
 import type { MemoryForm as SampleMode } from "@/types";
+import type { ClipSettings } from "./clipSettings";
 
 /**
  * Common source representation.
@@ -19,7 +20,7 @@ export interface FlatSource {
 
 export type { SampleMode };
 
-export type SourceKind = "image" | "mesh" | "pointcloud" | "video" | "synthetic";
+export type SourceKind = "image" | "mesh" | "pointcloud" | "video" | "clip" | "synthetic";
 
 export interface SourceHandle {
   name: string;
@@ -48,6 +49,52 @@ export interface SourceHandle {
     setPlaying(on: boolean): void;
     dispose(): void;
   };
+  /** A 4D clip (4D memory): a body that moves, driven by the app's clip clock. */
+  clip?: ClipRuntime;
+}
+
+/** What the memory states mean in time (MemorySystem): how late, and how lost. */
+export interface ClipTimeState {
+  /** Seconds the moment the swarm chases trails now (DRIFT grows it). */
+  lag: number;
+  /** 0..1: how far each particle forgets which moment it belongs to (VOID). */
+  scatter: number;
+}
+
+/** The per-particle context ECHO may need: who is which species, and who is hot. */
+export interface ClipParticleContext {
+  species?: Uint8Array;
+  speciesCount: number;
+  /** 0..1 per particle, for ECHO by heat; refreshed a few times a second. */
+  heat?: Float32Array | null;
+}
+
+/**
+ * A 4D clip in play (sources/clip, a lazy chunk). Targets are written on the
+ * CPU every frame from the one function here and reach every engine through
+ * its own uploadTargets(): the three engines cannot disagree about where the
+ * body is.
+ */
+export interface ClipRuntime {
+  readonly frames: number;
+  readonly fps: number;
+  /** Seconds the clip covers (frames / fps). */
+  readonly duration: number;
+  /** Body points in the largest frame. */
+  readonly points: number;
+  /** True when the file's ids give every frame the same body points. */
+  readonly tracked: boolean;
+  /** The clock's clip time now, in seconds. */
+  time(settings: ClipSettings): number;
+  advance(dt: number, settings: ClipSettings, rate: number): void;
+  scrub(seconds: number, settings: ClipSettings): void;
+  step(frames: number, settings: ClipSettings): void;
+  /** Every particle's target for this instant. */
+  writeTargets(targets: Float32Array, count: number, settings: ClipSettings, time: ClipTimeState, ctx: ClipParticleContext): void;
+  /** Every particle's colour for this instant (the past dimmed in ECHO). */
+  writeColors(colors: Float32Array, count: number, settings: ClipSettings, time: ClipTimeState, ctx: ClipParticleContext): void;
+  /** The clip's face for the card: its middle frame from the side. */
+  thumbnail(size: number): HTMLCanvasElement | null;
 }
 
 export const TARGET_WORLD_SIZE = 9;

@@ -3,7 +3,7 @@ import { RippleField } from "@/input/ripples";
 import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { ScentField } from "../scent/ScentField";
-import { estimateVelocities } from "../gpu/computeHelpers";
+import { estimateVelocities, packTargetTexels } from "../gpu/computeHelpers";
 import { cellBudget, gridTableSize, SCAN_BLOCK } from "./hashGrid";
 import { MEDIUM_EXTENT, MEDIUM_N, WebGpuMedium } from "./WebGpuMedium";
 import { RIBBON_EVERY, RIBBON_SLOTS } from "@/rendering/ribbons";
@@ -79,6 +79,7 @@ export class WebGpuParticleEngine {
   readonly positions: Float32Array;
   readonly velocities: Float32Array;
   readonly targets: Float32Array;
+  private targetScratch = new Float32Array(0);
   readonly colors: Float32Array;
   readonly species: Uint8Array;
   readonly memoryPerParticle: Float32Array;
@@ -350,14 +351,10 @@ export class WebGpuParticleEngine {
 
   /** Push targets (and species, folded into w) to the GPU. */
   uploadTargets(): void {
-    const d = new Float32Array(this.count * 4);
-    for (let i = 0; i < this.count; i++) {
-      d[i * 4] = this.targets[i * 3];
-      d[i * 4 + 1] = this.targets[i * 3 + 1];
-      d[i * 4 + 2] = this.targets[i * 3 + 2];
-      d[i * 4 + 3] = this.species[i];
-    }
-    this.ctx.device.queue.writeBuffer(this.targetBuffer, 0, d);
+    // Kept between calls: a moving memory uploads every frame.
+    if (this.targetScratch.length !== this.count * 4) this.targetScratch = new Float32Array(this.count * 4);
+    packTargetTexels(this.targets, this.count, this.targetScratch, this.species);
+    this.ctx.device.queue.writeBuffer(this.targetBuffer, 0, this.targetScratch);
   }
 
   /** Write the mirrors (positions, velocities, memory, state) into the live buffers. */

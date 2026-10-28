@@ -51,6 +51,7 @@ export function humanizeSourceError(name: string, err: unknown): string {
   if (/PLY: missing 'ply' magic/i.test(raw)) return `${name}: NOT A VALID PLY POINT CLOUD`;
   if (/SPLAT:/i.test(raw)) return `${name}: THE SPLAT FILE IS MALFORMED`;
   if (/VIDEO:/i.test(raw)) return `${name}: THIS BROWSER CANNOT PLAY THAT VIDEO`;
+  if (/CLIP:/i.test(raw)) return `${name}: THE 4D CLIP IS MALFORMED`;
   if (/every splat is transparent/i.test(raw)) return `${name}: EVERY SPLAT IS TRANSPARENT`;
   if (/PLY:/i.test(raw)) return `${name}: THE POINT CLOUD IS MALFORMED`;
   if (/failed to fetch/i.test(raw)) return `COULD NOT FETCH ${name}`;

@@ -6,7 +6,7 @@ import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulationShader";
 import { MATRIX_TEXELS, packGridTextures, packMatrixTexels, type PackedGridTextures } from "./gridTextures";
-import { estimateVelocities } from "./computeHelpers";
+import { estimateVelocities, packTargetTexels } from "./computeHelpers";
 import { ScentField } from "../scent/ScentField";
 import { RippleField } from "@/input/ripples";
 import { DEFAULT_SCAR, HandTracker } from "../medium/mediumReference";
@@ -308,13 +308,7 @@ export class GpuParticleEngine {
 
   /** Push targets into the GPU target texture. */
   uploadTargets(): void {
-    const d = this.targetsTex.image.data as unknown as Float32Array;
-    for (let i = 0; i < this.count; i++) {
-      d[i * 4] = this.targets[i * 3];
-      d[i * 4 + 1] = this.targets[i * 3 + 1];
-      d[i * 4 + 2] = this.targets[i * 3 + 2];
-      d[i * 4 + 3] = 1;
-    }
+    packTargetTexels(this.targets, this.count, this.targetsTex.image.data as unknown as Float32Array);
     this.targetsTex.needsUpdate = true;
   }
 
