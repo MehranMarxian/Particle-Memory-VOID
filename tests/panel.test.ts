@@ -96,7 +96,6 @@ describe("the studio layout", () => {
   it("puts the great gestures on top, each an icon with its name", () => {
     const expected: Record<string, string> = {
       source: "addSource",
-      genesis: "genesis",
       reconstruct: "reconstruct",
       release: "release",
       pause: "pause",
@@ -113,6 +112,10 @@ describe("the studio layout", () => {
       btn.click();
       expect(p.callbacks.calls).toContain(call);
     }
+  });
+
+  it("keeps GENESIS out of the top bar: it is a look now", () => {
+    expect(q(`#void-topbar [data-action="genesis"]`)).toBeNull();
   });
 
   it("the source chip is the door to the picker", () => {

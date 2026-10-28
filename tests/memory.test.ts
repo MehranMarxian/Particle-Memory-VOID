@@ -127,3 +127,36 @@ describe("MemorySystem states", () => {
     expect(unique.size).toBeGreaterThan(2);
   });
 });
+
+describe("turbulence through the cycle (29 Oct 2026)", () => {
+  it("a state's chaos lifts the look's turbulence and lets it back down", () => {
+    const m = new MemorySystem({ auto: false, transitionSeconds: [1, 1] });
+    const params = defaultEngineParams();
+    params.turbulence = 0.04;
+    m.setState("VOID");
+    for (let k = 0; k < 120; k++) {
+      m.update(1 / 60);
+      m.apply(params);
+    }
+    expect(params.turbulence).toBeCloseTo(0.25);
+    m.setState("RECONSTRUCT");
+    for (let k = 0; k < 120; k++) {
+      m.update(1 / 60);
+      m.apply(params);
+    }
+    // Not stuck at VOID's 0.25: back to max(the look's 0.04, RECONSTRUCT's 0.05).
+    expect(params.turbulence).toBeCloseTo(0.05);
+  });
+
+  it("a turbulence set by hand mid-cycle becomes the new base", () => {
+    const m = new MemorySystem({ auto: false });
+    const params = defaultEngineParams();
+    params.turbulence = 0.02;
+    m.update(0.1);
+    m.apply(params);
+    params.turbulence = 0.6; // the FIELD slider
+    m.update(0.1);
+    m.apply(params);
+    expect(params.turbulence).toBeCloseTo(0.6);
+  });
+});

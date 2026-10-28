@@ -54,6 +54,14 @@ export interface PresetDefinition {
    * at the measured rate of hunger deaths, for as long as someone watches.
    */
   witness?: boolean;
+  /**
+   * A look that brings its own memory (0.13): a bundled sample
+   * (public/samples), loaded when the look is chosen unless it is already
+   * the memory. Walker brings its walking body.
+   */
+  source?: string;
+  /** A look that opens with a gesture (0.13): Genesis is the ring of fire. */
+  opens?: "genesis";
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
@@ -69,8 +77,13 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       coreRadius: 0.3,
       forceScale: 4.5,
       friction: 0.9,
-      attraction: 1.1,
-      repulsion: 0.9,
+      // Calm, not wobbly (Mehran, 29 Oct 2026): with the species matrix acting
+      // on every engine since 0.12, attraction 1.1 / repulsion 0.9 held the
+      // swarm 0.44 from its memory and kept it seething; at 0 / 0 it sits at
+      // 0.12 and moves a third less. The life left is the hand's ripple and
+      // the wander: a constellation, not a boil.
+      attraction: 0,
+      repulsion: 0,
       chaos: 0.06,
       maxSpeed: 3.2,
     },
@@ -85,6 +98,71 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       opacity: 0.8,
       colorMode: "monochrome",
       shape: "circle",
+    },
+    lifecycle: { enabled: false },
+  },
+  {
+    // Genesis was a gesture on the top bar; it is a look (0.13): the
+    // signature light, opened by the ring of fire (N still lights it anywhere).
+    name: "genesis",
+    label: "Genesis",
+    description: "A ring of fire spreads out from the heart of the memory, and the memory re-forms behind it",
+    opens: "genesis",
+    memory: { strength: 7, decay: 0, reconstructionEase: 1.3 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.85,
+      coreRadius: 0.3,
+      forceScale: 4.5,
+      friction: 0.9,
+      attraction: 0,
+      repulsion: 0,
+      chaos: 0.06,
+      maxSpeed: 3.2,
+    },
+    field: { turbulence: 0.04, wander: 0.035, drift: 0, gravity: 0 },
+    visual: {
+      trails: true,
+      trailDecay: 0.7,
+      glow: 0.85,
+      fogDensity: 0.12,
+      particleSize: 0.95,
+      opacity: 0.8,
+      colorMode: "monochrome",
+      shape: "circle",
+    },
+    lifecycle: { enabled: false },
+  },
+  {
+    // A body that moves (0.13): the walker clip, held crisp in its own light,
+    // its past coming apart behind it. Life is quiet: a moving body is thin
+    // where it matters, and the swarm's cohesion beads thin limbs.
+    name: "walker",
+    label: "Walker",
+    description: "A body that moves: the present held crisp, its past coming apart into dust behind it",
+    source: "void-walker.clip.ply",
+    memory: { strength: 8, decay: 0, reconstructionEase: 1 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.7,
+      coreRadius: 0.3,
+      forceScale: 4,
+      friction: 0.88,
+      attraction: 0,
+      repulsion: 0,
+      chaos: 0.04,
+      maxSpeed: 4,
+    },
+    field: { turbulence: 0.03, wander: 0.03, drift: 0, gravity: 0 },
+    visual: {
+      trails: false,
+      glow: 0.5,
+      particleSize: 0.95,
+      opacity: 0.85,
+      dof: 0,
+      colorMode: "source",
+      shape: "circle",
+      shapeBySpecies: false,
     },
     lifecycle: { enabled: false },
   },

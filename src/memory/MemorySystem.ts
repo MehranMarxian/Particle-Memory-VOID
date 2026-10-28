@@ -212,6 +212,9 @@ export class MemorySystem {
   lag = 0;
   scatter = 0;
   clockRate = 1;
+  /** The turbulence the look owns, and what apply() last wrote over it. */
+  private turbulenceBase: number | null = null;
+  private turbulenceApplied = Number.NaN;
 
   constructor(options?: {
     configs?: Partial<Record<MemoryStateName, Partial<MemoryStateConfig>>>;
@@ -382,7 +385,14 @@ export class MemorySystem {
     }
     params.memory.strength = this.memoryStrength;
     params.memory.decay = this.decay;
-    params.turbulence = Math.max(params.turbulence, this.chaos);
+    // The state's chaos lifts the look's own turbulence, and lets it back
+    // down. It used to be max(turbulence, chaos) on the live value, a
+    // ratchet: one pass through VOID left every look at 0.25 turbulence for
+    // good, noisy and wobbly. The base is whatever someone other than the
+    // cycle last set (a look, the FIELD slider, a macro).
+    if (this.turbulenceBase === null || params.turbulence !== this.turbulenceApplied) this.turbulenceBase = params.turbulence;
+    params.turbulence = Math.max(this.turbulenceBase, this.chaos);
+    this.turbulenceApplied = params.turbulence;
     // The medium stirs as the memory goes: blend is 0.05 in RECONSTRUCT, 1 in VOID.
     params.medium.agitation = this.blend;
     // Remembering clears the scars: a ramp across the state, not a switch.
