@@ -848,8 +848,7 @@ export function createPanel(opts: {
   actions.className = "actions";
   topbar.appendChild(actions);
   iconBtn(actions, "source", "source", "SOURCE", () => callbacks.onAddSource(), "Open a photo, model or point cloud (O)");
-  const genesis = iconBtn(actions, "genesis", "genesis", "GENESIS", () => callbacks.onGenesis(), "Genesis: a ring of fire re-forms the memory (N)");
-  genesis.classList.add("genesis");
+  // GENESIS is a look now (0.13): it lives in the looks dock, and N still runs it.
   // On a phone these two move into the MORE sheet; the bar keeps the few
   // gestures a thumb reaches for most.
   iconBtn(actions, "reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct(), "Pull the swarm back into the memory (1)").classList.add("secondary");

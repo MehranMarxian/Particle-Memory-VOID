@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { ParticleEngine } from "@/particles/ParticleEngine";
 import { InteractionMatrix } from "@/particles/InteractionMatrix";
-import { defaultEngineParams } from "@/types";
+import { defaultEngineParams, type EngineParams } from "@/types";
 import { ParticleRenderer } from "@/rendering/ParticleRenderer";
 import { cameraTrailDecay, TrailPass, trailDepositScale } from "@/rendering/TrailPass";
 import { cappedPixelRatio, QualityGovernor } from "@/rendering/quality";
@@ -89,6 +89,7 @@ import {
   type StoredSource,
 } from "@/sources/sourceStore";
 import { createSourceCard } from "@/ui/sourceCard";
+import { sampleUrl } from "@/sources/samples";
 import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
@@ -516,6 +517,8 @@ let witnessLastNow = performance.now();
 // Genesis borrows the look for its fire and gives it back when it settles.
 const genesis = new Genesis();
 let genesisSaved: { visual: VisualSettings; ripple: number } | null = null;
+/** A hand-held look's memory, life force and turbulence, given back when the fire settles. */
+let genesisHeld: { memory: EngineParams["memory"]; forceScale: number; turbulence: number } | null = null;
 // A look's statement, shown quietly when it is chosen.
 const caption = createCaption();
 // The room's camera switches: PRESENCE (who is here) and WIND (how the room
@@ -2585,11 +2588,17 @@ function startGenesis(): void {
 function cancelGenesis(): void {
   genesis.active = false;
   genesisSaved = null;
+  genesisHeld = null;
 }
 
 function stepGenesis(dt: number): void {
   for (const cue of genesis.tick(dt)) {
     if (cue === "release") {
+      // A look held by hand (every look is, once chosen) comes back to exactly
+      // itself when the fire settles: the gesture borrows the cycle, it does not keep it.
+      genesisHeld = memory.active
+        ? null
+        : { memory: { ...params.memory }, forceScale: params.life.forceScale, turbulence: params.turbulence };
       memory.setState("VOID");
       panelApi?.setState(memory.state);
     } else if (cue === "ignite") {
@@ -2616,6 +2625,14 @@ function stepGenesis(dt: number): void {
       Object.assign(visual, genesisSaved.visual);
       params.pointer.ripple = genesisSaved.ripple;
       genesisSaved = null;
+      if (genesisHeld) {
+        memory.active = memory.auto = false;
+        Object.assign(params.memory, genesisHeld.memory);
+        params.life.forceScale = genesisHeld.forceScale;
+        params.turbulence = genesisHeld.turbulence;
+        genesisHeld = null;
+        panelApi?.setState("MANUAL");
+      }
       applyLook();
       panelApi?.refresh();
     }
@@ -2667,6 +2684,10 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   const line = statementFor(name);
   if (line && !def.witness) caption.show(line, captionSeconds);
   else caption.hide();
+  // A look that brings its own memory (Walker), unless it is the memory already.
+  if (def.source && pendingHandle?.name !== def.source) void openUrlSource(sampleUrl(def.source));
+  // A look that opens with a gesture (Genesis).
+  if (def.opens === "genesis") startGenesis();
 }
 
 // --- The room's camera: one eye, two readers -------------------------------------

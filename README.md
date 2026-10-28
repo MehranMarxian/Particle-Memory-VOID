@@ -246,7 +246,7 @@ has an icon with its name underneath.
 
 | Where | What |
 | --- | --- |
-| **Top bar** | The main gestures: SOURCE, GENESIS, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
+| **Top bar** | The main gestures: SOURCE, RECONSTRUCT, RELEASE, PAUSE, CAPTURE. Then SCREENSAVER, EXHIBIT and FULLSCREEN, the window toggles (TOOLS / PANEL / LOOKS), HELP and HIDE. |
 | **Tool rail** (left) | SIZE, GLOW, COLOR, SHAPE, TRAILS, FOCUS, HAND, DOTS, KINDS, SOUND, YOU (Presence and Wind). Each tool opens a small flyout beside the rail. Colours show up as swatches, ramps as gradients, shapes as their own glyphs. A dot on a tool means it's on. |
 | **Properties** (right) | Every parameter, in sections that fold independently: MOTION, MEMORY, LIFE, FIELD, SCENT & HEAT, ECOLOGY, VISUAL, SOUND, EVOLVE, and the LAB (backend, ghost, modulators, stats, RESET LAYOUT). |
 | **Looks dock** (bottom) | Every look as a face (Moon Dust first), plus RANDOM / UNDO / RESET. |
@@ -257,7 +257,9 @@ piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
 GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
 MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
 
-Eighteen authored looks ship with the piece: Moon Dust, Portrait, Organic, Scan,
+Twenty-one authored looks ship with the piece: Moon Dust, **Genesis** (the ring
+of fire, a look since 0.13; `N` still lights it anywhere), **Walker** (a body
+that moves, brought with its clip), Portrait, Organic, Scan,
 Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,
 Exhale, and three new in 0.11: **Witness**, **Murmuration** (two courting
 flocks folding like starlings at dusk) and **Aurora** (the memory hung in the

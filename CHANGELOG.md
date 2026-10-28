@@ -2,7 +2,45 @@
 
 Same shape as the piece itself: memory first, then life.
 
-## [Unreleased]
+## [0.13.0] - 2026-10-29 - "A body that moves"
+
+The memory moves: a video, a 4D clip, a programme of memories becoming one
+another. And the piece finds new looks of its own.
+
+### Fixed
+- **Turbulence no longer ratchets up through the cycle.** The memory states
+  lifted turbulence with `max(turbulence, chaos)` on the live value and never
+  let it down, so one pass through VOID left every look at 0.25 turbulence,
+  noisy and wobbly, until it was chosen again. The state's chaos now lifts
+  the look's own turbulence and lets it back down.
+- **Moon Dust is calm again** (attraction and repulsion 0, Mehran's call):
+  since the species matrix acts on every engine (0.12), 1.1 / 0.9 held the
+  swarm 0.44 from its memory and kept it seething; at 0 / 0 it sits at 0.12
+  and moves a third less.
+- **Genesis gives the look back.** The fire borrowed the authored cycle and
+  kept it: after it settled, a look chosen by hand ran at the cycle's memory
+  and life instead of its own. It now returns to exactly the look.
+- Checked in the running app: every look applies exactly its own values
+  (memory, life, field, visual), and all 21 hold 60 fps with no NaN.
+
+### Changed
+- **Genesis is a look**, in the looks dock with its own face, not a button on
+  the top bar. `N` still lights it over any look.
+- **Walker is a look**: it brings the walker clip with it, in its own colour,
+  life quiet.
+
+### Added: the 0.13 pieces already live
+- **Discovery** (DISCOVER): VOID searches for new looks in the background;
+  the Found row keeps four.
+- **Studio Link**: OSC both ways between VOID and the studio, through a
+  zero-dependency relay.
+- **Splat memories**: Gaussian-splat scenes (.ply and .splat) as memories.
+- **Metamorphosis**: a new memory is a journey, not a rebirth (MEMORY >
+  Morph); a library of **forms** to remember and morph between; the
+  **PROGRAMME**, memories played in turn, one forgetting itself into the next.
+- **Shift M** saves the moment in 4K.
+- **Moving memories**: a video as the memory.
+- The eager JS budget is 230 kB.
 
 ### Added: a body that moves (4D memory, stage 2)
 - **CLIP**, a new kind of memory: a 4D clip (a PLY with `t`, and `id` when

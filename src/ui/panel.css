@@ -81,12 +81,6 @@
   top: 6px;
   right: 8px;
 }
-#void-studio .ibtn.genesis {
-  color: var(--ember);
-}
-#void-studio .ibtn.genesis:hover {
-  box-shadow: 0 0 18px rgba(255, 154, 74, 0.22);
-}
 #void-studio .close {
   display: grid;
   place-items: center;
