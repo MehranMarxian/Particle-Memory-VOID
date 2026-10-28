@@ -40,6 +40,31 @@ export interface MemoryStateConfig {
   regain: number;
   /** Duration range in seconds [min, max] for the automatic cycle. */
   duration: [number, number];
+  /*
+   * What the state means for a memory that moves (4D memory). All optional:
+   * a state written before clips existed is a state that leaves time alone.
+   */
+  /** Seconds the moment the swarm chases trails now. */
+  lag?: number;
+  /** How fast that lag grows while the state holds, in seconds a second (retention). */
+  lagGrowth?: number;
+  /** 0..1: how far each particle forgets which moment it belongs to. */
+  scatter?: number;
+  /** The clip clock's rate: 1 plays, -1 rewinds. */
+  clockRate?: number;
+}
+
+/** The longest a moving memory is allowed to trail its present. */
+export const MAX_LAG_SECONDS = 6;
+
+/** The time part of a state, with its defaults: a state that leaves time alone. */
+export function timeOf(c: MemoryStateConfig): { lag: number; lagGrowth: number; scatter: number; clockRate: number } {
+  return {
+    lag: c.lag ?? 0,
+    lagGrowth: c.lagGrowth ?? 0,
+    scatter: c.scatter ?? 0,
+    clockRate: c.clockRate ?? 1,
+  };
 }
 
 export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
@@ -51,6 +76,10 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
     chaos: 0.05,
     regain: 1.5,
     duration: [8, 12],
+    // A moving memory is followed tightly: the present, as it happens.
+    lag: 0,
+    scatter: 0,
+    clockRate: 1,
   },
   ALIVE: {
     name: "ALIVE",
@@ -60,6 +89,9 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
     chaos: 0.12,
     regain: 0.5,
     duration: [10, 16],
+    lag: 0.1,
+    scatter: 0,
+    clockRate: 1,
   },
   DRIFT: {
     name: "DRIFT",
@@ -69,6 +101,11 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
     chaos: 0.2,
     regain: 0,
     duration: [8, 14],
+    // Retention: the moment it holds slips further behind the one that is.
+    lag: 0.25,
+    lagGrowth: 0.12,
+    scatter: 0,
+    clockRate: 1,
   },
   VOID: {
     name: "VOID",
@@ -78,6 +115,10 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
     chaos: 0.25,
     regain: 0,
     duration: [10, 18],
+    // Each particle forgets which moment it belongs to.
+    lag: 0.6,
+    scatter: 1,
+    clockRate: 1,
   },
   REMEMBER: {
     name: "REMEMBER",
@@ -87,6 +128,10 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
     chaos: 0.08,
     regain: 1.2,
     duration: [8, 12],
+    // The clock rewinds, and the swarm finds its way back to the present.
+    lag: 0,
+    scatter: 0,
+    clockRate: -1,
   },
 };
 
@@ -97,6 +142,22 @@ export const defaultStateConfigs: Record<MemoryStateName, MemoryStateConfig> = {
 export function manualAgitation(memoryStrength: number): number {
   const full = defaultStateConfigs.RECONSTRUCT.memoryStrength;
   return Math.min(1, Math.max(0.05, 1 - memoryStrength / full));
+}
+
+/**
+ * How far life yields to a memory that moves (4D memory), by the blend.
+ * A body in motion is thin where it matters, at its limbs, and a swarm's
+ * cohesion beads a thin thread into droplets. Life forces add up over the
+ * neighbours, so the denser the swarm, the sooner it beads: measured on the
+ * walker (28 Oct 2026), RECONSTRUCT's life force (about 1.1) beaded it at
+ * every density, 0.25 held it at 4,000 particles and 0.05 at 12,000. So
+ * while a clip is the memory, RECONSTRUCT and REMEMBER let life go nearly
+ * quiet, in proportion to the density; ALIVE keeps most of it, and by DRIFT
+ * and VOID life is back at full strength.
+ */
+export function clipLifeYield(blend: number, count = 12000): number {
+  const floor = Math.min(0.2, 600 / Math.max(1, count));
+  return floor + (1 - floor) * smoothstep(Math.min(1, Math.max(0, (blend - 0.1) / 0.7)));
 }
 
 /** Serialized cycle configuration (JSON-friendly). */
@@ -127,7 +188,7 @@ export class MemorySystem {
 
   private configs: Record<MemoryStateName, MemoryStateConfig>;
   private currentName: MemoryStateName;
-  private from: { blend: number; memoryStrength: number; chaos: number };
+  private from: { blend: number; memoryStrength: number; chaos: number; lag: number; scatter: number; clockRate: number };
   private stateTime = 0;
   private transitionDuration: number;
   private holdDuration: number;
@@ -147,6 +208,10 @@ export class MemorySystem {
    * (blend -> 1) life runs at full strength. The two systems compete.
    */
   lifeScale = 1;
+  /** A moving memory's time (valid after update()): how late, how lost, and the clock's rate. */
+  lag = 0;
+  scatter = 0;
+  clockRate = 1;
 
   constructor(options?: {
     configs?: Partial<Record<MemoryStateName, Partial<MemoryStateConfig>>>;
@@ -171,12 +236,15 @@ export class MemorySystem {
     const start = options?.startState ?? "RECONSTRUCT";
     this.currentName = start;
     const c = this.configs[start];
-    this.from = { blend: c.blend, memoryStrength: c.memoryStrength, chaos: c.chaos };
+    this.from = this.settled(c);
     this.blend = c.blend;
     this.memoryStrength = c.memoryStrength;
     this.chaos = c.chaos;
     this.decay = c.decay;
     this.regain = c.regain;
+    this.lag = this.from.lag;
+    this.scatter = this.from.scatter;
+    this.clockRate = this.from.clockRate;
     this.lifeScale = 0.15 + 0.85 * this.blend;
     const [tMin, tMax] = this.transitionSeconds;
     this.transitionDuration = tMin + (tMax - tMin) * this.rng();
@@ -184,6 +252,12 @@ export class MemorySystem {
       0,
       this.pickDuration(c) - this.transitionDuration
     );
+  }
+
+  /** A state's values at rest: the origin of a transition that starts there. */
+  private settled(c: MemoryStateConfig): MemorySystem["from"] {
+    const t = timeOf(c);
+    return { blend: c.blend, memoryStrength: c.memoryStrength, chaos: c.chaos, lag: t.lag, scatter: t.scatter, clockRate: t.clockRate };
   }
 
   get state(): MemoryStateName {
@@ -220,6 +294,9 @@ export class MemorySystem {
       blend: this.blend,
       memoryStrength: this.memoryStrength,
       chaos: this.chaos,
+      lag: this.lag,
+      scatter: this.scatter,
+      clockRate: this.clockRate,
     };
     this.currentName = name;
     this.stateTime = 0;
@@ -230,12 +307,15 @@ export class MemorySystem {
     if (immediate) {
       this.transitionDuration = 0;
       this.holdDuration = this.pickDuration(c);
-      this.from = { blend: c.blend, memoryStrength: c.memoryStrength, chaos: c.chaos };
+      this.from = this.settled(c);
       this.blend = c.blend;
       this.memoryStrength = c.memoryStrength;
       this.chaos = c.chaos;
       this.decay = c.decay;
       this.regain = c.regain;
+      this.lag = this.from.lag;
+      this.scatter = this.from.scatter;
+      this.clockRate = this.from.clockRate;
     }
     this.onStateChange?.(name, previous);
   }
@@ -249,11 +329,19 @@ export class MemorySystem {
     if (!this.active) {
       // Manual control: life runs at the user's parameters, unscaled.
       this.lifeScale = 1;
+      // A moving memory comes back to the present, gently: nothing snaps.
+      const k = Math.exp(-Math.max(0, dt) / 1.5);
+      this.lag *= k;
+      this.scatter *= k;
+      this.clockRate = 1 + (this.clockRate - 1) * k;
       return;
     }
     this.stateTime += dt;
     const c = this.configs[this.currentName];
+    const tc = timeOf(c);
     const done = this.stateTime >= this.transitionDuration + this.holdDuration;
+    // Retention grows while the state holds, from the moment it began.
+    const lagNow = Math.min(MAX_LAG_SECONDS, tc.lag + tc.lagGrowth * this.stateTime);
 
     if (this.stateTime < this.transitionDuration) {
       const u = smoothstep(this.stateTime / this.transitionDuration);
@@ -261,10 +349,16 @@ export class MemorySystem {
       this.memoryStrength =
         this.from.memoryStrength + (c.memoryStrength - this.from.memoryStrength) * u;
       this.chaos = this.from.chaos + (c.chaos - this.from.chaos) * u;
+      this.lag = this.from.lag + (lagNow - this.from.lag) * u;
+      this.scatter = this.from.scatter + (tc.scatter - this.from.scatter) * u;
+      this.clockRate = this.from.clockRate + (tc.clockRate - this.from.clockRate) * u;
     } else {
       this.blend = c.blend;
       this.memoryStrength = c.memoryStrength;
       this.chaos = c.chaos;
+      this.lag = lagNow;
+      this.scatter = tc.scatter;
+      this.clockRate = tc.clockRate;
     }
     this.decay = c.decay;
     this.regain = c.regain;

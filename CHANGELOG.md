@@ -4,6 +4,23 @@ Same shape as the piece itself: memory first, then life.
 
 ## [Unreleased]
 
+### Added: the memory states in time
+- Each state carries optional time fields (`lag`, `lagGrowth`, `scatter`,
+  `clockRate`), eased by the same smoothstep as the rest. RECONSTRUCT
+  follows the present; ALIVE a tenth of a second late; DRIFT lets the
+  moment it holds slip further behind (retention, up to 6 s); VOID forgets
+  which moment each particle belongs to; REMEMBER rewinds the clock while
+  the swarm finds its way back. Manual control eases time back to the
+  present. A state without the fields leaves time alone.
+- While a clip is the memory, life yields further in RECONSTRUCT and
+  REMEMBER, in proportion to the density (a thin limb beads into droplets
+  under the swarm's cohesion: measured on the walker, the usual force broke
+  it at every density).
+
+### Changed
+- **Evolution** on a moving memory scores a trial by its mean distance over
+  its second half, not by where the body happened to be at its end.
+
 ### Added: the 4D clip and the time sculpture (4D memory, stage 1)
 - **`scripts/bake/bake_time_sculpture.py`**: a moving body baked into
   VOID. It writes a **4D clip** (`<name>.clip.ply`: one binary PLY whose

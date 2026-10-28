@@ -155,6 +155,12 @@ export interface EvolverHost {
   distance(): number;
   /** Mean particle speed, right now. */
   speed(): number;
+  /**
+   * True while the memory itself moves (a 4D clip). Then one reading at the
+   * end of a trial is a matter of where the body happened to be: the trial
+   * is scored on its mean distance over its second half instead.
+   */
+  movingTarget?(): boolean;
 }
 
 function bestIndex(fitnesses: number[]): number {
@@ -173,6 +179,8 @@ export class Evolver {
   private startDistance = 0;
   private speedSum = 0;
   private speedSamples = 0;
+  private distanceSum = 0;
+  private distanceSamples = 0;
   private generationNumber = 0;
   private champion: number[] | null = null;
   private championFitness: number | null = null;
@@ -267,11 +275,16 @@ export class Evolver {
     this.speedSum += this.host.speed();
     this.speedSamples++;
     this.timeLeft -= dt;
+    const moving = this.host.movingTarget?.() === true;
+    if (moving && this.timeLeft <= this.options.trialSeconds / 2) {
+      this.distanceSum += this.host.distance();
+      this.distanceSamples++;
+    }
     if (this.timeLeft > 0) return;
 
     this.fitnesses[this.index] = trialFitness({
       startDistance: this.startDistance,
-      endDistance: this.host.distance(),
+      endDistance: moving && this.distanceSamples > 0 ? this.distanceSum / this.distanceSamples : this.host.distance(),
       meanSpeed: this.speedSamples > 0 ? this.speedSum / this.speedSamples : 0,
       population: this.ecologyPool ? this.host.population?.() ?? 0 : 0,
       populationWeight: this.ecologyPool ? this.options.populationWeight ?? 0.9 : 0,
@@ -288,6 +301,8 @@ export class Evolver {
     this.startDistance = this.host.distance();
     this.speedSum = 0;
     this.speedSamples = 0;
+    this.distanceSum = 0;
+    this.distanceSamples = 0;
     this.timeLeft = this.options.trialSeconds;
   }
 
