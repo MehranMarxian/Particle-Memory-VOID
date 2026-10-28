@@ -29,7 +29,7 @@ export interface ClipSettings {
   echoBy: EchoBy;
   /** ECHO: the oldest moment a particle chases, in seconds behind now. */
   echoDepth: number;
-  /** ECHO: how much of the swarm holds the present (0: spread evenly, 1: nearly all). */
+  /** ECHO: the share of the swarm that holds the present exactly (the rest is its past). */
   present: number;
   /** ECHO: how far the past comes apart into dust, 0..2. */
   dust: number;

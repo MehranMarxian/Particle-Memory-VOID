@@ -1,4 +1,4 @@
-import { normalizePly, type PlyData } from "../plyParser";
+import type { PlyData } from "../plyParser";
 import { TARGET_WORLD_SIZE, emptyFlat, type ClipParticleContext, type ClipRuntime, type ClipTimeState, type SourceHandle } from "../types";
 import type { ClipSettings } from "../clipSettings";
 import { ClipClock, frameAt, type FrameBlend } from "./clipClock";
@@ -182,6 +182,8 @@ export interface ClipMotion {
   middle: number;
   /** The body's own size (largest extent of its first frame). */
   size: number;
+  /** Its first frame's depth along the motion axis: front to back. */
+  extent: number;
   /** First frame's centroid. */
   centroid: [number, number, number];
 }
@@ -217,10 +219,38 @@ export function clipMotion(d: ClipData): ClipMotion {
   const moving = Math.abs(travel[axis]) >= 0.25 * size && Math.abs(travel[axis]) >= 0.6 * path;
   if (!moving) {
     const m0 = Array.from({ length: F }, (_, f) => c[f * 3]).sort((a, b) => a - b);
-    return { axis: 0, sign: 1, speed: 0, middle: m0[F >> 1], size, centroid };
+    return { axis: 0, sign: 1, speed: 0, middle: m0[F >> 1], size, extent: Math.max(1e-6, hi[0] - lo[0]), centroid };
   }
   const span = Math.max(1e-6, (F - 1) / d.fps);
-  return { axis, sign: Math.sign(travel[axis]) || 1, speed: travel[axis] / span, middle: mids[F >> 1], size, centroid };
+  return {
+    axis,
+    sign: Math.sign(travel[axis]) || 1,
+    speed: travel[axis] / span,
+    middle: mids[F >> 1],
+    size,
+    extent: Math.max(1e-6, hi[axis] - lo[axis]),
+    centroid,
+  };
+}
+
+/** How wide the whole clip at once (SCULPT, SLIT) may be before it is scaled into view. */
+export const VIEW_WIDTH = TARGET_WORLD_SIZE * 1.3;
+
+/** Centre `count` points and, when they are wider than the view, scale them into it. Pure. */
+export function fitView(xyz: Float32Array, count: number, width = VIEW_WIDTH): void {
+  if (count === 0) return;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < count; i++) {
+    for (let c = 0; c < 3; c++) {
+      lo[c] = Math.min(lo[c], xyz[i * 3 + c]);
+      hi[c] = Math.max(hi[c], xyz[i * 3 + c]);
+    }
+  }
+  const big = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  const s = big > width ? width / big : 1;
+  const centre = [0, 1, 2].map((c) => (lo[c] + hi[c]) / 2);
+  for (let i = 0; i < count; i++) for (let c = 0; c < 3; c++) xyz[i * 3 + c] = (xyz[i * 3 + c] - centre[c]) * s;
 }
 
 /** The per-count arrays a swarm of `count` needs (rebuilt only when the count changes). */
@@ -234,6 +264,94 @@ interface Dealt {
   dir: Float32Array;
   /** 0..1: how far on the trailing side of the body the particle's point sits. */
   trail: Float32Array;
+  /**
+   * Past the body's own points (a tracked clip): a neighbour of the particle's
+   * point on the body, and how far toward it the particle sits; -1 for none.
+   * A thicker swarm then fills the surface between the points instead of
+   * beading a dozen particles on each one.
+   */
+  pair: Int32Array;
+  pairW: Float32Array;
+}
+
+/** How many neighbours each body point keeps (NEIGHBOURS per point, frame 0). */
+export const NEIGHBOURS = 6;
+
+/**
+ * Each point's nearest neighbours among `n` points (xyz), by a uniform grid:
+ * NEIGHBOURS indices a point, itself where it has fewer. Pure.
+ */
+export function nearestNeighbours(xyz: Float32Array, n: number): Uint32Array {
+  const out = new Uint32Array(n * NEIGHBOURS);
+  if (n === 0) return out;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let k = 0; k < n; k++) {
+    for (let c = 0; c < 3; c++) {
+      lo[c] = Math.min(lo[c], xyz[k * 3 + c]);
+      hi[c] = Math.max(hi[c], xyz[k * 3 + c]);
+    }
+  }
+  const big = Math.max(1e-6, hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  const dims = [0, 1, 2].map((c) => Math.max(big * 0.02, hi[c] - lo[c]));
+  // About four points a cell.
+  const h = Math.cbrt((dims[0] * dims[1] * dims[2] * 4) / n);
+  const gx = Math.max(1, Math.ceil(dims[0] / h));
+  const gy = Math.max(1, Math.ceil(dims[1] / h));
+  const gz = Math.max(1, Math.ceil(dims[2] / h));
+  const cellOf = (k: number, c: number, g: number) => Math.min(g - 1, Math.floor((xyz[k * 3 + c] - lo[c]) / h));
+  const cell = new Uint32Array(n);
+  const counts = new Uint32Array(gx * gy * gz + 1);
+  for (let k = 0; k < n; k++) {
+    cell[k] = (cellOf(k, 2, gz) * gy + cellOf(k, 1, gy)) * gx + cellOf(k, 0, gx);
+    counts[cell[k] + 1]++;
+  }
+  for (let c = 1; c < counts.length; c++) counts[c] += counts[c - 1];
+  const fill = counts.slice(0, -1);
+  const sorted = new Uint32Array(n);
+  for (let k = 0; k < n; k++) sorted[fill[cell[k]]++] = k;
+  const bestD = new Float64Array(NEIGHBOURS);
+  const bestK = new Uint32Array(NEIGHBOURS);
+  for (let k = 0; k < n; k++) {
+    bestD.fill(Infinity);
+    bestK.fill(k);
+    const cx = cellOf(k, 0, gx);
+    const cy = cellOf(k, 1, gy);
+    const cz = cellOf(k, 2, gz);
+    // Grow the ring of cells until what was found is certainly nearest: anything
+    // past ring R is at least R cells away. A wide enough ring stops anyway.
+    for (let R = 0; R <= 8; R++) {
+      for (let z = Math.max(0, cz - R); z <= Math.min(gz - 1, cz + R); z++) {
+        for (let y = Math.max(0, cy - R); y <= Math.min(gy - 1, cy + R); y++) {
+          for (let x = Math.max(0, cx - R); x <= Math.min(gx - 1, cx + R); x++) {
+            // Only the new shell: the cube inside it was searched already.
+            if (Math.max(Math.abs(x - cx), Math.abs(y - cy), Math.abs(z - cz)) !== R) continue;
+            const c = (z * gy + y) * gx + x;
+            for (let s = counts[c]; s < counts[c + 1]; s++) {
+              const j = sorted[s];
+              if (j === k) continue;
+              const dx = xyz[j * 3] - xyz[k * 3];
+              const dy = xyz[j * 3 + 1] - xyz[k * 3 + 1];
+              const dz = xyz[j * 3 + 2] - xyz[k * 3 + 2];
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 >= bestD[NEIGHBOURS - 1]) continue;
+              let at = NEIGHBOURS - 1;
+              while (at > 0 && bestD[at - 1] > d2) {
+                bestD[at] = bestD[at - 1];
+                bestK[at] = bestK[at - 1];
+                at--;
+              }
+              bestD[at] = d2;
+              bestK[at] = j;
+            }
+          }
+        }
+      }
+      if (bestD[NEIGHBOURS - 1] <= (R * h) ** 2) break;
+    }
+    out.set(bestK, k * NEIGHBOURS);
+  }
+  return out;
 }
 
 export class ClipPlayer implements ClipRuntime {
@@ -295,8 +413,12 @@ export class ClipPlayer implements ClipRuntime {
     const r = new Float32Array(count);
     const dir = new Float32Array(count * 3);
     const trail = new Float32Array(count);
+    const pair = new Int32Array(count).fill(-1);
+    const pairW = new Float32Array(count);
     const m = this.motion;
     const k0 = d.start[1] - d.start[0];
+    // Neighbours hold only while every frame is the same body points.
+    const nbrs = count > K && d.tracked ? this.neighbours() : null;
     // The trailing side: behind the body's travel, or (in place) its reach from its own centre.
     let reach = 1e-6;
     if (m.speed === 0) {
@@ -307,8 +429,15 @@ export class ClipPlayer implements ClipRuntime {
     }
     for (let i = 0; i < count; i++) {
       base[i] = perm[i % K];
-      if (i >= K) {
-        // Past the body's own points, newcomers sit a hair beside an existing one.
+      if (i >= K && nbrs) {
+        // Past the body's own points, newcomers sit between a point and a neighbour on the body.
+        const j = nbrs[base[i] * NEIGHBOURS + (hashU32(i * 0x27d4eb2d + this.seed) % NEIGHBOURS)];
+        if (j !== base[i]) {
+          pair[i] = j;
+          pairW[i] = 0.2 + 0.6 * hash01(i, 13, this.seed);
+        }
+      } else if (i >= K) {
+        // No neighbours to lean on (an untracked clip): a hair beside an existing point.
         for (let c = 0; c < 3; c++) jitter[i * 3 + c] = (hash01(i, 11 + c, this.seed) * 2 - 1) * 0.012;
       }
       u[i] = (0.5 + i * 0.6180339887498949) % 1;
@@ -325,11 +454,22 @@ export class ClipPlayer implements ClipRuntime {
       trail[i] =
         m.speed === 0
           ? clamp01(Math.hypot(d.positions[o] - m.centroid[0], d.positions[o + 2] - m.centroid[2]) / reach)
-          : clamp01(0.5 - (m.sign * (d.positions[o + m.axis] - m.centroid[m.axis])) / m.size);
+          : clamp01(0.5 - (m.sign * (d.positions[o + m.axis] - m.centroid[m.axis])) / m.extent);
     }
-    this.dealt = { count, base, jitter, u, r, dir, trail };
+    this.dealt = { count, base, jitter, u, r, dir, trail, pair, pairW };
     this.staticKey = "";
     return this.dealt;
+  }
+
+  private nbrCache: Uint32Array | null = null;
+
+  /** The first frame's neighbour table, built once. */
+  private neighbours(): Uint32Array {
+    if (!this.nbrCache) {
+      const d = this.data;
+      this.nbrCache = nearestNeighbours(d.positions.subarray(d.start[0] * 3, d.start[1] * 3), d.start[1] - d.start[0]);
+    }
+    return this.nbrCache;
   }
 
   /** The body point particle i follows in frame f (an index into the frame). */
@@ -339,6 +479,38 @@ export class ClipPlayer implements ClipRuntime {
     if (renewed) return hashU32((i * 0x9e3779b1) ^ hashU32((f + 1) * 0x85ebca77 + this.seed)) % kf;
     const b = base[i];
     return b < kf ? b : b % kf;
+  }
+
+  private echoKey = "";
+  private echoDelay = new Float32Array(0);
+  /** ECHO's dust per particle: how far it comes apart (k^1.5) and how far it rises and falls back (k²). */
+  private echoSpread = new Float32Array(0);
+  private echoRise = new Float32Array(0);
+
+  /**
+   * ECHO: every particle's delay and dust, kept while the settings hold (a
+   * pow a particle, twice a frame, was most of the clip's cost at 50k). By
+   * heat they follow the field, so they are taken afresh each time.
+   */
+  private echoes(count: number, s: ClipSettings, d: Dealt, ctx: ClipParticleContext): void {
+    let sig = 0;
+    if (s.echoBy === "species" && ctx.species) for (let i = 0; i < count; i += 61) sig = (sig * 31 + ctx.species[i]) | 0;
+    const key = `${count}|${s.echoBy}|${s.echoDepth}|${s.present}|${ctx.speciesCount}|${sig}`;
+    if (key === this.echoKey && s.echoBy !== "heat") return;
+    this.echoKey = key;
+    if (this.echoDelay.length !== count) {
+      this.echoDelay = new Float32Array(count);
+      this.echoSpread = new Float32Array(count);
+      this.echoRise = new Float32Array(count);
+    }
+    const depth = Math.max(1e-3, s.echoDepth);
+    for (let i = 0; i < count; i++) {
+      const delay = this.delayOf(i, s, d, ctx);
+      const k = delay / depth;
+      this.echoDelay[i] = delay;
+      this.echoSpread[i] = k * Math.sqrt(k);
+      this.echoRise[i] = k * k;
+    }
   }
 
   /** ECHO: how many seconds behind now particle i lives. */
@@ -360,9 +532,11 @@ export class ClipPlayer implements ClipRuntime {
         // The trailing side goes first; a little chance keeps it dust, not slices.
         g = 0.65 * d.trail[i] + 0.35 * d.r[i];
     }
-    // Most of the swarm holds the present; the tail reaches back to the depth.
-    const p = 1 + 5 * s.present;
-    return s.echoDepth * Math.pow(g, p);
+    // The share `present` holds the present exactly, so the body stays crisp;
+    // the rest reaches back to the depth, most of it only a little way.
+    const h = Math.min(0.999, s.present);
+    if (g <= h) return 0;
+    return s.echoDepth * Math.pow((g - h) / (1 - h), 1.6);
   }
 
   writeTargets(targets: Float32Array, count: number, s: ClipSettings, time: ClipTimeState, ctx: ClipParticleContext): void {
@@ -387,23 +561,65 @@ export class ClipPlayer implements ClipRuntime {
     const dust = echo ? s.dust * DUST_REACH * (this.motion.size / 4) : 0;
     const m = this.motion;
     const back = m.speed === 0 ? 0 : -m.sign;
-    const depth = Math.max(1e-3, s.echoDepth);
     const b = this.blend;
+    // A body that travels is held so its present stays at the middle of its
+    // path (the clip is framed by the body, not the walk: fitBody), and its
+    // past trails where it really was. Looped, it walks on: each loop carries
+    // on from where the last one ended. Without this the past of the first
+    // frame is the far end of the path, and every loop the echo tears across it.
+    const travelling = m.speed !== 0;
+    const treadmill = mode === "loop" && travelling;
+    const travel = treadmill ? m.speed * L : 0;
+    const hold = travelling ? m.speed * (this.clock.span / 2 - (treadmill ? phase : this.clock.time(mode))) : 0;
+    const ax = m.axis;
+    if (echo) this.echoes(count, s, d, ctx);
+    const delays = this.echoDelay;
+    // A tracked clip has every body point in every frame: a particle's point is its own base.
+    const fixed = data.tracked && !renewed;
+    const base = d.base;
+    const looping = mode === "loop" && F > 1;
     for (let i = 0; i < count; i++) {
-      const delay = echo ? this.delayOf(i, s, d, ctx) : 0;
-      const ct = this.clock.wrap(phase - lag - delay + scatter * d.u[i] * L, mode);
-      frameAt(ct, F, fps, mode, b);
-      const p = (st[b.f0] + this.pick(i, b.f0, renewed, d.base)) * 3;
-      const q = (st[b.f1] + this.pick(i, b.f1, renewed, d.base)) * 3;
+      const delay = echo ? delays[i] : 0;
+      const T = phase - lag - delay + scatter * d.u[i] * L;
+      if (looping) {
+        // LOOP, inline (the default, and the hot path): frameAt(wrap(T)) without the calls.
+        let ff = (T * fps) % F;
+        if (ff < 0) ff += F;
+        let f0 = ff | 0;
+        if (f0 >= F) f0 = 0;
+        b.f0 = f0;
+        b.f1 = f0 + 1 === F ? 0 : f0 + 1;
+        b.a = ff - f0;
+      } else {
+        frameAt(this.clock.wrap(T, mode), F, fps, mode, b);
+      }
+      const p = (st[b.f0] + (fixed ? base[i] : this.pick(i, b.f0, renewed, base))) * 3;
+      const q = (st[b.f1] + (fixed ? base[i] : this.pick(i, b.f1, renewed, base))) * 3;
       const a = b.a;
       let x = P[p] + (P[q] - P[p]) * a + d.jitter[i * 3];
       let y = P[p + 1] + (P[q + 1] - P[p + 1]) * a + d.jitter[i * 3 + 1];
       let z = P[p + 2] + (P[q + 2] - P[p + 2]) * a + d.jitter[i * 3 + 2];
+      const j = renewed ? -1 : d.pair[i];
+      if (j >= 0) {
+        // Between its point and a neighbour on the body, the same at every moment.
+        const p2 = (st[b.f0] + j) * 3;
+        const q2 = (st[b.f1] + j) * 3;
+        const w = d.pairW[i];
+        x += (P[p2] + (P[q2] - P[p2]) * a - x) * w;
+        y += (P[p2 + 1] + (P[q2 + 1] - P[p2 + 1]) * a - y) * w;
+        z += (P[p2 + 2] + (P[q2 + 2] - P[p2 + 2]) * a - z) * w;
+      }
+      if (travelling) {
+        // The last frame glides into the first one a loop further on.
+        const shift = treadmill ? Math.floor(T / L) * travel + hold + (b.f1 < b.f0 ? travel * a : 0) : hold;
+        if (ax === 0) x += shift;
+        else if (ax === 1) y += shift;
+        else z += shift;
+      }
       if (dust > 0 && delay > 0) {
         // The past comes apart: outward, a little up, and back along the way it came.
-        const k = delay / depth;
-        const spread = dust * k * Math.sqrt(k) * (1 + 0.25 * Math.sin(phase * 0.8 + d.r[i] * 6.2832));
-        const k2 = dust * k * k;
+        const spread = dust * this.echoSpread[i] * (1 + 0.25 * Math.sin(phase * 0.8 + d.r[i] * 6.2832));
+        const k2 = dust * this.echoRise[i];
         x += d.dir[i * 3] * spread;
         y += d.dir[i * 3 + 1] * spread + 0.35 * k2;
         z += d.dir[i * 3 + 2] * spread;
@@ -437,12 +653,26 @@ export class ClipPlayer implements ClipRuntime {
     const scatter = clamp01(time.scatter);
     const depth = Math.max(1e-3, s.echoDepth);
     const b = this.blend1;
+    if (echo) this.echoes(count, s, d, ctx);
+    const delays = this.echoDelay;
+    const fixed = data.tracked && !renewed;
+    const F = data.frames;
+    const fps = data.fps;
+    const looping = mode === "loop" && F > 1;
     for (let i = 0; i < count; i++) {
-      const delay = echo ? this.delayOf(i, s, d, ctx) : 0;
-      const ct = this.clock.wrap(phase - lag - delay + scatter * d.u[i] * L, mode);
-      frameAt(ct, data.frames, data.fps, mode, b);
-      const f = b.a < 0.5 ? b.f0 : b.f1;
-      const o = (data.start[f] + this.pick(i, f, renewed, d.base)) * 3;
+      const delay = echo ? delays[i] : 0;
+      const T = phase - lag - delay + scatter * d.u[i] * L;
+      let f: number;
+      if (looping) {
+        // The nearest frame, inline (as in writeTargets).
+        let ff = Math.round((T * fps) % F);
+        if (ff < 0) ff += F;
+        f = ff >= F ? 0 : ff;
+      } else {
+        frameAt(this.clock.wrap(T, mode), F, fps, mode, b);
+        f = b.a < 0.5 ? b.f0 : b.f1;
+      }
+      const o = (data.start[f] + (fixed ? d.base[i] : this.pick(i, f, renewed, d.base))) * 3;
       let r = C[o] / 255;
       let g = C[o + 1] / 255;
       let bl = C[o + 2] / 255;
@@ -471,6 +701,7 @@ export class ClipPlayer implements ClipRuntime {
     this.staticColors = new Float32Array(count * 3);
     if (s.view === "sculpt") this.layoutSculpt(count, s, d);
     else this.layoutSlit(count, s, d);
+    fitView(this.staticTargets, count);
   }
 
   private put(i: number, o: number, x: number, y: number, z: number): void {
@@ -494,6 +725,12 @@ export class ClipPlayer implements ClipRuntime {
       const q = (data.start[b.f1] + this.pick(i, b.f1, renewed, d.base)) * 3;
       const P = data.positions;
       const v = [0, 1, 2].map((c) => P[p + c] + (P[q + c] - P[p + c]) * b.a + d.jitter[i * 3 + c]);
+      const j = renewed ? -1 : d.pair[i];
+      if (j >= 0) {
+        const p2 = (data.start[b.f0] + j) * 3;
+        const q2 = (data.start[b.f1] + j) * 3;
+        for (let c = 0; c < 3; c++) v[c] += (P[p2 + c] + (P[q2 + c] - P[p2 + c]) * b.a - v[c]) * d.pairW[i];
+      }
       v[m.axis] += m.sign * s.shear * (tau - span / 2);
       this.put(i, b.a < 0.5 ? p : q, v[0], v[1], v[2]);
     }
@@ -505,6 +742,8 @@ export class ClipPlayer implements ClipRuntime {
     const m = this.motion;
     const F = data.frames;
     const P = data.positions;
+    // Neighbours hold in every frame only when every frame is the same body points.
+    const nbrs = data.tracked ? this.neighbours() : null;
     const stack = m.speed !== 0 ? m.speed : m.size / Math.max(1e-6, this.duration);
     const slab = s.slab * Math.max((Math.abs(stack) / data.fps) * 1.2, 0.004 * m.size);
     const x0 = m.middle;
@@ -532,6 +771,15 @@ export class ClipPlayer implements ClipRuntime {
       const k = list[hashU32(i * 0x9e3779b1 + this.seed) % list.length];
       const o = k * 3;
       const v = [P[o] + d.jitter[i * 3], P[o + 1] + d.jitter[i * 3 + 1], P[o + 2] + d.jitter[i * 3 + 2]];
+      if (nbrs) {
+        // A thin slab holds few points, and many particles share each: spread
+        // them toward a neighbour on the body (a little out of the slab is still the slab).
+        const local = k - data.start[f];
+        const j = nbrs[local * NEIGHBOURS + (hashU32(i * 0x27d4eb2d + this.seed) % NEIGHBOURS)];
+        const o2 = (data.start[f] + j) * 3;
+        const w = 0.5 * hash01(i, 13, this.seed);
+        for (let c = 0; c < 3; c++) v[c] += (P[o2 + c] - P[o + c]) * w;
+      }
       // Across the motion axis, place is time.
       v[m.axis] = x0 + (v[m.axis] - x0) - stack * (f / data.fps - tMid);
       this.put(i, o, v[0], v[1], v[2]);
@@ -576,10 +824,47 @@ export class ClipPlayer implements ClipRuntime {
   }
 }
 
+/**
+ * Frame the clip by its body, not its path: the largest frame's body becomes
+ * `size` across, centred on the middle of the whole clip. A swarm needs the
+ * room a photograph gives it; framed by its path, a walker was a thin figure
+ * a third of the world high, and the particles packed into droplets. The
+ * present is held at the centre while it plays (ClipPlayer), so a path
+ * longer than the view never leaves it.
+ */
+export function fitBody(d: ClipData, size = TARGET_WORLD_SIZE): void {
+  const P = d.positions;
+  const total = d.start[d.frames];
+  if (total === 0) return;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  let body = 1e-9;
+  for (let f = 0; f < d.frames; f++) {
+    const flo = [Infinity, Infinity, Infinity];
+    const fhi = [-Infinity, -Infinity, -Infinity];
+    for (let k = d.start[f]; k < d.start[f + 1]; k++) {
+      for (let c = 0; c < 3; c++) {
+        const v = P[k * 3 + c];
+        if (v < flo[c]) flo[c] = v;
+        if (v > fhi[c]) fhi[c] = v;
+      }
+    }
+    for (let c = 0; c < 3; c++) {
+      lo[c] = Math.min(lo[c], flo[c]);
+      hi[c] = Math.max(hi[c], fhi[c]);
+      body = Math.max(body, fhi[c] - flo[c]);
+    }
+  }
+  const s = size / body;
+  const centre = [0, 1, 2].map((c) => (lo[c] + hi[c]) / 2);
+  for (let k = 0; k < total; k++) for (let c = 0; c < 3; c++) P[k * 3 + c] = (P[k * 3 + c] - centre[c]) * s;
+}
+
 /** A 4D clip, parsed, as a source handle. The settings and the clock are the app's to drive. */
 export function clipHandle(name: string, ply: PlyData, settings: ClipSettings): SourceHandle {
-  normalizePly(ply, TARGET_WORLD_SIZE);
-  const player = new ClipPlayer(buildClip(ply));
+  const data = buildClip(ply);
+  fitBody(data);
+  const player = new ClipPlayer(data);
   const still: ClipTimeState = { lag: 0, scatter: 0 };
   return {
     name,
