@@ -9,6 +9,7 @@
  *
  * Not part of the piece's bundle: only the baking page imports it.
  */
+import * as THREE from "three";
 
 export interface SurfacePoints {
   /** Triangle per point (an index into the triangle list the areas came from). */
@@ -116,4 +117,31 @@ export function encodeClipPly(frames: readonly ClipFrame[], fps: number, note = 
     }
   }
   return bytes.buffer;
+}
+
+/** Mixamo names the same bone `mixamorig:Hips`, `mixamorigHips` or `mixamorig1Hips` by download. */
+export function boneKey(name: string): string {
+  return name.replace(/^.*[|/]/, "").replace(/^mixamorig\d*:?/i, "").toLowerCase();
+}
+
+/**
+ * Put an animation from another file (a Mixamo walk "Without Skin") on this
+ * body: each track goes to the bone with the same name, whatever prefix
+ * either download gave it. Tracks with no such bone are dropped.
+ */
+export function retarget(clip: THREE.AnimationClip, root: THREE.Object3D): { clip: THREE.AnimationClip; matched: number } {
+  const bones = new Map<string, string>();
+  root.traverse((o) => {
+    if ((o as THREE.Bone).isBone || o.type === "Object3D" || o.type === "Group") bones.set(boneKey(o.name), o.name);
+  });
+  const tracks: THREE.KeyframeTrack[] = [];
+  for (const t of clip.tracks) {
+    const dot = t.name.lastIndexOf(".");
+    const target = bones.get(boneKey(t.name.slice(0, dot)));
+    if (!target) continue;
+    const copy = t.clone();
+    copy.name = `${target}${t.name.slice(dot)}`;
+    tracks.push(copy);
+  }
+  return { clip: new THREE.AnimationClip(clip.name, clip.duration, tracks), matched: tracks.length };
 }

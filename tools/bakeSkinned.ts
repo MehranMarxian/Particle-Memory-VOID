@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
-import { encodeClipPly, sampleSurface, triangleArea, type ClipFrame } from "@/sources/clip/skinnedBake";
+import { encodeClipPly, retarget, sampleSurface, triangleArea, type ClipFrame } from "@/sources/clip/skinnedBake";
 import { parsePly } from "@/sources/plyParser";
 
 /**
@@ -47,19 +47,28 @@ async function load(file: File): Promise<Loaded> {
 }
 
 /** Wait for every texture image to finish decoding (FBX embeds them as blobs). */
-async function texturesReady(root: THREE.Object3D, timeoutMs = 15000): Promise<void> {
-  const images: HTMLImageElement[] = [];
+async function texturesReady(root: THREE.Object3D, timeoutMs = 15000): Promise<number> {
+  // The maps, not their images: an FBX's embedded texture gets its image
+  // only once the blob decodes, so an image that is not there yet is waited
+  // for too (the first cut skipped those, and baked a body without its skin).
+  const maps: THREE.Texture[] = [];
   root.traverse((o) => {
     const mats = (o as THREE.Mesh).material;
     for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
-      const img = (m as THREE.MeshStandardMaterial).map?.image as HTMLImageElement | undefined;
-      if (img && "complete" in img) images.push(img);
+      const map = (m as THREE.MeshStandardMaterial).map;
+      if (map) maps.push(map);
     }
   });
+  const ready = (t: THREE.Texture) => {
+    const img = t.image as HTMLImageElement | ImageBitmap | undefined;
+    if (!img) return false;
+    return "complete" in img ? img.complete && img.naturalWidth > 0 : img.width > 0;
+  };
   const until = performance.now() + timeoutMs;
-  while (images.some((i) => !i.complete || i.naturalWidth === 0) && performance.now() < until) {
+  while (maps.some((t) => !ready(t)) && performance.now() < until) {
     await new Promise((r) => setTimeout(r, 50));
   }
+  return maps.filter(ready).length;
 }
 
 function partsOf(root: THREE.Object3D): Part[] {
@@ -242,31 +251,84 @@ function preview(frame: ClipFrame, canvas: HTMLCanvasElement): void {
 let model: Loaded | null = null;
 let modelName = "body";
 
+/** Animations brought in from a separate file, already put on the body. */
+let borrowed: THREE.AnimationClip[] = [];
+let borrowedFrom = "";
+
+function clipsOf(m: Loaded): THREE.AnimationClip[] {
+  // A clip with no keys (a T-pose take) moves nothing: it is not an animation.
+  return [...borrowed, ...m.clips].filter((c) => c.duration > 0 && c.tracks.length > 0);
+}
+
+function paintClips(): void {
+  if (!model) return;
+  const clips = clipsOf(model);
+  const sel = $<HTMLSelectElement>("clip");
+  sel.replaceChildren(...clips.map((c, k) => Object.assign(document.createElement("option"), { value: String(k), textContent: `${c.name || "clip " + k} (${c.duration.toFixed(2)} s)` })));
+  $<HTMLInputElement>("seconds").placeholder = clips[0] ? clips[0].duration.toFixed(2) : "1";
+  ($("bake") as HTMLButtonElement).disabled = clips.length === 0;
+}
+
 async function open(file: File): Promise<void> {
   log(`READING ${file.name}...`);
   model = await load(file);
-  await texturesReady(model.root);
+  borrowed = [];
+  const maps = await texturesReady(model.root);
   modelName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-z0-9-]+/gi, "-").toLowerCase() || "body";
-  const sel = $<HTMLSelectElement>("clip");
-  sel.replaceChildren(...model.clips.map((c, k) => Object.assign(document.createElement("option"), { value: String(k), textContent: `${c.name || "clip " + k} (${c.duration.toFixed(2)} s)` })));
-  $<HTMLInputElement>("seconds").placeholder = model.clips[0] ? model.clips[0].duration.toFixed(2) : "1";
-  log(`${file.name}: ${partsOf(model.root).length} meshes, ${model.clips.length} animation(s). Choose, then BAKE.`);
-  ($("bake") as HTMLButtonElement).disabled = false;
+  paintClips();
+  const clips = clipsOf(model).length;
+  log(
+    clips
+      ? `${file.name}: ${partsOf(model.root).length} meshes, ${maps} texture(s), ${clips} animation(s). Choose, then BAKE.`
+      : `${file.name}: ${partsOf(model.root).length} meshes, ${maps} texture(s), NO ANIMATION - this is the body at rest. Add a walk: in Mixamo choose Walking and download it "Without Skin", then drop it in ANIMATION above.`
+  );
+}
+
+/** A walk from another file (Mixamo "Without Skin"), put on the body by bone name. */
+async function openAnimation(file: File): Promise<void> {
+  if (!model) {
+    log("OPEN THE BODY FIRST, THEN ITS ANIMATION");
+    return;
+  }
+  log(`READING ${file.name}...`);
+  const anim = await load(file);
+  borrowed = [];
+  let matched = 0;
+  for (const c of anim.clips) {
+    const r = retarget(c, model.root);
+    if (r.matched > 0) {
+      borrowed.push(r.clip);
+      matched = Math.max(matched, r.matched);
+    }
+  }
+  borrowedFrom = file.name;
+  paintClips();
+  log(
+    borrowed.length
+      ? `${file.name}: ${borrowed.length} animation(s) put on the body (${matched} bones matched). BAKE.`
+      : `${file.name}: no animation in it fits this body's bones (is it a Mixamo animation?)`
+  );
 }
 
 async function run(): Promise<void> {
   if (!model) return;
+  const clips = clipsOf(model);
+  if (clips.length === 0) {
+    log("NOTHING MOVES: add an animation first");
+    return;
+  }
   const points = Number($<HTMLInputElement>("points").value) || 12000;
   const fps = Number($<HTMLInputElement>("fps").value) || 30;
   const secondsText = $<HTMLInputElement>("seconds").value;
-  const { frames, clipName } = await bake(model, {
+  const { frames, clipName } = await bake({ root: model.root, clips }, {
     points,
     fps,
     seconds: secondsText ? Number(secondsText) : undefined,
     clipIndex: Number($<HTMLSelectElement>("clip").value) || 0,
     onProgress: (d, t) => log(`BAKING frame ${d} / ${t}...`),
   });
-  const buf = encodeClipPly(frames, fps, `made by VOID tools/bake-skinned.html from ${modelName}, ${clipName}`);
+  const from = borrowed.length && borrowedFrom ? ` (animation from ${borrowedFrom})` : "";
+  const buf = encodeClipPly(frames, fps, `made by VOID tools/bake-skinned.html from ${modelName}, ${clipName}${from}`);
   // Read it back the way the piece will, before handing it over.
   const ply = parsePly(buf);
   preview(frames[frames.length >> 1], $<HTMLCanvasElement>("preview"));
@@ -285,6 +347,10 @@ $<HTMLInputElement>("file").addEventListener("change", (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
   if (f) open(f).catch((err: Error) => log(err.message));
 });
+$<HTMLInputElement>("anim").addEventListener("change", (e) => {
+  const f = (e.target as HTMLInputElement).files?.[0];
+  if (f) openAnimation(f).catch((err: Error) => log(err.message));
+});
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => {
   e.preventDefault();
@@ -294,4 +360,4 @@ window.addEventListener("drop", (e) => {
 $("bake").addEventListener("click", () => run().catch((err: Error) => log(err.message)));
 
 /** For tests and the console: open a File, bake, and keep the result on window.__baked. */
-(window as unknown as Record<string, unknown>).__bakeSkinned = { open, run, load, bake, THREE };
+(window as unknown as Record<string, unknown>).__bakeSkinned = { open, openAnimation, run, load, bake, retarget, THREE };

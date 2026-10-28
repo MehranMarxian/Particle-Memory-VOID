@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { encodeClipPly, sampleSurface, triangleArea } from "@/sources/clip/skinnedBake";
+import * as THREE from "three";
+import { boneKey, encodeClipPly, retarget, sampleSurface, triangleArea } from "@/sources/clip/skinnedBake";
 import { isClipHeader, parsePly, plyHeaderText } from "@/sources/plyParser";
 import { buildClip } from "@/sources/clip/clip";
 
@@ -43,5 +44,33 @@ describe("baking a skinned body (tools/bake-skinned.html)", () => {
     expect(clip.frames).toBe(3);
     expect(clip.tracked).toBe(true);
     expect(clip.positions[(clip.start[2] + 1) * 3]).toBe(2);
+  });
+});
+
+describe("putting a Mixamo walk on another Mixamo body", () => {
+  it("matches bones whatever prefix each download gave them", () => {
+    expect(boneKey("mixamorig:LeftUpLeg")).toBe("leftupleg");
+    expect(boneKey("mixamorigLeftUpLeg")).toBe("leftupleg");
+    expect(boneKey("mixamorig1LeftUpLeg")).toBe("leftupleg");
+    expect(boneKey("Armature|mixamorig:Hips")).toBe("hips");
+  });
+
+  it("renames each track to the body's own bone, and drops what has no bone", () => {
+    const body = new THREE.Group();
+    const hips = new THREE.Bone();
+    hips.name = "mixamorig1Hips";
+    const leg = new THREE.Bone();
+    leg.name = "mixamorig1LeftUpLeg";
+    hips.add(leg);
+    body.add(hips);
+    const clip = new THREE.AnimationClip("Walking", 1.1, [
+      new THREE.VectorKeyframeTrack("mixamorigHips.position", [0, 1], [0, 0, 0, 0, 0, 50]),
+      new THREE.QuaternionKeyframeTrack("mixamorig:LeftUpLeg.quaternion", [0, 1], [0, 0, 0, 1, 0.3, 0, 0, 0.95]),
+      new THREE.QuaternionKeyframeTrack("mixamorigTail.quaternion", [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+    ]);
+    const r = retarget(clip, body);
+    expect(r.matched).toBe(2);
+    expect(r.clip.tracks.map((t) => t.name)).toEqual(["mixamorig1Hips.position", "mixamorig1LeftUpLeg.quaternion"]);
+    expect(r.clip.duration).toBeCloseTo(1.1);
   });
 });

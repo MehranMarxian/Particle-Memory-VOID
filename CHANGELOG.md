@@ -10,6 +10,11 @@ Same shape as the piece itself: memory first, then life.
   carried through the animation by the model's own skinning, coloured from
   its textures, saved as a `.clip.ply`. For a realistic WALKER from Mixamo;
   the steps are in `docs/4d-memory.md`.
+- A body with no walk of its own (a Mixamo character in its T-pose) takes
+  one from a second file, a Mixamo animation "Without Skin", matched by bone
+  name. A model with no animation now says so instead of baking 30 still
+  frames, and textures that decode late (an FBX's embedded ones) are waited
+  for, so the body keeps its skin.
 
 ## [0.13.0] - 2026-10-29 - "A body that moves"
 

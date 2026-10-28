@@ -30,3 +30,4 @@ packaging/build.rsp
 /baked/
 __pycache__/
 /.venv-bake/
+/public/zz-tmp/

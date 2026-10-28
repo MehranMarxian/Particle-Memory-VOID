@@ -138,8 +138,14 @@ npm run dev
 start http://localhost:5173/tools/bake-skinned.html
 ```
 
-6. Drop the FBX on the page, keep 12,000 points and 30 frames a second, and
-   press **BAKE**. A side view of the middle moment appears; **SAVE** writes
+6. Drop the FBX on the page (**Model**), keep 12,000 points and 30 frames a
+   second, and press **BAKE**. If the page says **NO ANIMATION**, the FBX is
+   the character in its T-pose (downloaded from the Characters tab, or with
+   no animation chosen). Keep it: in Mixamo choose **Walking**, download it
+   with Skin `Without Skin` (a few MB), and drop that in **Animation**. The
+   walk is put on your body by bone name, whatever prefix each download gave
+   the bones (`mixamorig:Hips`, `mixamorigHips`, `mixamorig1Hips`).
+   Then press **BAKE**. A side view of the middle moment appears; **SAVE** writes
    `<name>.clip.ply` (one Mixamo walk cycle, about 1.1 s, is about 9 MB).
 7. Drop the saved clip on VOID. To make it the **WALKER**, save it as
    `public\samples\void-walker.clip.ply` (it replaces the synthetic one).

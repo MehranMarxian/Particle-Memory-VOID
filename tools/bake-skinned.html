@@ -23,7 +23,10 @@
   <h1>VOID · BAKE A BODY</h1>
   <p>Drop a rigged, animated character (a Mixamo FBX with skin, or a GLB). Points are chosen once on its skin and carried
     through its animation, coloured from its textures: a 4D clip VOID plays. Nothing leaves this machine.</p>
+  <p>A body with no walk of its own (a Mixamo character downloaded in its T-pose) takes one from a second file: a Mixamo
+    animation downloaded "Without Skin", put on the body by bone name.</p>
   <label>Model <input id="file" type="file" accept=".fbx,.glb,.gltf" /></label>
+  <label>Animation (optional) <input id="anim" type="file" accept=".fbx,.glb,.gltf" /></label>
   <label>Animation <select id="clip"></select></label>
   <label>Points per frame <input id="points" type="number" value="12000" min="500" max="50000" step="500" /></label>
   <label>Frames a second <input id="fps" type="number" value="30" min="5" max="60" /></label>
