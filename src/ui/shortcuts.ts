@@ -7,7 +7,7 @@ import { MEMORY_STATE_ORDER, type MemoryStateName } from "@/memory/MemorySystem"
  * the two cannot drift in either direction.
  */
 
-export type ShortcutGroup = "MEMORY" | "LIFE" | "VISUAL" | "SYSTEM";
+export type ShortcutGroup = "MEMORY" | "LIFE" | "VISUAL" | "CLIP" | "SYSTEM";
 
 export interface ShortcutRow {
   group: ShortcutGroup;
@@ -24,6 +24,49 @@ export interface ShortcutRow {
 }
 
 export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
+  // A body that moves (4D memory): these act on a 4D clip, and say so when there is none.
+  {
+    group: "CLIP",
+    display: "Q",
+    keys: ["Q"],
+    label: "Play / hold the clip",
+    hint: "Let the moving memory move, or hold it at this moment.",
+  },
+  {
+    group: "CLIP",
+    display: "U",
+    keys: ["U"],
+    label: "Time view",
+    hint: "NOW, ECHO (each particle a moment late), SCULPT and SLIT (the whole clip at once).",
+  },
+  {
+    group: "CLIP",
+    display: "J",
+    keys: ["J"],
+    label: "Loop",
+    hint: "LOOP, PING-PONG, or HOLD the last moment.",
+  },
+  {
+    group: "CLIP",
+    display: "I",
+    keys: ["I"],
+    label: "Identity",
+    hint: "TRACKED: each particle keeps its point of the body. RENEWED: the body drawn anew every instant.",
+  },
+  {
+    group: "CLIP",
+    display: "← →",
+    keys: ["ArrowLeft", "ArrowRight"],
+    label: "Scrub",
+    hint: "One frame back or on (and hold there).",
+  },
+  {
+    group: "CLIP",
+    display: "↑ ↓",
+    keys: ["ArrowUp", "ArrowDown"],
+    label: "Clip speed",
+    hint: "Faster or slower, from a tenth to three times.",
+  },
   {
     group: "MEMORY",
     display: "1 - 5",
@@ -219,7 +262,7 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
 ];
 
-export const SHORTCUT_GROUP_ORDER: readonly ShortcutGroup[] = ["MEMORY", "LIFE", "VISUAL", "SYSTEM"];
+export const SHORTCUT_GROUP_ORDER: readonly ShortcutGroup[] = ["MEMORY", "LIFE", "VISUAL", "CLIP", "SYSTEM"];
 
 /** The five memory states, in cycle order, with their one-line meaning. */
 export const MEMORY_STATE_GUIDE: readonly { name: MemoryStateName; line: string }[] = [
@@ -269,6 +312,13 @@ export interface ShortcutContext {
   toggleRecording?(): void;
   /** Shift M (0.13): capture the moment in 4K. */
   captureHiRes?(): void;
+  /** The 4D clip (4D memory): play or hold, view, loop, identity, scrub, speed. */
+  clipPlay(): void;
+  clipView(): void;
+  clipLoop(): void;
+  clipIdentity(): void;
+  clipScrub(frames: number): void;
+  clipSpeed(dir: 1 | -1): void;
 }
 
 export interface KeyModifiers {
@@ -304,8 +354,34 @@ export function handleKey(rawKey: string, ctx: ShortcutContext, modifiers: KeyMo
     ctx.toggleGuide();
     return true;
   }
+  switch (rawKey) {
+    case "ArrowLeft":
+      ctx.clipScrub(-1);
+      return true;
+    case "ArrowRight":
+      ctx.clipScrub(1);
+      return true;
+    case "ArrowUp":
+      ctx.clipSpeed(1);
+      return true;
+    case "ArrowDown":
+      ctx.clipSpeed(-1);
+      return true;
+  }
   const key = rawKey.toUpperCase();
   switch (key) {
+    case "Q":
+      ctx.clipPlay();
+      return true;
+    case "U":
+      ctx.clipView();
+      return true;
+    case "J":
+      ctx.clipLoop();
+      return true;
+    case "I":
+      ctx.clipIdentity();
+      return true;
     case "E":
       ctx.toggleEvolve();
       return true;

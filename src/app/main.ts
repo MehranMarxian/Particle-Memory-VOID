@@ -19,7 +19,8 @@ import {
   type VisualSettings,
 } from "@/rendering/VisualSettings";
 import { nextColorMode, paletteStops, writeRandomColors, writeSpeciesColors } from "@/rendering/palette";
-import { fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { fieldTintAt, fieldTintRefreshFrames, fieldTintScale, writeFieldTintColors } from "@/rendering/fieldTint";
+import { clipSettings, saveClipSettings, nextOf, stepSpeed, CLIP_VIEWS, CLIP_LOOPS, CLIP_IDENTITIES } from "@/sources/clipSettings";
 import { ParticleHistory, writeHistoryColors } from "@/rendering/history";
 import {
   DEFAULT_CAMERA_CHOREOGRAPHY,
@@ -38,7 +39,7 @@ import {
 } from "@/ecology/ecologySystem";
 import { ecologyDriveFromAudio, initialOnset } from "@/ecology/ecologyAudio";
 import { applyEcologyGenes } from "@/presets/ecologyGenes";
-import { MemorySystem, MEMORY_STATE_ORDER } from "@/memory/MemorySystem";
+import { MemorySystem, MEMORY_STATE_ORDER, clipLifeYield } from "@/memory/MemorySystem";
 import { mulberry32 } from "@/utils/math";
 import {
   loadSource,
@@ -936,6 +937,110 @@ function stepLiveMemory(dt: number): void {
   }
 }
 
+// --- 4D memory: a body that moves, its targets written every frame -------------------------
+// The clip runtime (sources/clip, lazy) writes every particle's target into
+// the CPU array each frame and the engine uploads it its own way, so the
+// three engines chase exactly the same body. Colours follow a few times a
+// second, like a moving picture's: the light needs no more.
+const CLIP_COLOR_HZ = 15;
+const CLIP_HEAT_HZ = 4;
+let clipColorClock = 0;
+let clipHeatClock = 0;
+let clipHeat: Float32Array | null = null;
+
+function clipContext(): { species: Uint8Array; speciesCount: number; heat: Float32Array | null } {
+  return { species: engine.species, speciesCount, heat: clipSettings.echoBy === "heat" ? clipHeat : null };
+}
+
+/** ECHO by heat: how warm each particle's place is, 0..1, refreshed a few times a second. */
+function refreshClipHeat(): void {
+  const n = engine.count;
+  if (!clipHeat || clipHeat.length < n) clipHeat = new Float32Array(n);
+  const field = engine.heat;
+  const scale = fieldTintScale(field.peak());
+  const p = engine.positions;
+  for (let i = 0; i < n; i++) clipHeat[i] = fieldTintAt(field, scale, p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+}
+
+function stepClip(dt: number): void {
+  const clip = pendingHandle?.clip;
+  if (!clip) return;
+  if (clipSettings.playing) clip.advance(dt, clipSettings, memory.clockRate);
+  // A morph into the clip finishes first; the visitor's own silhouette wins over it.
+  if (morph || presenceHome) return;
+  if (clipSettings.view === "echo" && clipSettings.echoBy === "heat" && (clipHeatClock += dt) >= 1 / CLIP_HEAT_HZ) {
+    clipHeatClock = 0;
+    refreshClipHeat();
+  }
+  const time = { lag: memory.lag, scatter: memory.scatter };
+  const ctx = clipContext();
+  clip.writeTargets(engine.targets, engine.count, clipSettings, time, ctx);
+  engine.uploadTargets?.();
+  if ((clipColorClock += dt) < 1 / CLIP_COLOR_HZ) return;
+  clipColorClock = 0;
+  const n = engine.count * 3;
+  if (!sourceColors || sourceColors.length !== n) sourceColors = new Float32Array(n);
+  clip.writeColors(sourceColors, engine.count, clipSettings, time, ctx);
+  // MONOCHROME reads the memory's own light too (it keeps the luminance).
+  if (visual.colorMode === "source" || visual.colorMode === "monochrome") {
+    engine.colors.set(sourceColors);
+    witness.applyTo(engine.colors, engine.count);
+    particleRenderer?.markColorsDirty();
+  }
+}
+
+/** A clip setting changed (panel or keys): keep it, and say so. */
+function clipChanged(hint?: string): void {
+  saveClipSettings();
+  clipColorClock = 1;
+  panelApi?.refresh();
+  if (hint) flashHint(hint, 3);
+}
+
+function clipLabel(): string {
+  const clip = pendingHandle?.clip;
+  if (!clip) return "";
+  const t = clip.time(clipSettings);
+  return `${clipSettings.view.toUpperCase()} · ${clipSettings.playing ? "PLAYING" : "HELD"} · ${t.toFixed(2)} / ${clip.duration.toFixed(1)} s · ×${clipSettings.speed}`;
+}
+
+/** The clip keys (Q U J I and the arrows) and the panel's CLIP section, in one place. */
+const clipControls = {
+  active: () => pendingHandle?.clip !== undefined,
+  togglePlay() {
+    clipSettings.playing = !clipSettings.playing;
+    clipChanged(clipSettings.playing ? "CLIP: PLAYING" : "CLIP: HELD");
+  },
+  cycleView() {
+    clipSettings.view = nextOf(CLIP_VIEWS, clipSettings.view);
+    clipChanged(`CLIP VIEW: ${clipSettings.view.toUpperCase()}`);
+  },
+  cycleLoop() {
+    clipSettings.loop = nextOf(CLIP_LOOPS, clipSettings.loop);
+    clipChanged(`CLIP: ${clipSettings.loop.toUpperCase()}`);
+  },
+  cycleIdentity() {
+    clipSettings.identity = nextOf(CLIP_IDENTITIES, clipSettings.identity);
+    clipChanged(
+      clipSettings.identity === "tracked"
+        ? "CLIP: TRACKED - EACH PARTICLE KEEPS ITS POINT OF THE BODY"
+        : "CLIP: RENEWED - THE BODY IS DRAWN ANEW EVERY INSTANT"
+    );
+  },
+  scrub(frames: number) {
+    const clip = pendingHandle?.clip;
+    if (!clip) return;
+    clip.step(frames, clipSettings);
+    clipSettings.playing = false;
+    clipChanged(clipLabel());
+  },
+  speed(dir: 1 | -1) {
+    clipSettings.speed = stepSpeed(clipSettings.speed, dir);
+    clipChanged(`CLIP SPEED: ×${clipSettings.speed}`);
+  },
+  label: clipLabel,
+};
+
 // --- Metamorphosis (0.13): one memory becoming another ------------------------------------
 // A new memory for a living swarm of the same size is not a rebirth: the
 // particles' places travel from the old form to the new one (morph/morph.ts),
@@ -1464,6 +1569,9 @@ async function loadFile(file: File): Promise<void> {
     await adoptHandle(handle);
     if (sourceLoadSuperseded(mySeq)) return;
     rememberSource(file);
+    if (handle.kind === "clip" && !shouldPersist(file.size)) {
+      flashHint(`THIS CLIP IS ${Math.ceil(file.size / 1048576)} MB - IT PLAYS, BUT ONLY CLIPS UP TO 64 MB ARE KEPT ACROSS A RELOAD`, 7);
+    }
   } catch (err) {
     if (sourceLoadSuperseded(mySeq)) return;
     failSource(file.name, err);
@@ -1534,7 +1642,11 @@ async function restoreStoredSource(): Promise<void> {
 function refreshThumbnail(): void {
   if (sourceUi.phase !== "ready") return;
   const file = lastDroppedFile;
-  if (file && sourceUi.kind === "image") {
+  const clipFace = sourceUi.kind === "clip" ? pendingHandle?.clip?.thumbnail(96) : null;
+  if (clipFace) {
+    // A clip's face is its middle moment, from the side.
+    sourceCard.setThumbnail(clipFace);
+  } else if (file && sourceUi.kind === "image") {
     createImageBitmap(file, { resizeWidth: 96 })
       .then((bmp) => sourceCard.setThumbnail(bmp))
       .catch(() => sourceCard.setThumbnail(null));
@@ -1766,6 +1878,7 @@ const evolver = new Evolver(
     },
     population: () => engine.count / Math.max(1, (engine as ParticleEngine).capacity),
     distance: () => engine.meanTargetDistance(),
+    movingTarget: () => pendingHandle?.clip !== undefined && clipSettings.playing,
     speed: () => sampledMeanSpeed(),
   },
   speciesCount,
@@ -1960,10 +2073,24 @@ const shortcutCtx: ShortcutContext = {
   togglePresence: () => void togglePresence(),
   toggleWind: () => void toggleWind(),
   startExhibition: () => startExhibition(),
+  clipPlay: () => clipKey(() => clipControls.togglePlay()),
+  clipView: () => clipKey(() => clipControls.cycleView()),
+  clipLoop: () => clipKey(() => clipControls.cycleLoop()),
+  clipIdentity: () => clipKey(() => clipControls.cycleIdentity()),
+  clipScrub: (frames) => clipKey(() => clipControls.scrub(frames)),
+  clipSpeed: (dir) => clipKey(() => clipControls.speed(dir)),
 };
+
+/** The clip keys act on a 4D clip; with none loaded they say where to find one. */
+function clipKey(act: () => void): void {
+  if (clipControls.active()) act();
+  else flashHint("NO MOVING MEMORY - DROP A 4D CLIP (.clip.ply), OR TRY WALKER", 4);
+}
 
 window.addEventListener("keydown", (e) => {
   if (isTextEntryTarget(e.target)) return;
+  // A focused slider keeps its own arrow keys.
+  if (e.key.startsWith("Arrow") && e.target instanceof HTMLInputElement) return;
   handleKey(e.key, shortcutCtx, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey });
 });
 
@@ -2044,6 +2171,23 @@ if (!demoMode) {
     wind,
     programme,
     cutout: cutoutState,
+    clip: {
+      settings: clipSettings,
+      active: clipControls.active,
+      label: clipControls.label,
+      fraction: () => {
+        const clip = pendingHandle?.clip;
+        return clip ? clip.time(clipSettings) / Math.max(1e-6, clip.duration) : 0;
+      },
+      scrubTo: (f) => {
+        const clip = pendingHandle?.clip;
+        if (!clip) return;
+        clip.scrub(f * clip.duration, clipSettings);
+        clipSettings.playing = false;
+        saveClipSettings();
+      },
+      onChange: () => clipChanged(),
+    },
     callbacks: {
       onTogglePause() {
         togglePause();
@@ -2375,6 +2519,8 @@ function declareGlobalHandle(): void {
       switchBackend,
       fps: () => fps,
       p95: () => p95FrameTime(),
+      /** The moving memory now (4D memory), its settings, and the memory's time: to time and compare it. */
+      clip: () => ({ runtime: pendingHandle?.clip ?? null, settings: clipSettings, time: { lag: memory.lag, scatter: memory.scatter } }),
       /** The post chain, to read the light's targets back. */
       trail: () => trailPass,
       /** The modulation matrix, to play it without a microphone or controller. */
@@ -2394,7 +2540,7 @@ function declareGlobalHandle(): void {
         for (let s = 0; s < n; s++) {
           memory.update(FIXED_DT);
           memory.apply(params);
-          if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
+          if (memory.active) params.life.forceScale = 6 * memory.lifeScale * (pendingHandle?.clip ? clipLifeYield(memory.blend, engine.count) : 1);
           if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
           engine.step(FIXED_DT, params, activeMatrix);
           stepEcology(FIXED_DT);
@@ -2885,6 +3031,9 @@ function frameInner(now: number): void {
     accumulator = 0;
   }
   stepLiveMemory(dt);
+  // The clip runs on the simulation's own time: a machine that cannot keep
+  // up plays the swarm in slow motion, and the body it chases slows with it.
+  stepClip(simPaused ? 0 : steps * FIXED_DT);
   if (!simPaused) {
     stepMorph(dt);
     const cue = programme.tick(dt);
@@ -2895,7 +3044,7 @@ function frameInner(now: number): void {
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
     // (In MANUAL mode the user owns the Force slider directly.)
-    if (memory.active) params.life.forceScale = 6 * memory.lifeScale;
+    if (memory.active) params.life.forceScale = 6 * memory.lifeScale * (pendingHandle?.clip ? clipLifeYield(memory.blend, engine.count) : 1);
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     stepEcology(FIXED_DT);
@@ -3119,11 +3268,15 @@ function frameInner(now: number): void {
           : "IDLE"
     );
     fps = Math.round((frames * 1000) / (now - lastFpsTime));
+    // The CLIP section's moment and status follow the clock.
+    if (pendingHandle?.clip) panelApi?.refresh();
     frames = 0;
     lastFpsTime = now;
     panelApi?.setStats(
       `${engine.count.toLocaleString()} particles   ${fps} fps   sim ${(engine.lastStepTime * 1000).toFixed(1)}ms [${activeBackend}]   frame p95 ${(p95FrameTime() * 1000).toFixed(1)}ms   d=${engine.meanTargetDistance().toFixed(2)}${activeBackend !== "cpu" ? `   rb ${engine.lastReadbacks.count} (${(engine.lastReadbacks.bytes / 1024).toFixed(0)} kB)` : ""}\n` +
-      `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}\n` +
+      `memory ${(memory.active ? memory.memoryStrength : params.memory.strength).toFixed(2)}   blend ${memory.blend.toFixed(2)}   ${memory.active && memory.auto ? "authored cycle" : "manual"}${audio.active ? `   sound ${soundLevel.toFixed(2)}` : ""}` +
+      (pendingHandle?.clip ? `   clip lag ${memory.lag.toFixed(2)}s scatter ${memory.scatter.toFixed(2)} rate ${memory.clockRate.toFixed(2)}` : "") +
+      "\n" +
       (coarsePointer
         ? `guide: the ? button - tap any key in it to run it`
         : `keys: ? controls  [1-5] memory states  [P] panel  [F] fullscreen`)

@@ -12,8 +12,8 @@ export const SAMPLES: readonly SampleSource[] = [
   { label: "FIGURE", file: "void-figure.png" },
   { label: "CLOUD", file: "void-cloud.ply" },
   { label: "SPHERE", file: "void-sphere.obj" },
-  // A time sculpture: a walking body remembered as its echoes (scripts/bake).
-  { label: "WALKER", file: "void-walker.sculpture.ply" },
+  // A body that moves: a 4D clip of a walking figure (scripts/bake).
+  { label: "WALKER", file: "void-walker.clip.ply" },
 ];
 
 export function sampleUrl(file: string): string {

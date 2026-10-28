@@ -38,6 +38,12 @@ function recordingContext(guideOpen = false) {
     startExhibition: () => calls.push("exhibition"),
     togglePause: () => calls.push("togglePause"),
     captureMoment: () => calls.push("captureMoment"),
+    clipPlay: () => calls.push("clipPlay"),
+    clipView: () => calls.push("clipView"),
+    clipLoop: () => calls.push("clipLoop"),
+    clipIdentity: () => calls.push("clipIdentity"),
+    clipScrub: (frames: number) => calls.push(`clipScrub:${frames}`),
+    clipSpeed: (dir: number) => calls.push(`clipSpeed:${dir}`),
     isGuideOpen: () => open,
   };
   return {

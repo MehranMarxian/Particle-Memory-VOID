@@ -54,6 +54,8 @@ Same shape as the piece itself: memory first, then life.
 ### Changed
 - **Evolution** on a moving memory scores a trial by its mean distance over
   its second half, not by where the body happened to be at its end.
+- **The screensaver** lists `.ply` files in `Documents\VOID\Sources`, so a
+  clip placed there plays in it.
 
 ### Added: the 4D clip and the time sculpture (4D memory, stage 1)
 - **`scripts/bake/bake_time_sculpture.py`**: a moving body baked into

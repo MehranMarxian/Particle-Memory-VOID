@@ -94,7 +94,8 @@ namespace VoidScreensaver
             var found = new List<string>();
             try
             {
-                string[] exts = { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
+                // Pictures, and point clouds: a .ply may be a 4D clip, a body that moves.
+                string[] exts = { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".ply" };
                 foreach (string f in Directory.GetFiles(_sourcesDir))
                 {
                     string ext = Path.GetExtension(f).ToLowerInvariant();
