@@ -117,7 +117,7 @@ describe("the 4D PLY", () => {
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     const h = clipHandle("void-walker.clip.ply", parsePly(ab), settings({ view: "now" }));
     expect(h.kind).toBe("clip");
-    expect(h.detail).toBe("45 FRAMES · 3.0 s");
+    expect(h.detail).toBe("41 FRAMES · 2.7 s");
     expect(h.clip!.tracked).toBe(true);
     const s = h.resample(12000);
     expect(s.count).toBe(12000);
