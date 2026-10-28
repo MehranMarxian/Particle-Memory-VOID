@@ -2,6 +2,15 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [Unreleased]
+
+### Added: bake a body (tools/bake-skinned.html)
+- A dev page that turns a rigged, animated character (a Mixamo FBX with
+  skin, or a GLB) into a 4D clip: points chosen once on the skin by area,
+  carried through the animation by the model's own skinning, coloured from
+  its textures, saved as a `.clip.ply`. For a realistic WALKER from Mixamo;
+  the steps are in `docs/4d-memory.md`.
+
 ## [0.13.0] - 2026-10-29 - "A body that moves"
 
 The memory moves: a video, a 4D clip, a programme of memories becoming one

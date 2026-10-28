@@ -116,6 +116,38 @@ python scripts\bake\bake_time_sculpture.py --frames "C:\captures\walk\*.ply" --n
 Ids come from nearest-neighbour chaining (each track takes the nearest free
 point where it is predicted to be next).
 
+### A realistic character from Mixamo (the WALKER, or any body)
+
+A rigged, animated character becomes a clip in the browser: points chosen
+once on its skin, carried through its animation by its own skinning, and
+coloured from its textures. No Python, and nothing leaves the machine.
+
+1. Go to https://www.mixamo.com and sign in with your Adobe ID.
+2. **Characters**: choose a realistic one. Remy, Kate, Jody, Josh, Megan and
+   Sophie are the photographic ones; the robots and mannequins are not.
+3. **Animations**: search `walking` and choose **Walking** (the plain one).
+   Leave **In Place** unticked: the body should travel, so its past trails
+   behind it (VOID holds it at the middle of the view on a treadmill).
+4. **DOWNLOAD** with: Format `FBX Binary (.fbx)`, Skin `With Skin`, Frames per
+   Second `30`, Keyframe Reduction `none`.
+5. Run the dev server and open the baker:
+
+```powershell
+cd "$env:USERPROFILE\Documents\GitHub\Particle Memory VOID"
+npm run dev
+start http://localhost:5173/tools/bake-skinned.html
+```
+
+6. Drop the FBX on the page, keep 12,000 points and 30 frames a second, and
+   press **BAKE**. A side view of the middle moment appears; **SAVE** writes
+   `<name>.clip.ply` (one Mixamo walk cycle, about 1.1 s, is about 9 MB).
+7. Drop the saved clip on VOID. To make it the **WALKER**, save it as
+   `public\samples\void-walker.clip.ply` (it replaces the synthetic one).
+
+The same page takes a GLB or glTF with a skin and an animation. Mixamo's
+characters and animations are Adobe's, used under Mixamo's terms (free to use
+in projects; the character files themselves are not to be redistributed).
+
 ### From a video (the ML path, CUDA on the 4070 Ti)
 
 ```powershell
@@ -148,6 +180,11 @@ npx vitest run --dir tests
 
 ## Known limits
 
+- **The Mixamo path is tested on a generated body, not a Mixamo file.**
+  The baker was run end to end on a rigged, textured, walking test body
+  built and exported as GLB in the browser (skinning, texture colour, ids
+  and root motion all checked); a real Mixamo FBX (FBXLoader, embedded
+  textures) is its first real test.
 - **The video path is untested with real models.** This session's Python
   had a CPU-only torch and no rembg, and the plan was not to download models
   here, so the path ran only on a mocked 3-frame input (decoder, mask and
