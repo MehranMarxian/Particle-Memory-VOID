@@ -24,6 +24,17 @@ import {
   type MacroValues,
 } from "@/presets/macros";
 import { icon, type IconName } from "./icons";
+import {
+  CLIP_IDENTITIES,
+  CLIP_LOOPS,
+  CLIP_VIEWS,
+  ECHO_BY,
+  type ClipIdentity,
+  type ClipLoop,
+  type ClipSettings,
+  type ClipView,
+  type EchoBy,
+} from "@/sources/clipSettings";
 import { createCredit } from "./footer";
 import "./panel.css";
 
@@ -254,6 +265,16 @@ export function createPanel(opts: {
   cutout?: () => { available: boolean; active: boolean; busy: boolean };
   /** Called when a change needs the particle buffers re-baked (colour/shape). */
   onLookChange?: () => void;
+  /** The 4D clip (4D memory): its settings, whether one plays, and where in it the present is. */
+  clip?: {
+    settings: ClipSettings;
+    active(): boolean;
+    label(): string;
+    /** 0..1 through the clip. */
+    fraction(): number;
+    scrubTo(fraction: number): void;
+    onChange(): void;
+  };
 }): PanelApi {
   const { params, visual, memory, callbacks, sound, evolve, pointer, soundscape, ecology, ecologyEvents, onLookChange, backend, macros, presence, wind } = opts;
   let speciesCount = opts.speciesCount;
@@ -1112,6 +1133,68 @@ export function createPanel(opts: {
     () => opts.cutout?.().available === true
   );
   densityControls(memBody);
+
+  // A body that moves (4D memory): how the clip plays, and how its past is held.
+  if (opts.clip) {
+    const clip = opts.clip;
+    const cs = clip.settings;
+    const clipBody = section("CLIP", "play");
+    const status = addNote(clipBody, "");
+    syncFns.push(() => {
+      status.textContent = clip.active() ? clip.label() : "NO MOVING MEMORY: DROP A 4D CLIP (.clip.ply), OR TRY WALKER";
+    });
+    const changed = () => clip.onChange();
+    const setting = (
+      label: string,
+      key: "speed" | "echoDepth" | "present" | "dust" | "fade" | "shear" | "slab",
+      min: number,
+      max: number,
+      step: number,
+      format: (v: number) => string,
+      tip: string
+    ) =>
+      addSlider(clipBody, label, { min, max, step }, () => cs[key], (v) => {
+        cs[key] = v;
+        changed();
+      }, format, true, tip);
+    addToggle(clipBody, "Clip", () => cs.playing, (v) => {
+      cs.playing = v;
+      changed();
+    }, "PLAYING", "HELD", "Let the moving memory move, or hold it at one moment (Q).");
+    addSlider(
+      clipBody,
+      "Moment",
+      { min: 0, max: 1, step: 0.001 },
+      () => clip.fraction(),
+      (v) => clip.scrubTo(v),
+      (v) => v.toFixed(2),
+      true,
+      "Where in the clip the present is. Moving it holds the clip there (← →)."
+    );
+    setting("Speed", "speed", 0.1, 3, 0.05, (v) => `×${v.toFixed(2)}`, "How fast the clip plays (↑ ↓). REMEMBER runs it backwards on its own.");
+    addChoiceRow(clipBody, "View", CLIP_VIEWS, () => cs.view, (v) => {
+      cs.view = v as ClipView;
+      changed();
+    }, "NOW: the present. ECHO: each particle a moment late, the past coming apart. SCULPT: the whole clip at once, sheared through time. SLIT: a photo-finish (U).");
+    addChoiceRow(clipBody, "Loop", CLIP_LOOPS, () => cs.loop, (v) => {
+      cs.loop = v as ClipLoop;
+      changed();
+    }, "LOOP, PING-PONG, or HOLD the last moment (J).");
+    addChoiceRow(clipBody, "Identity", CLIP_IDENTITIES, () => cs.identity, (v) => {
+      cs.identity = v as ClipIdentity;
+      changed();
+    }, "TRACKED: each particle keeps its point of the body. RENEWED: the body drawn anew every instant (I).");
+    addChoiceRow(clipBody, "Echo by", ECHO_BY, () => cs.echoBy, (v) => {
+      cs.echoBy = v as EchoBy;
+      changed();
+    }, "ECHO: what makes a particle late. GRADIENT: the trailing side of the body. RANDOM, SPECIES, or HEAT (where the swarm works hardest).", () => cs.view === "echo");
+    setting("Echo depth", "echoDepth", 0.05, 6, 0.05, (v) => `${v.toFixed(2)}s`, "ECHO: the oldest moment a particle chases, in seconds behind now.");
+    setting("Present", "present", 0, 1, 0.01, num, "ECHO: how much of the swarm holds the present. Low spreads it evenly through its past.");
+    setting("Dust", "dust", 0, 2, 0.01, num, "ECHO: how far the past comes apart into dust.");
+    setting("Fade", "fade", 0, 1, 0.01, num, "ECHO: how much colour and light the past loses.");
+    setting("Shear", "shear", 0, 4, 0.05, num, "SCULPT: how far each moment is set apart from the next, along the way the body goes.");
+    setting("Slab", "slab", 0.25, 6, 0.05, num, "SLIT: how thick the slab of space each moment keeps.");
+  }
 
   const lifeBody = section("LIFE", "life");
   addObjSlider(lifeBody, "Attraction", params.life, "attraction", 0, 2, 0.01, num, "How strongly compatible particles gather.");

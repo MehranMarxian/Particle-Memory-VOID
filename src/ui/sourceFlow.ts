@@ -33,6 +33,8 @@ export function kindLabel(kind: SourceKind | "synthetic"): string {
       return "POINT CLOUD";
     case "video":
       return "VIDEO";
+    case "clip":
+      return "CLIP";
     default:
       return "SYNTHETIC";
   }

@@ -40,6 +40,12 @@ function makeCtx(isGuideOpen: () => boolean = () => false) {
     startExhibition: () => calls.push("exhibition"),
     togglePause: () => calls.push("pause"),
     captureMoment: () => calls.push("capture"),
+    clipPlay: () => calls.push("clipPlay"),
+    clipView: () => calls.push("clipView"),
+    clipLoop: () => calls.push("clipLoop"),
+    clipIdentity: () => calls.push("clipIdentity"),
+    clipScrub: (frames: number) => calls.push(`clipScrub:${frames}`),
+    clipSpeed: (dir: number) => calls.push(`clipSpeed:${dir}`),
   };
 }
 

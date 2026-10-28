@@ -25,6 +25,12 @@ export interface PlyData {
   opacity?: Float32Array | null;
   /** A Gaussian-splat scene (framed robustly, turned right way up). */
   splat?: boolean;
+  /** A 4D clip's time per point, in seconds (the `t` property), when present. */
+  t?: Float32Array | null;
+  /** A 4D clip's body-point identity per point (the `id` property), when present. */
+  ids?: Int32Array | null;
+  /** What a `comment v4d clip fps=.. frames=..` header line said, when present. */
+  clip?: { fps?: number; frames?: number } | null;
 }
 
 interface PlyProperty {
@@ -55,7 +61,7 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
   const bytes = new Uint8Array(buffer);
   const headerEnd = findHeaderEnd(bytes);
   const headerText = latin1(bytes.subarray(0, headerEnd.textEnd));
-  const { format, elements } = parseHeader(headerText);
+  const { format, elements, clip } = parseHeader(headerText);
 
   const vertexEl = elements.find((e) => e.name === "vertex");
   if (!vertexEl) throw new Error("PLY: no 'vertex' element");
@@ -74,6 +80,8 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
     vertexEl.props.some((p) => p.name === n && !p.isList)
   );
   const hasOpacity = vertexEl.props.some((p) => p.name === "opacity" && !p.isList);
+  const hasT = vertexEl.props.some((p) => p.name === "t" && !p.isList);
+  const hasId = vertexEl.props.some((p) => p.name === "id" && !p.isList);
 
   const dataStart = headerEnd.dataStart;
   const rest = bytes.subarray(dataStart);
@@ -86,6 +94,9 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
     format,
     opacity: hasOpacity ? new Float32Array(vertexEl.count) : null,
     splat: hasDc,
+    t: hasT ? new Float32Array(vertexEl.count) : null,
+    ids: hasId ? new Int32Array(vertexEl.count) : null,
+    clip,
   };
 
   if (format === "ascii") {
@@ -183,16 +194,38 @@ function latin1(bytes: Uint8Array): string {
   return s;
 }
 
+/** Is this the header of a 4D clip (scripts/bake)? A `v4d clip` comment, or a `t` on the vertices. */
+export function isClipHeader(text: string): boolean {
+  return /^comment\s+v4d\s+clip\b/m.test(text) || /^property\s+\w+\s+t\s*$/m.test(text);
+}
+
+/** The first bytes of a PLY as text: enough for its header. */
+export function plyHeaderText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 1 << 16));
+  const text = latin1(bytes);
+  const end = text.indexOf("end_header");
+  return end >= 0 ? text.slice(0, end) : text;
+}
+
 function parseHeader(text: string): {
   format: PlyData["format"];
   elements: PlyElement[];
+  clip: PlyData["clip"];
 } {
   const lines = text.split(/\r?\n/).map((l) => l.trim());
   if (!lines[0].startsWith("ply")) throw new Error("PLY: missing 'ply' magic");
   let format: PlyData["format"] | null = null;
   const elements: PlyElement[] = [];
   let current: PlyElement | null = null;
+  let clip: PlyData["clip"] = null;
   for (const line of lines.slice(1)) {
+    if (/^comment\s+v4d\s+clip\b/.test(line)) {
+      const num = (key: string) => {
+        const m = new RegExp(`(?:^|\\s)${key}=([0-9.]+)`).exec(line);
+        return m ? Number(m[1]) : undefined;
+      };
+      clip = { fps: num("fps"), frames: num("frames") };
+    }
     if (!line || line.startsWith("comment") || line.startsWith("obj_info")) continue;
     const tokens = line.split(/\s+/);
     if (tokens[0] === "format") {
@@ -219,7 +252,7 @@ function parseHeader(text: string): {
     }
   }
   if (!format) throw new Error("PLY: missing format declaration");
-  return { format, elements };
+  return { format, elements, clip };
 }
 
 function parseAscii(rest: Uint8Array, el: PlyElement, out: PlyData): void {
@@ -235,7 +268,7 @@ function parseAscii(rest: Uint8Array, el: PlyElement, out: PlyData): void {
         continue;
       }
       const v = read();
-      assign(prop.name, i, v, out, el);
+      assign(prop, i, v, out);
     }
   }
 }
@@ -281,21 +314,19 @@ function parseBinary(
         continue;
       }
       const v = readScalar(prop.type);
-      assign(prop.name, i, v, out, el);
+      assign(prop, i, v, out);
     }
   }
 }
 
-function assign(
-  name: string,
-  i: number,
-  v: number,
-  out: PlyData,
-  el: PlyElement
-): void {
-  const prop = el.props.find((p) => p.name === name)!;
-  const isColorByte = /uchar|uint8/.test(prop.type);
-  switch (name) {
+/**
+ * One value into its place. The property comes in by reference: a 4D clip
+ * (scripts/bake) is a million vertices, and looking each property up by name
+ * for every value was most of its parse.
+ */
+function assign(prop: PlyProperty, i: number, v: number, out: PlyData): void {
+  const isColorByte = prop.type === "uchar" || prop.type === "uint8";
+  switch (prop.name) {
     case "x": out.positions[i * 3] = v; break;
     case "y": out.positions[i * 3 + 1] = v; break;
     case "z": out.positions[i * 3 + 2] = v; break;
@@ -309,6 +340,8 @@ function assign(
     case "nx": out.normals![i * 3] = v; break;
     case "ny": out.normals![i * 3 + 1] = v; break;
     case "nz": out.normals![i * 3 + 2] = v; break;
+    case "t": if (out.t) out.t[i] = v; break;
+    case "id": if (out.ids) out.ids[i] = v; break;
     default: break; // ignore extra properties (confidence, intensity, ...)
   }
 }

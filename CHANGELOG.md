@@ -2,6 +2,92 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [Unreleased]
+
+### Added: a body that moves (4D memory, stage 2)
+- **CLIP**, a new kind of memory: a 4D clip (a PLY with `t`, and `id` when
+  the body is tracked) is told apart by its header and plays. The card says
+  `CLIP · 45 FRAMES · 3.0 s · 12,000 PARTICLES` with the clip's middle
+  moment as its face; it survives a reload like any source (up to 64 MB,
+  and a larger clip says it will not be kept). **WALKER** on the empty card
+  now plays the walker clip. The clip code is a lazy chunk (6.5 kB gzip).
+- **The present, and its past** (ECHO, the default view): most of the swarm
+  holds the present crisp while the trailing side of the body comes apart
+  into dust that keeps less colour and light the older it is, after the
+  reference Mehran gave on 28 Oct 2026. Echo by GRADIENT (the trailing
+  side), RANDOM, SPECIES or HEAT; Echo depth, Present, Dust, Fade.
+- **Views** (`U`): NOW, ECHO, SCULPT (the whole clip at once, sheared through
+  time) and SLIT (a photo-finish), the time sculptures of stage 1 done live.
+- **The clip clock**: `Q` play / hold, `J` LOOP / PING-PONG / HOLD, `←` `→`
+  scrub a frame, `↑` `↓` speed, and a CLIP section in the panel with a
+  Moment slider. Frames are interpolated, so motion is smooth at any speed.
+  The clock runs on the simulation's own time: a machine that falls behind
+  slows the body with the swarm.
+- **Identity** (`I`): TRACKED keeps each particle on its point of the body
+  (by id, dealt by seed, so `[` `]` keep every particle where it was);
+  RENEWED draws the body anew every instant. Past the body's own points, a
+  particle sits between a point and one of its neighbours on the body, so
+  a dense swarm fills the surface instead of beading on the points.
+- **A body that travels walks on**: framed by the body, not the path, held
+  at the middle of the view, and looped on a treadmill so the last frame
+  glides into the first a step further on. Without it the echo tore across
+  the path at every loop.
+- **One target array for every engine**: targets are written on the CPU
+  every frame and uploaded by each engine. Measured in the running app:
+  CPU, WebGL2 and WebGPU receive identical targets (difference 0). Both GPU
+  engines pack through one helper, and WebGPU no longer allocates on every
+  upload.
+
+### Added: the memory states in time
+- Each state carries optional time fields (`lag`, `lagGrowth`, `scatter`,
+  `clockRate`), eased by the same smoothstep as the rest. RECONSTRUCT
+  follows the present; ALIVE a tenth of a second late; DRIFT lets the
+  moment it holds slip further behind (retention, up to 6 s); VOID forgets
+  which moment each particle belongs to; REMEMBER rewinds the clock while
+  the swarm finds its way back. Manual control eases time back to the
+  present. A state without the fields leaves time alone.
+- While a clip is the memory, life yields further in RECONSTRUCT and
+  REMEMBER, in proportion to the density (a thin limb beads into droplets
+  under the swarm's cohesion: measured on the walker, the usual force broke
+  it at every density).
+
+### Changed
+- **Evolution** on a moving memory scores a trial by its mean distance over
+  its second half, not by where the body happened to be at its end.
+- **The screensaver** lists `.ply` files in `Documents\VOID\Sources`, so a
+  clip placed there plays in it.
+
+### Added: the 4D clip and the time sculpture (4D memory, stage 1)
+- **`scripts/bake/bake_time_sculpture.py`**: a moving body baked into
+  VOID. It writes a **4D clip** (`<name>.clip.ply`: one binary PLY whose
+  points also carry `t`, the second they belong to, and `id`, which body
+  point they are) and a **time sculpture** from it (`<name>.sculpture.ply`),
+  a still point cloud the piece already remembers.
+  - Five sculptures (`--mode`): SCULPT (every moment at once, sheared
+    through time), ECHO (every Nth frame, the past sparser and darker),
+    STROBE (a comb of frames), SLIT (a slab of space per frame, stacked
+    into a photo-finish), FIREBRAND (one point's path as a line of light,
+    over an exposure of 0 to N seconds). `--color time` lights the past
+    dim and the present bright.
+  - Three ways in: `--synthetic walker|dancer|firebrand` (procedural
+    bodies with true ids, no ML), `--frames "<dir>/*.ply"` (per-frame
+    clouds such as a Record3D export, followed by nearest-neighbour
+    chaining), and an optional `--video` path for a CUDA PC (rembg or SAM
+    mask, Depth Anything V2 Small depth, `requirements-ml.txt`). The
+    video path is tested with a mocked 3-frame input; no model is
+    downloaded by the tests.
+  - Core is Python 3.11 and numpy. 90 frames of 12,000 points is 23.7 MB;
+    the script prints every file's size and warns past 25 MB (the piece
+    keeps sources across reloads up to 64 MB).
+- A small walker sculpture (`public/samples/void-walker.sculpture.ply`, its
+  echoes) and a small walker clip (`void-walker.clip.ply`, 45 frames of
+  3,000 points, 3 MB) ship as samples.
+- A 4D clip already loads as an ordinary point cloud: every moment at
+  once, the body smeared along its path. The PLY reader always ignored
+  properties it does not know; it now reads a million-point clip in about
+  a third of a second instead of half (each value no longer looks up its
+  property by name).
+
 ## [0.12.0] - 2026-10-09 - "The Cathedral"
 
 Scale, a medium to live in, light, and an instrument to play it with

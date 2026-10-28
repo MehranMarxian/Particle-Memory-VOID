@@ -52,6 +52,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLEle
   return node;
 }
 
+/** What a key chip shows when its name is not its face. */
+const KEY_FACES: Record<string, string> = {
+  Escape: "ESC",
+  ArrowLeft: "←",
+  ArrowRight: "→",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+};
+
 /** The shortcut context the key chips dispatch through; inert until bound. */
 let boundContext: ShortcutContext | null = null;
 
@@ -62,7 +71,7 @@ function renderRow(display: string, label: string, hint: string, keys: string[],
   for (const { key, shift } of chips) {
     const chip = el("button", "gd-key gd-key-tap") as HTMLButtonElement;
     chip.type = "button";
-    chip.textContent = shift ? `SHIFT ${key}` : key === "Escape" ? "ESC" : key;
+    chip.textContent = shift ? `SHIFT ${key}` : (KEY_FACES[key] ?? key);
     chip.title = `Run: ${label}`;
     chip.setAttribute("aria-label", `Run shortcut: ${label}`);
     chip.addEventListener("click", () => {

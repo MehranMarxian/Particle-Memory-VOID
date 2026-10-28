@@ -1,4 +1,5 @@
-import { parsePly, parseSplat, normalizePly, plyToSource } from "./plyParser";
+import { isClipHeader, parsePly, parseSplat, normalizePly, plyHeaderText, plyToSource } from "./plyParser";
+import { clipSettings } from "./clipSettings";
 import { sampleImage, type ImageDataLike } from "./imageSampler";
 import { collectMeshes, sampleMesh } from "./meshSampler";
 import { TARGET_WORLD_SIZE, type FlatSource, type SourceHandle, type SourceKind } from "./types";
@@ -9,6 +10,8 @@ export const FORMAT_REGISTRY: Record<SourceKind, string[]> = {
   mesh: ["glb", "gltf", "obj", "stl"],
   pointcloud: ["ply", "splat"],
   video: ["mp4", "webm", "mov", "m4v"],
+  // A 4D clip is a .ply too: it is told apart by its header, not its name.
+  clip: [],
   synthetic: [],
 };
 
@@ -134,6 +137,12 @@ export async function loadSource(
 
   if (detected === "pointcloud") {
     const buffer = await data.arrayBuffer();
+    if (extensionOf(name) === "ply" && isClipHeader(plyHeaderText(buffer))) {
+      // A body that moves (4D memory): loaded on demand, like video.
+      const ply = parsePly(buffer);
+      const { clipHandle } = await import("./clip/clip");
+      return clipHandle(name, ply, clipSettings);
+    }
     const ply = extensionOf(name) === "splat" ? parseSplat(buffer) : parsePly(buffer);
     normalizePly(ply, TARGET_WORLD_SIZE);
     return {

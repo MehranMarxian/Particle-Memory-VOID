@@ -12,7 +12,7 @@ import { kindLabel, type SourceUiState } from "./sourceFlow";
 export interface SourceCardApi {
   readonly element: HTMLElement;
   update(state: SourceUiState): void;
-  setThumbnail(bmp: ImageBitmap | null): void;
+  setThumbnail(face: CanvasImageSource | null): void;
   /** CUTOUT: whether the picture can be cut, whether it is, and whether a cut is under way. */
   setCutout(state: CutoutUiState): void;
 }
@@ -33,7 +33,7 @@ export function createSourceCard(callbacks: {
   root.setAttribute("role", "region");
   root.setAttribute("aria-label", "Memory source");
   root.setAttribute("aria-live", "polite");
-  let thumbnail: ImageBitmap | null = null;
+  let thumbnail: CanvasImageSource | null = null;
   // Once a memory is loaded the card collapses to a chip; tapping it
   // unfolds the details and the CHANGE SOURCE door.
   let chipExpanded = false;
@@ -81,7 +81,7 @@ export function createSourceCard(callbacks: {
     if (state.phase === "empty") {
       kicker("YOUR MEMORY");
       const desc = el("p", "sc-desc");
-      desc.textContent = "Drop a photograph, 3D model, or point cloud to give VOID something to remember.";
+      desc.textContent = "Drop a photograph, 3D model, point cloud, or a body that moves to give VOID something to remember.";
       inner.appendChild(desc);
       const list = el("ul", "sc-formats");
       for (const group of SOURCE_FORMAT_GROUPS) {
@@ -138,7 +138,9 @@ export function createSourceCard(callbacks: {
       name.textContent = state.name;
       name.title = state.name;
       const sub = el("div", "sc-sub");
-      sub.textContent = `${kindLabel(state.kind)} · ${state.count.toLocaleString()} PARTICLES`;
+      // A clip says how long it is: CLIP · 90 FRAMES · 3.0 s · 12,000 PARTICLES.
+      const length = state.kind === "clip" ? ` · ${state.detail}` : "";
+      sub.textContent = `${kindLabel(state.kind)}${length} · ${state.count.toLocaleString()} PARTICLES`;
       info.append(name, sub);
       meta.append(canvas, info);
       if (chipExpanded) {
