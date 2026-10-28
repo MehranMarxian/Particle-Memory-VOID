@@ -25,3 +25,7 @@ packaging/build.rsp
 /projects/
 /.opencode/
 /config/mcporter.json
+
+# Baked clips and sculptures (scripts/bake) stay local.
+/baked/
+__pycache__/

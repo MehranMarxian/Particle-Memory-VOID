@@ -98,8 +98,66 @@ returns to its synthetic memory until you give it something new.
 
 Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 `void-sphere.obj`); regenerate them with `node scripts/make-samples.mjs`.
-The empty card offers them directly (FIGURE / CLOUD / SPHERE), so you can see
-the piece working before you have a file of your own.
+The empty card offers them directly (FIGURE / CLOUD / SPHERE / WALKER), so you
+can see the piece working before you have a file of your own.
+
+## Use a moving memory
+
+A photograph is one moment. A body that moves is many, and VOID can hold
+them as a **4D clip**: a sequence of point sets over time, kept in one PLY
+whose points also carry `t` (the second they belong to) and `id` (which
+point of the body they are):
+
+```
+comment v4d clip fps=30 frames=90 duration=3.0
+property float x / y / z · property uchar red / green / blue
+property float t · property int id
+```
+
+Today the piece reads a clip as an ordinary point cloud, every moment at
+once. To give it something it can hold still, bake the clip into a **time
+sculpture**: `scripts/bake/bake_time_sculpture.py` writes both.
+
+```bash
+# A walking figure: the clip, and its echoes as a sculpture (no ML, numpy only)
+python scripts/bake/bake_time_sculpture.py --synthetic walker --mode echo
+
+# A photo-finish of a dancer turning, lit by time
+python scripts/bake/bake_time_sculpture.py --synthetic dancer --mode slit --color time
+
+# A light drawing: one point of a swung firebrand over two seconds
+python scripts/bake/bake_time_sculpture.py --synthetic firebrand --mode firebrand --window 2
+
+# Your own capture: per-frame point clouds (e.g. a Record3D export; needs scipy)
+python scripts/bake/bake_time_sculpture.py --frames "capture/*.ply" --name me --mode sculpt
+
+# Re-bake a clip as a different sculpture
+python scripts/bake/bake_time_sculpture.py --clip baked/me.clip.ply --mode strobe --every 6
+```
+
+The files land in `baked/` (`<name>.clip.ply` and `<name>.sculpture.ply`);
+drop either on the window or open it with `?src=`.
+
+| Mode | The sculpture |
+| --- | --- |
+| `sculpt` | Every moment at once, sheared through time: `x += k·t` (`--shear`, `--axis`). Marey, Boccioni. |
+| `echo` | Every Nth frame (`--every`), the older ones sparser and darker. |
+| `strobe` | A comb of frames, all alike (`--every`, `--width`). |
+| `slit` | A thin slab of space per frame, stacked along the motion axis: a photo-finish (`--slab`, `--slit-at`, `--slit-speed`). |
+| `firebrand` | One point's path as a line of light, over an exposure of 0 to N seconds (`--window`, `--t-end`, `--point-id`). |
+
+`--color source` keeps the body's own light; `--color time` lights the past
+dim and the present bright. The defaults (90 frames of 12,000 points) make
+a 23.7 MB clip; the script prints every size and warns past 25 MB, because
+the piece keeps a source across reloads only up to 64 MB.
+
+**From a video** (optional, for a CUDA PC): `--video clip.mp4` masks the
+subject (rembg, or `--mask sam`), estimates depth with Depth Anything V2
+Small, and lifts each frame into points through an assumed field of view
+(`--fov`, `--near`, `--relief`). Install `scripts/bake/requirements-ml.txt`
+first; the first run downloads the models. The baker's own tests
+(`python -m unittest discover -s scripts/bake`) run this path on a mocked
+input and need nothing but numpy and scipy.
 
 ## Controls
 

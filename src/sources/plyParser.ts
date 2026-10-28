@@ -235,7 +235,7 @@ function parseAscii(rest: Uint8Array, el: PlyElement, out: PlyData): void {
         continue;
       }
       const v = read();
-      assign(prop.name, i, v, out, el);
+      assign(prop, i, v, out);
     }
   }
 }
@@ -281,21 +281,19 @@ function parseBinary(
         continue;
       }
       const v = readScalar(prop.type);
-      assign(prop.name, i, v, out, el);
+      assign(prop, i, v, out);
     }
   }
 }
 
-function assign(
-  name: string,
-  i: number,
-  v: number,
-  out: PlyData,
-  el: PlyElement
-): void {
-  const prop = el.props.find((p) => p.name === name)!;
-  const isColorByte = /uchar|uint8/.test(prop.type);
-  switch (name) {
+/**
+ * One value into its place. The property comes in by reference: a 4D clip
+ * (scripts/bake) is a million vertices, and looking each property up by name
+ * for every value was most of its parse.
+ */
+function assign(prop: PlyProperty, i: number, v: number, out: PlyData): void {
+  const isColorByte = prop.type === "uchar" || prop.type === "uint8";
+  switch (prop.name) {
     case "x": out.positions[i * 3] = v; break;
     case "y": out.positions[i * 3 + 1] = v; break;
     case "z": out.positions[i * 3 + 2] = v; break;
@@ -309,7 +307,7 @@ function assign(
     case "nx": out.normals![i * 3] = v; break;
     case "ny": out.normals![i * 3 + 1] = v; break;
     case "nz": out.normals![i * 3 + 2] = v; break;
-    default: break; // ignore extra properties (confidence, intensity, ...)
+    default: break; // ignore extra properties (confidence, intensity, a clip's t and id, ...)
   }
 }
 

@@ -1,0 +1,19 @@
+# The optional --video path of bake_time_sculpture.py. The core needs only
+# numpy (and scipy for --frames).
+#
+# For CUDA on Windows (an RTX card), install torch from the CUDA index first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# then:
+#   pip install -r scripts/bake/requirements-ml.txt
+#
+# The first run downloads Depth Anything V2 Small (about 100 MB, from Hugging
+# Face) and the rembg human-segmentation model (about 170 MB).
+numpy>=1.26
+scipy>=1.11
+pillow>=10
+opencv-python>=4.9
+torch>=2.2
+transformers>=4.45
+rembg[gpu]>=2.0.57
+# Only for --mask sam:
+# ultralytics>=8.3

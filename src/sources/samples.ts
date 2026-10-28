@@ -1,5 +1,5 @@
 /**
- * The three bundled sample sources, offered by the YOUR MEMORY card so a
+ * The bundled sample sources, offered by the YOUR MEMORY card so a
  * first-time visitor can see the piece working before they have a file of
  * their own. Tests assert these files really ship in public/samples.
  */
@@ -12,6 +12,8 @@ export const SAMPLES: readonly SampleSource[] = [
   { label: "FIGURE", file: "void-figure.png" },
   { label: "CLOUD", file: "void-cloud.ply" },
   { label: "SPHERE", file: "void-sphere.obj" },
+  // A time sculpture: a walking body remembered as its echoes (scripts/bake).
+  { label: "WALKER", file: "void-walker.sculpture.ply" },
 ];
 
 export function sampleUrl(file: string): string {

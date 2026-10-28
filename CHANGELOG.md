@@ -2,6 +2,39 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [Unreleased]
+
+### Added: the 4D clip and the time sculpture (4D memory, stage 1)
+- **`scripts/bake/bake_time_sculpture.py`**: a moving body baked into
+  VOID. It writes a **4D clip** (`<name>.clip.ply`: one binary PLY whose
+  points also carry `t`, the second they belong to, and `id`, which body
+  point they are) and a **time sculpture** from it (`<name>.sculpture.ply`),
+  a still point cloud the piece already remembers.
+  - Five sculptures (`--mode`): SCULPT (every moment at once, sheared
+    through time), ECHO (every Nth frame, the past sparser and darker),
+    STROBE (a comb of frames), SLIT (a slab of space per frame, stacked
+    into a photo-finish), FIREBRAND (one point's path as a line of light,
+    over an exposure of 0 to N seconds). `--color time` lights the past
+    dim and the present bright.
+  - Three ways in: `--synthetic walker|dancer|firebrand` (procedural
+    bodies with true ids, no ML), `--frames "<dir>/*.ply"` (per-frame
+    clouds such as a Record3D export, followed by nearest-neighbour
+    chaining), and an optional `--video` path for a CUDA PC (rembg or SAM
+    mask, Depth Anything V2 Small depth, `requirements-ml.txt`). The
+    video path is tested with a mocked 3-frame input; no model is
+    downloaded by the tests.
+  - Core is Python 3.11 and numpy. 90 frames of 12,000 points is 23.7 MB;
+    the script prints every file's size and warns past 25 MB (the piece
+    keeps sources across reloads up to 64 MB).
+- **WALKER** on the empty YOUR MEMORY card: a walking figure remembered as
+  its echoes (`public/samples/void-walker.sculpture.ply`). A small walker
+  clip ships beside it (`void-walker.clip.ply`, 45 frames, 2 MB).
+- A 4D clip already loads as an ordinary point cloud: every moment at
+  once, the body smeared along its path. The PLY reader always ignored
+  properties it does not know; it now reads a million-point clip in about
+  a third of a second instead of half (each value no longer looks up its
+  property by name).
+
 ## [0.12.0] - 2026-10-09 - "The Cathedral"
 
 Scale, a medium to live in, light, and an instrument to play it with
