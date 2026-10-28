@@ -67,6 +67,7 @@ VOID remembers three kinds of source:
 | Image | PNG, JPG, WEBP, BMP, GIF |
 | 3D model | GLB, GLTF, OBJ, STL |
 | Point cloud | PLY (including Gaussian-splat scenes), SPLAT |
+| A body that moves | 4D clip (a PLY with time: see below) |
 
 Bring one in three ways:
 
@@ -114,8 +115,38 @@ property float x / y / z · property uchar red / green / blue
 property float t · property int id
 ```
 
-Today the piece reads a clip as an ordinary point cloud, every moment at
-once. To give it something it can hold still, bake the clip into a **time
+Drop a clip, or press **WALKER** on the empty card, and the swarm chases a
+body that keeps moving. Its lag is the memory: the present is held crisp
+while the trailing side comes apart into dust that keeps less colour and
+light the older it is. The card says `CLIP · 45 FRAMES · 3.0 s · 12,000
+PARTICLES`, and the clip comes back after a reload like any source (up to
+64 MB; a larger clip plays but is not kept).
+
+| View (`U`) | What the swarm holds |
+| --- | --- |
+| NOW | The present, as it happens. |
+| ECHO | Each particle a moment late: the default. **Echo by** chooses who is late (GRADIENT: the trailing side of the body; RANDOM; SPECIES; HEAT), **Echo depth** how far back, **Present** how much of the swarm holds the present, **Dust** and **Fade** how the past comes apart. |
+| SCULPT | The whole clip at once, sheared through time (**Shear**). |
+| SLIT | A photo-finish: a slab of space per moment, stacked (**Slab**). |
+
+`Q` plays or holds the clip, `J` loops (LOOP, PING-PONG, HOLD), `I` chooses
+the identity (TRACKED: each particle keeps its point of the body; RENEWED:
+the body is drawn anew every instant), `←` `→` scrub a frame and `↑` `↓`
+change the speed. All of it is in the panel's CLIP section, with a
+**Moment** slider. A body that travels walks on a treadmill: its present
+stays in the middle of the view and its past trails where it really was.
+
+The memory states mean something in time. RECONSTRUCT follows the present
+tightly (life goes nearly quiet, or a thin limb would bead into droplets),
+ALIVE follows a tenth of a second late with life on, DRIFT lets the moment
+it holds slip further and further behind (retention), VOID forgets which
+moment each particle belongs to, and REMEMBER runs the clock backwards
+while the swarm finds its way home. Targets are written once on the CPU
+every frame and uploaded by each engine, so CPU, WebGL2 and WebGPU chase
+exactly the same body.
+
+A reader that knows nothing of time still opens a clip as one point cloud,
+every moment at once. To make something that holds still, bake a **time
 sculpture**: `scripts/bake/bake_time_sculpture.py` writes both.
 
 ```bash
@@ -159,6 +190,10 @@ first; the first run downloads the models. The baker's own tests
 (`python -m unittest discover -s scripts/bake`) run this path on a mocked
 input and need nothing but numpy and scipy.
 
+[`docs/4d-memory.md`](docs/4d-memory.md) has the whole of it: the format,
+the exact PowerShell commands to bake your own clip on Windows (including
+the video path on a CUDA card), the measurements, and the known limits.
+
 ## Controls
 
 Press `?` at any time for the in-app guide, which groups every control by what
@@ -190,6 +225,11 @@ itself once; after that it waits for `?`.
 | `W` | Wind (the swarm feels how the room moves) |
 | `X` | Exhibition (the piece plays itself for a room) |
 | `Y` | Ecology (predation, birth and death) |
+| `Q` | Play / hold a moving memory (4D clip) |
+| `U` | Clip time view (NOW, ECHO, SCULPT, SLIT) |
+| `J` | Clip loop (LOOP, PING-PONG, HOLD) |
+| `I` | Clip identity (TRACKED, RENEWED) |
+| `←` `→` / `↑` `↓` | Scrub the clip a frame / its speed |
 | `?` | Controls guide |
 | `ESC` | Close the guide / leave fullscreen |
 
@@ -535,8 +575,8 @@ count and bytes.
 
 `packaging/build.ps1` produces a single-file `VOID.scr` (the built app plus a
 small C# host, no SDK required). Right-click it and choose *Install*, or drop
-your own images into `Documents\VOID\Sources` and the screensaver will use one
-of them. The core stays a plain web app; the wrapper is a thin shell.
+your own images or 4D clips (`.ply`) into `Documents\VOID\Sources` and the
+screensaver will use one of them. The core stays a plain web app; the wrapper is a thin shell.
 
 ## Development
 
