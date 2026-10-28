@@ -182,6 +182,11 @@ dim and the present bright. The defaults (90 frames of 12,000 points) make
 a 23.7 MB clip; the script prints every size and warns past 25 MB, because
 the piece keeps a source across reloads only up to 64 MB.
 
+**From a rigged character** (a Mixamo FBX with skin, or a GLB): run
+`npm run dev`, open `http://localhost:5173/tools/bake-skinned.html`, drop
+the model, BAKE, SAVE. Points are chosen once on the skin and carried
+through the animation with their texture colours: a tracked clip.
+
 **From a video** (optional, for a CUDA PC): `--video clip.mp4` masks the
 subject (rembg, or `--mask sam`), estimates depth with Depth Anything V2
 Small, and lifts each frame into points through an assumed field of view
