@@ -118,7 +118,7 @@ property float t · property int id
 Drop a clip, or press **WALKER** on the empty card, and the swarm chases a
 body that keeps moving. Its lag is the memory: the present is held crisp
 while the trailing side comes apart into dust that keeps less colour and
-light the older it is. The card says `CLIP · 45 FRAMES · 3.0 s · 12,000
+light the older it is. The card says `CLIP · 41 FRAMES · 2.7 s · 12,000
 PARTICLES`, and the clip comes back after a reload like any source (up to
 64 MB; a larger clip plays but is not kept).
 

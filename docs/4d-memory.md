@@ -44,7 +44,7 @@ Inputs: synthetic bodies (walker, dancer, firebrand), per-frame point clouds
 | | |
 | --- | --- |
 | Loading | A `.ply` whose header has `comment v4d clip` (or a `t` property) becomes a CLIP. Drop it, open it, `?src=` it, or press **WALKER** on the empty card. |
-| Card | `CLIP · 45 FRAMES · 3.0 s · 12,000 PARTICLES`, with the middle moment, from the side, as its face. |
+| Card | `CLIP · 41 FRAMES · 2.7 s · 12,000 PARTICLES`, with the middle moment, from the side, as its face. |
 | Persistence | Kept in IndexedDB and restored after a reload, up to 64 MB. A larger clip plays and says it will not be kept. |
 | Correspondence | TRACKED: particle i follows body point `shuffle(seed)[i mod K]`, ordered by id, so `[` `]` keep every particle where it was. Past the body's K points, a particle sits between a point and one of its nearest neighbours on the body (frame 0's neighbours, valid in every frame of a tracked clip). RENEWED: a new point every frame, so the body is drawn anew each instant. |
 | Clock | Play / hold (`Q`), speed (`↑` `↓`, 0.1× to 3×), LOOP / PING-PONG / HOLD (`J`), scrub (`←` `→`, and the Moment slider). Linear interpolation between frames. It runs on the simulation's own time. |

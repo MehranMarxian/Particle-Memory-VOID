@@ -72,6 +72,41 @@ function eagerGzipBudget(): Plugin {
  * public/presets/<look>.png - how a look's thumbnail is captured from the
  * running piece (see docs/PLAN-0.12.0.md). Never part of a build.
  */
+/**
+ * Dev server only: POST /__void/sample?name=<name>.clip.ply with a 4D PLY
+ * body writes public/samples/<name>.clip.ply - how tools/bake-skinned.html
+ * hands a baked clip to the piece's samples (the WALKER). Never part of a build.
+ */
+function clipSampleWriter(): Plugin {
+  return {
+    name: "void:clip-sample-writer",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__void/sample", (req, res) => {
+        const name = new URL(req.url ?? "", "http://x").searchParams.get("name") ?? "";
+        if (req.method !== "POST" || !/^[a-z][a-z0-9-]{0,47}\.clip\.ply$/.test(name)) {
+          res.statusCode = 400;
+          res.end("POST a 4D PLY with ?name=<name>.clip.ply");
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          const ply = Buffer.concat(chunks);
+          const head = ply.subarray(0, 512).toString("latin1");
+          if (ply.length > 64 * 1024 * 1024 || !head.startsWith("ply") || !head.includes("comment v4d clip")) {
+            res.statusCode = 400;
+            res.end("not a 4D clip");
+            return;
+          }
+          writeFileSync(fileURLToPath(new URL(`./public/samples/${name}`, import.meta.url)), ply);
+          res.end(`wrote public/samples/${name} (${ply.length} bytes)`);
+        });
+      });
+    },
+  };
+}
+
 function thumbnailWriter(): Plugin {
   return {
     name: "void:thumbnail-writer",
@@ -105,7 +140,7 @@ export default defineConfig({
   // Relative asset paths: the same build runs at a domain root or inside any
   // subfolder, so a dist can be handed to testers or dropped onto a website.
   base: "./",
-  plugins: [eagerGzipBudget(), thumbnailWriter()],
+  plugins: [eagerGzipBudget(), thumbnailWriter(), clipSampleWriter()],
   // The app shows its own version in the panel footer.
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   resolve: {

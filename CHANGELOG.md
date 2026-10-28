@@ -2,7 +2,14 @@
 
 Same shape as the piece itself: memory first, then life.
 
-## [Unreleased]
+## [0.13.1] - 2026-10-29
+
+### Changed
+- **The WALKER is a realistic human**: a Mixamo character walking (Adobe
+  Mixamo, chosen and downloaded by Mehran), baked with the new baker: 41
+  frames of 8,000 points at 15 fps, 2.7 s, 7.2 MB, turned to walk across the
+  view so its past trails out behind it. The Walker look has a new face.
+  The synthetic walker stays in `scripts/bake` (`--synthetic walker`).
 
 ### Added: bake a body (tools/bake-skinned.html)
 - A dev page that turns a rigged, animated character (a Mixamo FBX with
@@ -15,6 +22,8 @@ Same shape as the piece itself: memory first, then life.
   name. A model with no animation now says so instead of baking 30 still
   frames, and textures that decode late (an FBX's embedded ones) are waited
   for, so the body keeps its skin.
+- Dev server only: `POST /__void/sample?name=<name>.clip.ply` writes a baked
+  clip into `public/samples` (how the WALKER was made).
 
 ## [0.13.0] - 2026-10-29 - "A body that moves"
 
