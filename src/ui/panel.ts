@@ -24,6 +24,7 @@ import {
   type MacroValues,
 } from "@/presets/macros";
 import { icon, type IconName } from "./icons";
+import { SIZE_MODES, type SizeMode } from "@/rendering/sizeClass";
 import {
   CLIP_IDENTITIES,
   CLIP_LOOPS,
@@ -1290,6 +1291,17 @@ export function createPanel(opts: {
 
   const visBody = section("VISUAL", "visual");
   addObjSlider(visBody, "Size", visual, "particleSize", 0.4, 4, 0.05, num);
+  addChoiceRow(
+    visBody,
+    "Particles",
+    SIZE_MODES,
+    () => visual.sizeMode,
+    (m) => {
+      visual.sizeMode = m as SizeMode;
+      onLookChange?.();
+    },
+    "SOFT: sizes breathe with each particle's life and speed. DEFINITE: three fixed sizes - a grain of dust, a crisp disc, a mote large enough to carry its shape."
+  );
   addObjSlider(visBody, "Glow", visual, "glow", 0, 2, 0.05, num);
   addObjSlider(visBody, "Opacity", visual, "opacity", 0.05, 1, 0.01, num);
   addObjSlider(visBody, "Depth", visual, "dof", 0, 1, 0.01, num, "Depth-of-field focus falloff.");

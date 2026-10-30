@@ -2,6 +2,7 @@ import type * as THREE from "three";
 import { clampVisualSettings, GRADIENT_AXES, isBakedAxis, PARTICLE_SHAPES, type VisualSettings } from "../VisualSettings";
 import { packGradientStops, paletteStops } from "../palette";
 import { SHAPE_FIELD_WGSL } from "../shapes";
+import { SIZE_CLASS_WGSL } from "../sizeClass";
 import { trailRetention, type ToneMap } from "../TrailPass";
 import { WebGpuLight } from "./WebGpuLight";
 import { STRETCH_MAX, STRETCH_SECONDS } from "../stretch";
@@ -40,7 +41,7 @@ struct View {
   gradAxis: f32, stopCount: f32, shape: f32, shapeBySpecies: f32,
   radialScale: f32, focus: f32, dof: f32, fogDensity: f32,
   stops: array<vec4f, 4>,
-  light: f32, stretch: f32, _l1: f32, _l2: f32,
+  light: f32, stretch: f32, definite: f32, _l2: f32,
 }
 @group(0) @binding(0) var<uniform> v: View;
 @group(0) @binding(1) var<storage, read> pos: array<vec4f>;
@@ -50,6 +51,7 @@ struct View {
 @group(0) @binding(5) var<storage, read> lifeShape: array<vec2f>;
 
 ${SHAPE_FIELD_WGSL}
+${SIZE_CLASS_WGSL}
 
 struct Out {
   @builtin(position) clip: vec4f,
@@ -58,6 +60,8 @@ struct Out {
   @location(2) uv: vec2f,
   @location(3) shape: f32,
   @location(4) stretch: vec3f,
+  // DEFINITE: class (0 dust, 1 grain, 2 mote), size in pixels.
+  @location(5) sizeClass: vec2f,
 }
 
 var<private> QUAD = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
@@ -91,6 +95,13 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
   let fog = exp(-v.fogDensity * dist);
   let coc = 1.0 + v.dof * defocus;
   var fade = fog / (coc * coc);
+  var cls = 0.0;
+  if (v.definite > 0.5) {
+    // DEFINITE: ParticleRenderer's, line for line (rendering/sizeClass.ts).
+    cls = sizeClassOf(i);
+    pointSize = definitePx(cls, v.size, v.pixelRatio);
+    fade = fog / coc * breathe * (0.35 + 0.65 * min(lifeM, 1.15));
+  }
   var sleepDim = 1.0;
   if (st.w > 0.5) { sleepDim = 0.32; }
   fade = fade * sleepDim * (1.0 + st.z * 0.9);
@@ -127,6 +138,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
     pointSize = pointSize * e;
     o.fade = o.fade / sqrt(e);
   }
+  o.sizeClass = vec2f(cls, pointSize);
 
   // A GL point sprite, as a quad: pointSize pixels across, uv = gl_PointCoord - 0.5.
   let corner = QUAD[vi];
@@ -148,9 +160,22 @@ fn fs(in: Out) -> @location(0) vec4f {
     let e = in.stretch.z;
     uv = vec2f(dot(uv, dir), dot(uv, vec2f(-dir.y, dir.x)) * e * sqrt(e));
   }
-  let field = shapeField(in.shape, uv);
-  let core = 1.0 - smoothstep(0.7, 1.0, field);
-  let halo = exp(-field * 3.5) * v.glow * 0.3;
+  var field = shapeField(in.shape, uv);
+  var core = 1.0 - smoothstep(0.7, 1.0, field);
+  var halo = exp(-field * 3.5) * v.glow * 0.3;
+  if (v.definite > 0.5) {
+    // Crisp: about a pixel of antialiasing; only a mote carries a shape and a halo.
+    let px = max(in.sizeClass.y, 1.0);
+    let mote = in.sizeClass.x > 1.5;
+    var shape = 0.0;
+    if (mote) { shape = in.shape; }
+    field = 0.0;
+    if (px >= 1.75) { field = shapeField(shape, uv); }
+    let aa = min(0.5, 1.5 / px);
+    core = 1.0 - smoothstep(1.0 - aa, 1.0, field);
+    halo = 0.0;
+    if (mote) { halo = exp(-field * 3.5) * v.glow * 0.3; }
+  }
   let alpha = (core + halo) * v.opacity * in.fade;
   if (alpha < 0.004) { discard; }
   // Above 50k each particle carries proportionally less light (densityCompensation):
@@ -509,6 +534,7 @@ export class WebGpuSwarmView {
     v[46] = s.dof;
     v[47] = s.fogDensity;
     v[LIGHT_SLOT + 1] = s.stretch;
+    v[LIGHT_SLOT + 2] = s.sizeMode === "definite" ? 1 : 0;
   }
 
   /**

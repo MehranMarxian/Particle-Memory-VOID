@@ -1,3 +1,4 @@
+import { SIZE_MODES, type SizeMode } from "./sizeClass";
 /**
  * Visual style parameters — data-driven so the Phase 5 UI (presets,
  * sliders, screensaver config) can drive them without touching code.
@@ -95,6 +96,12 @@ export interface VisualSettings {
   stretch: number;
   /** Ribbons: each particle's last moments drawn as a fading strip. 0 = none. */
   ribbons: number;
+  /**
+   * SOFT (the piece's own): sizes breathe with phase, speed, life and focus.
+   * DEFINITE (0.13.2): three fixed sizes - dust, grain, motes - with crisp
+   * edges, and shapes only on the motes (rendering/sizeClass.ts).
+   */
+  sizeMode: SizeMode;
 }
 
 export const defaultVisualSettings = (): VisualSettings => ({
@@ -115,6 +122,7 @@ export const defaultVisualSettings = (): VisualSettings => ({
   mediumLight: 0,
   stretch: 0,
   ribbons: 0,
+  sizeMode: "soft",
 });
 
 /**
@@ -146,6 +154,8 @@ export function clampVisualSettings(s: VisualSettings): VisualSettings {
     mediumLight: cl(s.mediumLight, 0, 3),
     stretch: cl(s.stretch, 0, 1),
     ribbons: cl(s.ribbons, 0, 1),
+    // Settings saved before 0.13.2 have no size mode: they stay SOFT.
+    sizeMode: SIZE_MODES.includes(s.sizeMode) ? s.sizeMode : "soft",
   };
 }
 

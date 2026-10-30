@@ -29,11 +29,12 @@ function makeMemoryStorage(): Storage & { dump(): string } {
 }
 
 describe("presets", () => {
-  it("defines exactly the twenty-one authored presets with unique names", () => {
+  it("defines exactly the twenty-two authored presets with unique names", () => {
     expect(PRESET_DEFINITIONS.map((d) => d.name)).toEqual([
       "moon",
       "genesis",
       "walker",
+      "grain",
       "portrait",
       "organic",
       "scan",
@@ -76,8 +77,10 @@ describe("presets", () => {
   it("preset values differ meaningfully between Void and Architecture", () => {
     const a = defaultEngineParams();
     const b = defaultEngineParams();
-    applyPreset(PRESET_DEFINITIONS[4], a, defaultVisualSettings(), new InteractionMatrix(4));
-    applyPreset(PRESET_DEFINITIONS[3], b, defaultVisualSettings(), new InteractionMatrix(4));
+    // By name: the dock's order changes as looks arrive.
+    const look = (name: string) => PRESET_DEFINITIONS.find((d) => d.name === name)!;
+    applyPreset(look("void"), a, defaultVisualSettings(), new InteractionMatrix(4));
+    applyPreset(look("architecture"), b, defaultVisualSettings(), new InteractionMatrix(4));
     expect(Math.abs(a.memory.strength - b.memory.strength)).toBeGreaterThan(5);
   });
 });

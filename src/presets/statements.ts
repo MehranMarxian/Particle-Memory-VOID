@@ -31,6 +31,7 @@ export const LOOK_STATEMENTS: Readonly<Record<string, string>> = {
   kin: "No one told them to part. Each only wanted to be a little nearer its own.",
   wake: "What leaves still moves the world it left. Forgetting is not an empty place.",
   walker: "We are remembered by how we moved. The present is sharp; the past is dust.",
+  grain: "Up close it is only grains of light. Step back, and they agree on a face.",
   // Not looks, but moments the piece names.
   genesis: "The first particle system was a wall of fire that left a living world behind it.",
   presence: "For as long as you stay, you are what it remembers.",
