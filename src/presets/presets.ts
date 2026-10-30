@@ -62,6 +62,12 @@ export interface PresetDefinition {
   source?: string;
   /** A look that opens with a gesture (0.13): Genesis is the ring of fire. */
   opens?: "genesis";
+  /**
+   * The particles a look needs to read (0.13.2): choosing it raises the
+   * density to the nearest step of the backend's menu, never lowers it.
+   * Grain is made of a great many single pixels.
+   */
+  density?: number;
 }
 
 export const PRESET_DEFINITIONS: PresetDefinition[] = [
@@ -163,6 +169,42 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
       colorMode: "source",
       shape: "circle",
       shapeBySpecies: false,
+    },
+    lifecycle: { enabled: false },
+  },
+  {
+    // DEFINITE sizes (0.13.2): a memory drawn in grain. Most of the swarm is a
+    // single pixel of light, a few are crisp discs, and a scattering of motes
+    // carry their species' shapes. Calm life, so the grain holds the image.
+    name: "grain",
+    label: "Grain",
+    description: "A memory drawn in grain: single pixels of light, a few crisp discs, and motes that carry their shapes",
+    density: 50000,
+    memory: { strength: 8, decay: 0, reconstructionEase: 1.2 },
+    life: {
+      kernel: "pulse",
+      interactionRadius: 0.6,
+      coreRadius: 0.3,
+      forceScale: 4,
+      friction: 0.9,
+      attraction: 0,
+      repulsion: 0,
+      chaos: 0.04,
+      maxSpeed: 3,
+    },
+    field: { turbulence: 0.02, wander: 0.02, drift: 0, gravity: 0 },
+    visual: {
+      sizeMode: "definite",
+      particleSize: 1,
+      glow: 0.6,
+      // Low: fifty thousand additive points pile up to solid white, and the grain is gone.
+      opacity: 0.45,
+      trails: false,
+      dof: 0.08,
+      fogDensity: 0.03,
+      colorMode: "monochrome",
+      shape: "circle",
+      shapeBySpecies: true,
     },
     lifecycle: { enabled: false },
   },

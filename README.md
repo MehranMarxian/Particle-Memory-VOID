@@ -262,9 +262,10 @@ piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
 GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
 MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
 
-Twenty-one authored looks ship with the piece: Moon Dust, **Genesis** (the ring
+Twenty-two authored looks ship with the piece: Moon Dust, **Genesis** (the ring
 of fire, a look since 0.13; `N` still lights it anywhere), **Walker** (a body
-that moves, brought with its clip), Portrait, Organic, Scan,
+that moves, brought with its clip), **Grain** (a memory drawn in single pixels
+of light), Portrait, Organic, Scan,
 Architecture, Void, Chaos, Predator, Galaxy, Fireworks, Hearth, Traces,
 Exhale, and three new in 0.11: **Witness**, **Murmuration** (two courting
 flocks folding like starlings at dusk) and **Aurora** (the memory hung in the
@@ -370,6 +371,15 @@ choose it: the artwork is unchanged unless you ask for more.
 | SPECIES | A hue per species, spaced around the wheel and matched in perceived brightness, so the ecosystem is legible instead of invisible. |
 | RANDOM | One seeded hue per particle, stable for the whole run. |
 | GRADIENT | An authored ramp, mapped across AGE (a particle's own life cycle), DEPTH (its distance from the camera), RADIAL (its distance from the subject's centre), or the two stigmergic fields: SCENT (where the swarm has been) and HEAT (where it is working hardest right now). Palettes: DUSK, EMBER, ICE, ASH, SPECTRAL, GRAIN, AURORA, TIDE. |
+
+**Particles** (VISUAL) chooses how sizes behave. SOFT is the piece's own: a
+sprite's size breathes with its phase, speed, life and focus, and its edge is
+soft. DEFINITE gives every particle one of three sizes for good: **dust**, one
+device pixel with a hard edge (85% of the swarm); **grain**, a crisp disc
+(12%); and **motes**, large enough to carry a shape and a halo (3%). Breathing
+moves a particle's light, not its size. It needs numbers to read, so the
+**Grain** look raises the density to 50,000 (it never lowers it). Both GPU
+renderers draw it the same way, on the CPU engine too.
 
 Shapes are drawn analytically in the fragment shader: circle, box, triangle,
 ring, star. No textures, no extra geometry, no simulation change. With **By

@@ -2,6 +2,23 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.13.2] - 2026-10-30
+
+### Added: definite sizes
+- **Particles** (VISUAL): SOFT, the piece's own, or DEFINITE. In DEFINITE each
+  particle has one size for its whole life, set by its index: **dust** (one
+  device pixel, hard, no halo, 85%), **grain** (a crisp disc, 12%) and
+  **motes** (large enough to carry a shape and a halo, 3%). Breathing moves a
+  particle's light instead of its size, defocus dims instead of growing, and
+  edges are about a pixel of antialiasing, so a triangle has corners. Shapes
+  appear on motes only: smaller, they could not be read.
+- Sizes come from one module (`rendering/sizeClass.ts`), generated into GLSL
+  and WGSL with an integer hash, so WebGL2 and WebGPU give every particle the
+  same class. SOFT is unchanged, and remains the default.
+- **Grain**, a look built on it: a memory drawn in single pixels of light. A
+  look may now carry a density: Grain raises the swarm to 50,000 when chosen,
+  and never lowers it.
+
 ## [0.13.1] - 2026-10-29
 
 ### Changed

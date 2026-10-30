@@ -2688,6 +2688,11 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   if (def.source && pendingHandle?.name !== def.source) void openUrlSource(sampleUrl(def.source));
   // A look that opens with a gesture (Genesis).
   if (def.opens === "genesis") startGenesis();
+  // A look that needs more particles to read (Grain) raises the density, never lowers it.
+  if (def.density && currentCount < def.density) {
+    const idx = nearestDensityIndex(def.density);
+    if (densityMenu()[idx] > currentCount) setDensity(idx);
+  }
 }
 
 // --- The room's camera: one eye, two readers -------------------------------------

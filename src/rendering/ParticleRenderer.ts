@@ -9,6 +9,7 @@ import {
 } from "./VisualSettings";
 import { packGradientStops, paletteStops } from "./palette";
 import { SHAPE_FIELD_GLSL } from "./shapes";
+import { SIZE_CLASS_GLSL } from "./sizeClass";
 import { STRETCH_MAX, STRETCH_SECONDS } from "./stretch";
 import type { RibbonHistory } from "./ribbons";
 import type { GlRibbons } from "./glRibbons";
@@ -138,6 +139,7 @@ export class ParticleRenderer {
         uFocus: { value: 17 },
         uDof: { value: 0.25 },
         uFogDensity: { value: 0.02 },
+        uDefinite: { value: 0 },
         uStretch: { value: 0 },
         uViewportH: { value: 1 },
         uCompute: { value: 0 },
@@ -173,11 +175,14 @@ export class ParticleRenderer {
         uniform float uRadialScale;
         uniform float uStretch;
         uniform float uViewportH;
+        uniform float uDefinite;
         varying vec3 vColor;
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
         varying vec3 vStretch;
+        varying vec2 vSizeClass; // DEFINITE: class (0 dust, 1 grain, 2 mote), size in pixels
+        ${SIZE_CLASS_GLSL}
         // Authored ramps, stops packed as rgb + position along the axis.
         vec3 gradientColor(float t) {
           float x = clamp(t, 0.0, 1.0);
@@ -223,6 +228,15 @@ export class ParticleRenderer {
           // DOF bokeh: energy conserved as defocused sprites grow.
           float coc = 1.0 + uDof * defocus;
           vFade = fog / (coc * coc);
+          vSizeClass = vec2(0.0, gl_PointSize);
+          if (uDefinite > 0.5) {
+            // DEFINITE: one size per particle for good (rendering/sizeClass.ts).
+            // Breathing moves its light instead, and defocus dims it.
+            float cls = sizeClassOf(uint(gl_VertexID));
+            gl_PointSize = definitePx(cls, uSize, uPixelRatio);
+            vFade = fog / coc * breathe * (0.35 + 0.65 * min(lifeM, 1.15));
+            vSizeClass = vec2(cls, gl_PointSize);
+          }
           // Asleep particles dim; stressed particles run hot.
           float sleepDim = state4.w > 0.5 ? 0.32 : 1.0;
           vFade *= sleepDim * (1.0 + state4.z * 0.9);
@@ -256,17 +270,20 @@ export class ParticleRenderer {
             gl_PointSize *= e;
             vFade /= sqrt(e);
           }
+          vSizeClass.y = gl_PointSize;
         }
       `,
       fragmentShader: /* glsl */ `
         uniform float uOpacity;
         uniform float uGlow;
         uniform float uMonochrome;
+        uniform float uDefinite;
         varying vec3 vColor;
         varying float vFade;
         varying vec3 vState;
         varying float vShape;
         varying vec3 vStretch;
+        varying vec2 vSizeClass;
         ${SHAPE_FIELD_GLSL}
         void main() {
           vec3 col = vColor;
@@ -284,6 +301,16 @@ export class ParticleRenderer {
           float field = shapeField(vShape, uv);
           float core = 1.0 - smoothstep(0.7, 1.0, field);
           float halo = exp(-field * 3.5) * uGlow * 0.3;
+          if (uDefinite > 0.5) {
+            // Crisp: about a pixel of antialiasing. Only a mote is big enough
+            // to carry a shape and a halo; dust is a whole pixel of light.
+            float px = max(vSizeClass.y, 1.0);
+            bool mote = vSizeClass.x > 1.5;
+            field = px < 1.75 ? 0.0 : shapeField(mote ? vShape : 0.0, uv);
+            float aa = min(0.5, 1.5 / px);
+            core = 1.0 - smoothstep(1.0 - aa, 1.0, field);
+            halo = mote ? exp(-field * 3.5) * uGlow * 0.3 : 0.0;
+          }
           float alpha = (core + halo) * uOpacity * vFade;
           if (alpha < 0.004) discard;
           gl_FragColor = vec4(col, alpha);
@@ -412,6 +439,7 @@ export class ParticleRenderer {
     u.uDof.value = s.dof;
     u.uFogDensity.value = s.fogDensity;
     u.uStretch.value = s.stretch;
+    u.uDefinite.value = s.sizeMode === "definite" ? 1 : 0;
     u.uViewportH.value = viewportHeight;
     this.ribbonOpacity = s.ribbons;
     this.ribbonView = { w: viewportWidth, h: viewportHeight, pr: pixelRatio, mono: s.colorMode === "monochrome", fog: s.fogDensity };
