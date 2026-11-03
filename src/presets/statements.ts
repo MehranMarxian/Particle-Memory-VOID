@@ -24,7 +24,7 @@ export const LOOK_STATEMENTS: Readonly<Record<string, string>> = {
   traces: "We are made less of where we are than of where we have been.",
   exhale: "Every breath out is a small letting go. Every breath in, a return.",
   witness:
-    "One light goes out every four seconds. That is the estimated rate at which people die of hunger and its causes. Nothing here is faster than the truth.",
+    "One light goes out every four seconds: the estimate 238 humanitarian organizations published in September 2022. Their own range is one death every 4.25 to 12 seconds.",
   murmuration: "Thousands of bodies, one decision, made again every moment.",
   aurora: "Light that never lands. A memory kept in the sky.",
   sketch: "What we keep of a face is not its light. It is the lines.",

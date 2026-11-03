@@ -4,9 +4,12 @@ import { mulberry32 } from "@/utils/math";
  * Witness (v0.11.0): a look that keeps a real count.
  *
  * Every particle is a person. While the look is on, one particle goes dark at
- * the estimated rate at which people die of hunger and its causes - roughly
- * one every four seconds (the figure a coalition of 238 NGOs published in
- * 2022; UN and WFP estimates of 7,000-25,000 hunger deaths a day bracket it).
+ * the estimated rate at which people die of hunger and its causes - one every
+ * four seconds, the headline figure 238 NGOs published on 20 September 2022.
+ * Its own notes give a range of one every 4.25 to 12 seconds, from IPC death
+ * rates and the Global Report on Food Crises 2022 Mid-Year Update:
+ * https://www.oxfam.org/en/press-releases/humanitarian-organizations-estimate-one-person-dying-hunger-every-four-seconds
+ * The pulse keeps the headline; the words the piece shows give the source.
  * The clock is wall time, not simulation time: pausing the piece does not
  * pause the world, so the count does not pause either.
  *

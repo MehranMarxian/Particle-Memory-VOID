@@ -18,7 +18,7 @@
         --void-line-soft: #161616;
         --void-text: #9a9a9a;
         --void-bright: #dcdfe4;
-        --void-dim: #5f5f5f;
+        --void-dim: #808080;
         --void-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
       }
       * {
@@ -144,6 +144,15 @@
         letter-spacing: 0.12em;
         white-space: nowrap;
       }
+      .keys {
+        margin: 12px 0 0;
+        color: var(--void-dim);
+      }
+      @media (hover: none) and (pointer: coarse) {
+        .keys {
+          display: none;
+        }
+      }
       .notes {
         border: 1px solid var(--void-line);
         padding: 20px 22px;
@@ -160,7 +169,7 @@
         margin-top: 34px;
         padding-top: 16px;
         text-align: center;
-        color: #4a4a4a;
+        color: #808080;
         font-size: 10px;
         letter-spacing: 0.2em;
       }
@@ -202,7 +211,7 @@
           loading="lazy"
         ></iframe>
         <p>
-          <span>Click inside to give VOID your attention &middot; sound needs one gesture</span>
+          <span>Tap inside to give VOID your attention &middot; sound needs one gesture</span>
           <span><a href="./app/">open full screen &rarr;</a></span>
         </p>
       </section>
@@ -219,12 +228,15 @@
         <div>
           <h2>TRY THIS FIRST</h2>
           <ol>
-            <li>Press <kbd>?</kbd> &mdash; the controls guide introduces itself.</li>
-            <li>Drop a photo, a <code>.glb</code>/<code>.obj</code> model or a <code>.ply</code> cloud on the canvas, or press <kbd>O</kbd>.</li>
-            <li>Press <kbd>L</kbd> and play some music &mdash; the swarm answers it.</li>
-            <li>Press <kbd>E</kbd> and watch VOID search its own behaviour.</li>
-            <li>Press <kbd>S</kbd> for the screensaver; any input returns.</li>
+            <li>Tap a sample on the YOUR MEMORY card, or UPLOAD SOURCE to bring your own photo, model or cloud.</li>
+            <li>Hold one finger still on the piece, or move your mouse &mdash; the swarm leans toward you.</li>
+            <li>Tap RELEASE and let it forget, then RECONSTRUCT and watch it return. On a phone, both are under MORE.</li>
+            <li>Tap CAPTURE to save the moment.</li>
           </ol>
+          <p class="keys">
+            With a keyboard: <kbd>?</kbd> guide &middot; <kbd>O</kbd> open &middot; <kbd>L</kbd> listen &middot;
+            <kbd>E</kbd> evolve &middot; <kbd>S</kbd> screensaver
+          </p>
         </div>
       </section>
 

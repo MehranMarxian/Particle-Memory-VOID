@@ -37,7 +37,7 @@ export function createWitnessOverlay(): WitnessOverlay {
   count.style.cssText = "font-size:26px;letter-spacing:0.12em;color:#f2e6c8;font-variant-numeric:tabular-nums";
   const line = document.createElement("div");
   const note = document.createElement("div");
-  note.style.cssText = "margin-top:6px;letter-spacing:0.06em;color:#7d7461;font-size:10px";
+  note.style.cssText = "margin-top:6px;letter-spacing:0.06em;color:#a3987f;font-size:10px";
   el.append(count, line, note);
 
   return {
@@ -53,8 +53,8 @@ export function createWitnessOverlay(): WitnessOverlay {
       count.textContent = lost.toLocaleString();
       line.textContent =
         lost === 1
-          ? "PERSON HAS DIED OF HUNGER SINCE YOU BEGAN WATCHING"
-          : `PEOPLE HAVE DIED OF HUNGER SINCE YOU BEGAN WATCHING · ONE EVERY ${SECONDS_PER_HUNGER_DEATH} SECONDS`;
+          ? "ESTIMATED DEATH FROM HUNGER SINCE YOU BEGAN WATCHING"
+          : `ESTIMATED DEATHS FROM HUNGER SINCE YOU BEGAN WATCHING · ONE EVERY ${SECONDS_PER_HUNGER_DEATH} SECONDS`;
     },
   };
 }

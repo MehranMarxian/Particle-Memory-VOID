@@ -11,7 +11,7 @@
   --line-strong: #2c2c2c;
   --ink: #d6d6dc;
   --ink-dim: #8a8a94;
-  --ink-faint: #56565f;
+  --ink-faint: #7d7d87;
   --accent: #e9e4d4;
   --ember: #ff9a4a;
   --rail: 64px;
@@ -706,7 +706,7 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
   pointer-events: none;
   font: 9px/1 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
   letter-spacing: 0.12em;
-  color: #56565f;
+  color: #7d7d87;
 }
 #void-footer a {
   color: inherit;
@@ -715,7 +715,7 @@ body:has(#void-studio:not(.stowed):not(.no-tools)) #source-card {
 }
 #void-footer a:hover,
 #void-footer a:focus-visible {
-  color: #8a8a94;
+  color: #d6d6dc;
   outline: none;
 }
 body.screensaver #void-footer {
@@ -932,6 +932,11 @@ body.screensaver #void-footer {
   #source-card .sc-samples {
     margin-top: 6px;
     padding-top: 6px;
+  }
+  /* The Witness count waits above the bottom bar: the card keeps the top. */
+  #witness {
+    top: auto !important;
+    bottom: calc(84px + env(safe-area-inset-bottom));
   }
   /* The source card sits under the bar, not behind it. */
   body:has(#void-studio:not(.stowed)) #source-card {

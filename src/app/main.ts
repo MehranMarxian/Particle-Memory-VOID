@@ -1253,7 +1253,7 @@ renderer3d.domElement.addEventListener("pointerdown", (e) => {
   gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.pointerType, performance.now());
 });
 window.addEventListener("pointermove", (e) => {
-  gestures.pointerMove(e.pointerId, e.clientX, e.clientY, performance.now());
+  gestures.pointerMove(e.pointerId, e.clientX, e.clientY);
   if (e.pointerType !== "mouse") return;
   // The mouse's hover is the touch: recorded for the screensaver's ghost,
   // and mapped into the scene for the pointer force.
@@ -1266,6 +1266,10 @@ window.addEventListener("pointermove", (e) => {
 });
 window.addEventListener("pointerup", (e) => gestures.pointerUp(e.pointerId));
 window.addEventListener("pointercancel", (e) => gestures.pointerUp(e.pointerId));
+// A long press is the hold, not a request for the browser's menu.
+renderer3d.domElement.addEventListener("contextmenu", (e) => {
+  if ((e as PointerEvent).pointerType === "touch") e.preventDefault();
+});
 renderer3d.domElement.addEventListener("wheel", (e) => {
   radius = Math.max(3, Math.min(40, radius * (1 + Math.sign(e.deltaY) * 0.1)));
 });
