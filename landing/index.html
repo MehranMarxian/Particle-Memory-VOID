@@ -91,6 +91,29 @@
         border: 0;
         background: #000;
       }
+      .still {
+        display: none;
+        position: relative;
+        border-bottom: 0;
+      }
+      .still img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 4 / 5;
+        object-fit: cover;
+      }
+      .still span {
+        position: absolute;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        padding: 14px 22px;
+        white-space: nowrap;
+        color: var(--void-bright);
+        background: rgba(5, 5, 5, 0.85);
+        border: 1px solid #6a6a6a;
+        letter-spacing: 0.24em;
+      }
       .frame p {
         margin: 0;
         padding: 10px 14px;
@@ -180,9 +203,12 @@
         .cols {
           grid-template-columns: 1fr;
         }
-        .frame iframe {
-          min-height: 320px;
-          aspect-ratio: 4 / 5;
+        .frame iframe,
+        .frame-note {
+          display: none !important;
+        }
+        .still {
+          display: block;
         }
       }
     </style>
@@ -204,14 +230,23 @@
       </header>
 
       <section class="frame">
+        <a class="still" href="./app/">
+          <img src="./app/poster.jpg" alt="A freckled face held by a swarm of particles" />
+          <span>OPEN THE PIECE</span>
+        </a>
         <iframe
-          src="./app/"
+          id="piece"
           title="VOID / PARTICLE MEMORY"
           allow="microphone; display-capture; fullscreen; autoplay"
           loading="lazy"
         ></iframe>
-        <p>
-          <span>Tap inside to give VOID your attention &middot; sound needs one gesture</span>
+        <script>
+          // A phone gets the still and one door: an embedded piece would take
+          // every swipe from the page, and run a swarm nobody asked for yet.
+          if (window.matchMedia("(min-width: 761px)").matches) document.getElementById("piece").src = "./app/";
+        </script>
+        <p class="frame-note">
+          <span>Click inside to give VOID your attention &middot; sound needs one gesture</span>
           <span><a href="./app/">open full screen &rarr;</a></span>
         </p>
       </section>
@@ -228,10 +263,10 @@
         <div>
           <h2>TRY THIS FIRST</h2>
           <ol>
-            <li>Tap a sample on the YOUR MEMORY card, or UPLOAD SOURCE to bring your own photo, model or cloud.</li>
             <li>Hold one finger still on the piece, or move your mouse &mdash; the swarm leans toward you.</li>
-            <li>Tap RELEASE and let it forget, then RECONSTRUCT and watch it return. On a phone, both are under MORE.</li>
-            <li>Tap CAPTURE to save the moment.</li>
+            <li>Tap LET GO and let it forget, then REMEMBER and watch it return. On a computer they are RELEASE and RECONSTRUCT.</li>
+            <li>Tap CAPTURE to keep the moment.</li>
+            <li>Bring your own with SOURCE: a photo, a model or a point cloud.</li>
           </ol>
           <p class="keys">
             With a keyboard: <kbd>?</kbd> guide &middot; <kbd>O</kbd> open &middot; <kbd>L</kbd> listen &middot;

@@ -2,6 +2,35 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.14.0] - 2026-11-03
+
+First Minute: a phone visitor meets a face, can let it go and bring it back,
+and can keep the moment.
+
+### Added
+- **A portrait.** `void-portrait.webp`, a photograph by Mehran Ahmadi, joins the
+  samples. A first visit on a touch device opens on it in the Portrait look,
+  from the front, at 12,000 particles, and it keeps facing the visitor until a
+  look or a finger moves it on. A visitor with a source of their own, or a
+  saved state, never sees this.
+- **REMEMBER and LET GO** sit above the phone's bottom bar, in words, and light
+  with the memory's state. They were RECONSTRUCT and RELEASE, under MORE.
+- **CAPTURE on a touch device offers the share sheet**, which is how a phone
+  saves or sends a picture. Where a browser refuses, the file downloads.
+- **The phone landing page shows a still and one door**, OPEN THE PIECE, instead
+  of an embedded piece that took every swipe from the page.
+
+### Changed
+- **The Portrait look holds a face.** Since the species matrix began to act on
+  WebGL2, its life forces pulled the swarm into a lattice. The memory is
+  stronger now and life only murmurs. The look has a new face in the dock.
+- A first visit by touch gets one line, HOLD A FINGER ON THE PIECE, instead of
+  the guide. HELP is under MORE.
+
+### Fixed
+- Reloading with Witness as the saved look could stop the piece from starting
+  when MORPH was above zero.
+
 ## [0.13.3] - 2026-11-03
 
 ### Fixed

@@ -75,6 +75,7 @@ import { applyMacro, defaultMacros, ENGINE_MACROS, type MacroName } from "@/pres
 import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
+import { deliverMoment } from "@/app/saveMoment";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
@@ -89,7 +90,7 @@ import {
   type StoredSource,
 } from "@/sources/sourceStore";
 import { createSourceCard } from "@/ui/sourceCard";
-import { sampleUrl } from "@/sources/samples";
+import { PORTRAIT_SAMPLE, sampleUrl } from "@/sources/samples";
 import { kindLabel, nextSourceUiState, type SourceUiState } from "@/ui/sourceFlow";
 import { createControlsGuide } from "@/ui/guide";
 import { planIntro } from "@/ui/intro";
@@ -170,6 +171,12 @@ const history: StateSnapshot[] = [];
 let activePreset: string | null = null;
 let lastSourceName: string | null = null;
 let lastSourceUrl: string | null = null;
+/** Did this browser already keep a saved state of the piece? */
+let returningVisit = false;
+/** The memory's own targets, kept while a visitor borrows the swarm. Boot reads it. */
+let presenceHome: Float32Array | null = null;
+/** The opening portrait keeps facing the visitor until a look or a finger moves it on. */
+let faceHeld = false;
 let speciesCount = 4;
 let saveTimer = 0;
 
@@ -1279,6 +1286,7 @@ renderer3d.domElement.addEventListener("wheel", (e) => {
   // Restore the persisted instrument state before the first build. Demo
   // mode boots fresh: a demo must never write over the visitor's state.
   const cfg = demoMode ? null : loadConfig();
+  returningVisit = cfg !== null;
   if (cfg) {
     Object.assign(params.memory, cfg.params.memory);
     Object.assign(params.life, cfg.params.life);
@@ -1617,22 +1625,40 @@ async function openUrlSource(url: string, options: { quiet?: boolean } = {}): Pr
   }
 }
 
-async function restoreStoredSource(): Promise<void> {
+/**
+ * A first visit on a phone opens on a face: the Portrait look, seen from the
+ * front, dense enough to read as someone, and not turning away until touched.
+ */
+function beginFirstMemory(): void {
+  if (saver.active || sourceUi.phase !== "empty") return;
+  applyLookByName("portrait");
+  faceHeld = true;
+  azimuth = 0;
+  elevation = 0.04;
+  radius = 19;
+  densityIndex = DEFAULT_DENSITY_INDEX;
+  const requested = densityMenu()[densityIndex];
+  currentCount = effectiveDensity(requested, backendForCount(requested));
+  void openUrlSource(sampleUrl(PORTRAIT_SAMPLE), { quiet: true });
+}
+
+/** Resolves true if this browser had a source of the visitor's own to bring back. */
+async function restoreStoredSource(): Promise<boolean> {
   let record: StoredSource | null | undefined;
   try {
     record = await sourceStore.get(SOURCE_STORE_KEY);
   } catch {
-    return;
+    return false;
   }
-  if (!record) return;
+  if (!record) return false;
   const mySeq = ++sourceLoadSeq;
   setSourceUi(nextSourceUiState(sourceUi, { type: "begin", name: record.name }));
   try {
     const handle = await loadSource(record.name, record.blob);
-    if (sourceLoadSuperseded(mySeq)) return;
+    if (sourceLoadSuperseded(mySeq)) return true;
     lastDroppedFile = null;
     await adoptHandle(handle);
-    if (sourceLoadSuperseded(mySeq)) return;
+    if (sourceLoadSuperseded(mySeq)) return true;
     if (record.blob.type.startsWith("image/")) {
       // The memory's face comes back with the memory.
       createImageBitmap(record.blob, { resizeWidth: 96 })
@@ -1640,10 +1666,11 @@ async function restoreStoredSource(): Promise<void> {
         .catch(() => sourceCard.setThumbnail(null));
     }
   } catch {
-    if (sourceLoadSuperseded(mySeq)) return;
+    if (sourceLoadSuperseded(mySeq)) return true;
     setSourceUi(nextSourceUiState(sourceUi, { type: "cleared" }));
     flashHint("THE PREVIOUS MEMORY COULD NOT BE RESTORED", 5);
   }
+  return true;
 }
 
 function refreshThumbnail(): void {
@@ -1784,6 +1811,7 @@ function updateTouch(dt: number): void {
   // and the touch-hold that becomes the pointer force.
   const g = gestures.take(performance.now());
   if (g.orbitDx !== 0 || g.orbitDy !== 0) {
+    faceHeld = false;
     azimuth -= g.orbitDx * 0.005;
     elevation = Math.max(-1.4, Math.min(1.4, elevation + g.orbitDy * 0.005));
   }
@@ -2152,7 +2180,9 @@ let activeMatrix = matrix;
   } else if (lastSourceUrl && shouldRestoreUrl(lastSourceUrl)) {
     void openUrlSource(lastSourceUrl, { quiet: true });
   } else {
-    void restoreStoredSource();
+    void restoreStoredSource().then((restored) => {
+      if (!restored && !returningVisit && coarsePointer) beginFirstMemory();
+    });
   }
 }
 
@@ -2319,11 +2349,11 @@ if (!demoMode) {
         panelApi?.setActivePreset(null);
         flashHint("RESET TO DEFAULTS", 3);
       },
-      onReconstruct() {
+      onReconstruct(word = "RECONSTRUCT") {
         memory.setState("RECONSTRUCT");
         engine.restoreMemory();
         panelApi?.setState(memory.state);
-        flashHint("RECONSTRUCT", 2);
+        flashHint(word, 2);
       },
       onGenesis() {
         startGenesis();
@@ -2358,10 +2388,10 @@ if (!demoMode) {
       onForgetFound: forgetFound,
       onOpenLook: openLookFile,
       isListening: (target) => modulator.mappingFor(target) !== undefined,
-      onRelease() {
+      onRelease(word = "RELEASE") {
         memory.setState("VOID");
         panelApi?.setState(memory.state);
-        flashHint("RELEASE", 2);
+        flashHint(word, 2);
       },
       onFullscreen() {
         if (document.fullscreenElement) void document.exitFullscreen();
@@ -2439,6 +2469,7 @@ const reducedMotion =
 const introPlan = demoMode || reducedMotion ? "none" : planIntro({
   seenIntro: hasSeenIntro(),
   installed: new URLSearchParams(location.search).get("installed") === "1",
+  touch: coarsePointer,
 });
 if (introPlan === "guide") {
   window.setTimeout(() => {
@@ -2446,6 +2477,12 @@ if (introPlan === "guide") {
     guide.open();
     markIntroSeen();
   }, 2600);
+} else if (introPlan === "hint") {
+  window.setTimeout(() => {
+    if (saver.active) return;
+    flashHint("HOLD A FINGER ON THE PIECE", 6);
+    markIntroSeen();
+  }, 11000); // after the opening look's caption has had its say
 } else if (introPlan === "nudge") {
   window.setTimeout(() => {
     if (saver.active) return;
@@ -2648,6 +2685,7 @@ function stepGenesis(dt: number): void {
 function applyLookByName(name: string, captionSeconds = 9): void {
   const def = PRESET_DEFINITIONS.find((d) => d.name === name);
   if (!def) return;
+  faceHeld = false;
   pushHistory();
   abandonEvolution();
   cancelGenesis();
@@ -2734,8 +2772,6 @@ function cameraFailure(feature: string, err: unknown): string {
 
 // --- Presence: the swarm remembers whoever stands in front of it ---------------
 const presenceModel = new PresenceModel();
-/** The memory's own targets, kept while a visitor borrows the swarm. */
-let presenceHome: Float32Array | null = null;
 let presenceWas = presenceModel.state;
 let presenceFrameClock = 0;
 let presenceShapeClock = 0;
@@ -3022,12 +3058,19 @@ function saveFrame(): void {
   const label = hiResLabel;
   presentedCanvas().toBlob((blob) => {
     if (!blob) return;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `void-${safeName}-${stamp}${label}.png`;
-    a.click();
-    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    flashHint("MOMENT SAVED", 3);
+    void deliverMoment(blob, `void-${safeName}-${stamp}${label}.png`, {
+      preferShare: coarsePointer,
+      nav: navigator,
+      download(file, filename) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = filename;
+        a.click();
+        window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      },
+    }).then((outcome) => {
+      if (outcome === "saved") flashHint("MOMENT SAVED", 3);
+    });
   }, "image/png");
 }
 
@@ -3115,7 +3158,9 @@ function frameInner(now: number): void {
   stepExhibition(now);
   azimuth += dt * (saver.active
     ? activeCamera.orbitSpeed * activeCamera.orbitDirection
-    : demoMode
+    : faceHeld
+      ? 0
+      : demoMode
       ? 0.03 // a card must look alive without being touched
       : reducedMotion
         ? 0.008 // the reduced-motion answer: drift, not sway

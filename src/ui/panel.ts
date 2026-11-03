@@ -71,8 +71,9 @@ export interface PanelCallbacks {
   onRandomize(): void;
   onUndo(): void;
   onReset(): void;
-  onReconstruct(): void;
-  onRelease(): void;
+  /** `word`: what the status line calls it, where it goes by another name. */
+  onReconstruct(word?: string): void;
+  onRelease(word?: string): void;
   /** GENESIS: the ring of fire that re-forms the memory. */
   onGenesis(): void;
   onFullscreen(): void;
@@ -850,8 +851,8 @@ export function createPanel(opts: {
   topbar.appendChild(actions);
   iconBtn(actions, "source", "source", "SOURCE", () => callbacks.onAddSource(), "Open a photo, model or point cloud (O)");
   // GENESIS is a look now (0.13): it lives in the looks dock, and N still runs it.
-  // On a phone these two move into the MORE sheet; the bar keeps the few
-  // gestures a thumb reaches for most.
+  // On a phone these two become REMEMBER and LET GO, on the main screen; the
+  // bar keeps the few gestures a thumb reaches for most.
   iconBtn(actions, "reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct(), "Pull the swarm back into the memory (1)").classList.add("secondary");
   iconBtn(actions, "release", "release", "RELEASE", () => callbacks.onRelease(), "Let the memory go (4)").classList.add("secondary");
   // Simulation pause, distinct from the screensaver and the memory cycle:
@@ -1609,12 +1610,28 @@ export function createPanel(opts: {
   const moreGrid = document.createElement("div");
   moreGrid.className = "more-grid";
   more.appendChild(moreGrid);
-  iconBtn(moreGrid, "m-reconstruct", "reconstruct", "RECONSTRUCT", () => callbacks.onReconstruct());
-  iconBtn(moreGrid, "m-release", "release", "RELEASE", () => callbacks.onRelease());
   iconBtn(moreGrid, "m-screensaver", "screensaver", "SCREENSAVER", () => callbacks.onScreensaver());
   iconBtn(moreGrid, "m-exhibit", "exhibit", "EXHIBIT", () => callbacks.onExhibition());
   iconBtn(moreGrid, "m-fullscreen", "fullscreen", "FULLSCREEN", () => callbacks.onFullscreen());
   iconBtn(moreGrid, "m-help", "help", "HELP", () => callbacks.onToggleGuide());
+
+  // The piece's two gestures in plain words, always in reach above the bar.
+  const gestures = document.createElement("div");
+  gestures.id = "void-gestures";
+  gestures.setAttribute("role", "group");
+  gestures.setAttribute("aria-label", "Memory");
+  studio.appendChild(gestures);
+  const rememberBtn = iconBtn(gestures, "remember", "reconstruct", "REMEMBER", () => callbacks.onReconstruct("REMEMBER"));
+  const letGoBtn = iconBtn(gestures, "let-go", "release", "LET GO", () => callbacks.onRelease("LET GO"));
+  function lightGestures(state: string): void {
+    const remembering = state === "RECONSTRUCT" || state === "REMEMBER";
+    const lettingGo = state === "VOID";
+    rememberBtn.classList.toggle("on", remembering);
+    rememberBtn.setAttribute("aria-pressed", String(remembering));
+    letGoBtn.classList.toggle("on", lettingGo);
+    letGoBtn.setAttribute("aria-pressed", String(lettingGo));
+  }
+  lightGestures("");
 
   const nav = document.createElement("nav");
   nav.id = "void-mobile-nav";
@@ -1714,6 +1731,7 @@ export function createPanel(opts: {
     },
     setState(name) {
       stateChip.textContent = name;
+      lightGestures(name);
     },
     setStats(text) {
       stats.textContent = text;

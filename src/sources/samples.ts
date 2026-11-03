@@ -8,7 +8,11 @@ export interface SampleSource {
   file: string;
 }
 
+/** A photograph by Mehran Ahmadi: what a first visit on a phone remembers. */
+export const PORTRAIT_SAMPLE = "void-portrait.webp";
+
 export const SAMPLES: readonly SampleSource[] = [
+  { label: "PORTRAIT", file: PORTRAIT_SAMPLE },
   { label: "FIGURE", file: "void-figure.png" },
   { label: "CLOUD", file: "void-cloud.ply" },
   { label: "SPHERE", file: "void-sphere.obj" },

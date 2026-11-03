@@ -216,8 +216,31 @@ describe("the studio layout", () => {
     tab("props").click();
     expect(p.studio.className).not.toMatch(/sheet-/);
     tab("more").click();
-    q<HTMLButtonElement>('#void-more [data-action="m-release"]').click();
+    q<HTMLButtonElement>('#void-more [data-action="m-help"]').click();
+    expect(p.studio.classList.contains("sheet-more")).toBe(true);
+  });
+
+  it("the phone's two words are on the main screen, and light with the state", () => {
+    const remember = q<HTMLButtonElement>('#void-gestures [data-action="remember"]');
+    const letGo = q<HTMLButtonElement>('#void-gestures [data-action="let-go"]');
+    expect(remember.textContent).toContain("REMEMBER");
+    expect(letGo.textContent).toContain("LET GO");
+    letGo.click();
     expect(p.callbacks.calls).toContain("release");
+    p.api.setState("VOID");
+    expect(letGo.getAttribute("aria-pressed")).toBe("true");
+    expect(remember.getAttribute("aria-pressed")).toBe("false");
+    remember.click();
+    expect(p.callbacks.calls).toContain("reconstruct");
+    for (const state of ["RECONSTRUCT", "REMEMBER"]) {
+      p.api.setState(state);
+      expect(remember.getAttribute("aria-pressed")).toBe("true");
+      expect(letGo.getAttribute("aria-pressed")).toBe("false");
+    }
+    p.api.setState("ALIVE");
+    expect(remember.getAttribute("aria-pressed")).toBe("false");
+    expect(letGo.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector('#void-more [data-action="m-release"]')).toBeNull();
   });
 
   it("pause flips to play", () => {
