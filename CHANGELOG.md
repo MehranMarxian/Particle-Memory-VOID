@@ -2,6 +2,24 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.15.0] - 2026-11-03
+
+The memory materializes.
+
+### Added
+- **The liquid skin** (VISUAL > Skin, a lazy chunk). While the memory holds, the
+  swarm condenses into one lit surface; as it goes, the surface melts back into
+  the particles that were holding it. Screen-space fluid rendering after van der
+  Laan et al. (2009): spheres splatted to half-size depth, smoothed with a filter
+  that respects depth edges, and lit from the normals that depth implies. It
+  draws on the WebGL2 and CPU engines. WebGPU keeps its particles for now.
+- **Mercury**, a look built on it. Bring any memory: a look that sets the skin
+  does not change what is remembered.
+
+### Changed
+- The quality governor sheds the skin last, after all the resolution: it is the
+  look itself, and a lower resolution already makes it cheaper.
+
 ## [0.14.1] - 2026-11-03
 
 ### Fixed

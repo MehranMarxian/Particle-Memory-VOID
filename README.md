@@ -287,7 +287,7 @@ piece and the sheet goes away. A first visit on a phone opens on a portrait in
 the Portrait look, with one line of help instead of the guide (HELP is under
 MORE). CAPTURE on a phone offers the moment to the share sheet.
 
-Twenty-two authored looks ship with the piece: Moon Dust, **Genesis** (the ring
+Twenty-three authored looks ship with the piece: **Mercury** (the swarm condensed into a liquid surface while the memory holds), Moon Dust, **Genesis** (the ring
 of fire, a look since 0.13; `N` still lights it anywhere), **Walker** (a body
 that moves, brought with its clip), **Grain** (a memory drawn in single pixels
 of light), Portrait, Organic, Scan,
