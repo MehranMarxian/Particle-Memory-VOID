@@ -29,13 +29,14 @@ function makeMemoryStorage(): Storage & { dump(): string } {
 }
 
 describe("presets", () => {
-  it("defines exactly the twenty-two authored presets with unique names", () => {
+  it("defines exactly the twenty-three authored presets with unique names", () => {
     expect(PRESET_DEFINITIONS.map((d) => d.name)).toEqual([
       "moon",
       "genesis",
       "walker",
       "grain",
       "portrait",
+      "mercury",
       "organic",
       "scan",
       "architecture",
@@ -99,8 +100,8 @@ describe("presets are full states", () => {
     expect(ecology.enabled).toBe(false);
   });
 
-  it("Portrait gives way to the memory it holds, and only Portrait", () => {
-    expect(PRESET_DEFINITIONS.filter((d) => d.holdsFace).map((d) => d.name)).toEqual(["portrait"]);
+  it("Portrait and Mercury give way to the memory they hold, and only they do", () => {
+    expect(PRESET_DEFINITIONS.filter((d) => d.holdsFace).map((d) => d.name)).toEqual(["portrait", "mercury"]);
   });
 
   it("sections a preset does not mention return to their defaults", () => {
