@@ -43,15 +43,20 @@ describe("first-visit intro flag", () => {
 
 describe("intro plan", () => {
   it("greets a first-time visitor with the guide", () => {
-    expect(planIntro({ seenIntro: false, installed: false })).toBe("guide");
+    expect(planIntro({ seenIntro: false, installed: false, touch: false })).toBe("guide");
+  });
+
+  it("leaves a first visit by touch with the piece, and one line", () => {
+    expect(planIntro({ seenIntro: false, installed: false, touch: true })).toBe("hint");
   });
 
   it("nudges a returning visitor instead", () => {
-    expect(planIntro({ seenIntro: true, installed: false })).toBe("nudge");
+    expect(planIntro({ seenIntro: true, installed: false, touch: false })).toBe("nudge");
+    expect(planIntro({ seenIntro: true, installed: false, touch: true })).toBe("nudge");
   });
 
   it("stays out of the way of the installed screensaver", () => {
-    expect(planIntro({ seenIntro: false, installed: true })).toBe("none");
-    expect(planIntro({ seenIntro: true, installed: true })).toBe("none");
+    expect(planIntro({ seenIntro: false, installed: true, touch: false })).toBe("none");
+    expect(planIntro({ seenIntro: true, installed: true, touch: true })).toBe("none");
   });
 });

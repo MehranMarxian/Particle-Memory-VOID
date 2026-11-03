@@ -100,8 +100,9 @@ returns to its synthetic memory until you give it something new.
 
 Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 `void-sphere.obj`); regenerate them with `node scripts/make-samples.mjs`.
-The empty card offers them directly (FIGURE / CLOUD / SPHERE / WALKER), so you
-can see the piece working before you have a file of your own.
+`void-portrait.webp` is a photograph by Mehran Ahmadi and isn't generated.
+The empty card offers them directly (PORTRAIT / FIGURE / CLOUD / SPHERE /
+WALKER), so you can see the piece working before you have a file of your own.
 
 ## Use a moving memory
 
@@ -259,9 +260,12 @@ has an icon with its name underneath.
 
 You can close any panel with its ×, bring it back from the top bar, and the
 browser remembers your layout. `P` (or HIDE) hides everything except the
-piece. On a phone the piece comes first: a slim top bar keeps SOURCE,
-GENESIS, PAUSE, CAPTURE and HIDE, and a bottom bar (LOOKS, TOOLS, PANEL,
-MORE) raises one sheet at a time. Touch the piece and the sheet goes away.
+piece. On a phone the piece comes first: a slim top bar keeps SOURCE, PAUSE,
+CAPTURE and HIDE, **REMEMBER** and **LET GO** sit above the bottom bar, and
+the bar (LOOKS, TOOLS, PANEL, MORE) raises one sheet at a time. Touch the
+piece and the sheet goes away. A first visit on a phone opens on a portrait in
+the Portrait look, with one line of help instead of the guide (HELP is under
+MORE). CAPTURE on a phone offers the moment to the share sheet.
 
 Twenty-two authored looks ship with the piece: Moon Dust, **Genesis** (the ring
 of fire, a look since 0.13; `N` still lights it anywhere), **Walker** (a body
