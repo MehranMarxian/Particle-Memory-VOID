@@ -2,6 +2,33 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.13.3] - 2026-11-03
+
+### Fixed
+- **A finger held still is now a hold.** The hold was only noticed when the
+  browser sent a move, so a truly still finger never touched the swarm. It is
+  read from the clock each frame now. A drag that returns to its start stays a
+  drag, the finger left after a pinch orbits instead of holding, and a finger
+  settling on the glass no longer nudges the camera. A long press no longer
+  asks the browser for its menu.
+
+### Changed
+- **Witness says where its number comes from.** The four-second pulse stays:
+  it is the headline figure 238 humanitarian organizations published in
+  September 2022. The statement, the README and the look's description now
+  name that source and date, the statement gives their own range of one death
+  every 4.25 to 12 seconds, and the live count reads ESTIMATED. "Nothing in it
+  is faster than the truth" is gone: four seconds is faster than that range.
+  On a phone the count now sits above the bottom bar, clear of the source card.
+- **Quiet text is readable.** Faint labels in the studio, the source card, the
+  guide and the landing page rise to at least 4.5:1 against the dark.
+- **The landing page's first steps work by touch.** They name what is on the
+  screen; the keyboard shortcuts stay, for those with a keyboard.
+
+### Added
+- Faces for the five looks that had none: Witness, Murmuration, Aurora, Sketch
+  and Kin.
+
 ## [0.13.2] - 2026-10-30
 
 ### Added: definite sizes

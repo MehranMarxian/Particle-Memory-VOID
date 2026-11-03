@@ -51,7 +51,7 @@ export interface PresetDefinition {
   phaseCoupling?: number;
   /**
    * Witness mode: the look keeps a real-time count. One particle goes dark
-   * at the measured rate of hunger deaths, for as long as someone watches.
+   * at the estimated rate of hunger deaths, for as long as someone watches.
    */
   witness?: boolean;
   /**
@@ -615,7 +615,7 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     name: "witness",
     label: "Witness",
     description:
-      "Every light is a person. One goes out every four seconds - the rate at which the world loses someone to hunger",
+      "Every light is a person. One goes out every four seconds - the estimate of hunger deaths published in 2022",
     // Its statement lives with the others, in statements.ts.
     witness: true,
     // The crowd holds its shape - the loss is visible because the memory is

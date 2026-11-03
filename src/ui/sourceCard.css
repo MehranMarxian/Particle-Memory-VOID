@@ -21,7 +21,7 @@
 #source-card .sc-kicker {
   font-size: 9px;
   letter-spacing: 0.42em;
-  color: #6d6d6d;
+  color: #808080;
   margin-bottom: 9px;
   white-space: nowrap;
 }
@@ -42,7 +42,7 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #5f5f5f;
+  color: #808080;
   font-size: 9px;
   letter-spacing: 0.14em;
 }
@@ -84,7 +84,7 @@
 }
 #source-card .sc-drop {
   margin: 8px 0 0;
-  color: #5c5c5c;
+  color: #808080;
   font-size: 9px;
   letter-spacing: 0.12em;
   line-height: 1.6;
@@ -130,7 +130,7 @@
   margin-bottom: 4px;
 }
 #source-card .sc-sub {
-  color: #6a6a6a;
+  color: #808080;
   font-size: 9px;
   letter-spacing: 0.1em;
   line-height: 1.7;
@@ -193,7 +193,7 @@ body.screensaver #source-card {
   border-top: 1px solid #161616;
 }
 #source-card .sc-samples-label {
-  color: #565656;
+  color: #808080;
   font-size: 9px;
   letter-spacing: 0.14em;
 }

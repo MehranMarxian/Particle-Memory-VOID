@@ -32,9 +32,10 @@ you stop.
 
 That's also why it can bear witness. **Witness** is a look in which every
 particle is a person, and one light goes out every four seconds. That's
-the rate at which, by humanitarian estimates, people die of hunger and its
-causes. The count runs on wall-clock time, so pausing the piece doesn't
-pause it. Nothing in it is faster than the truth.
+the estimate of deaths from hunger and its causes that 238 humanitarian
+organizations published in September 2022; [their own range](https://www.oxfam.org/en/press-releases/humanitarian-organizations-estimate-one-person-dying-hunger-every-four-seconds)
+is one death every 4.25 to 12 seconds. The count runs on wall-clock time, so
+pausing the piece doesn't pause it.
 
 The piece belongs to the lineage it's built on: William Reeves' *Genesis
 Effect* (1982), which gave us the words "particle system"; Craig Reynolds'
