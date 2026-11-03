@@ -99,6 +99,10 @@ describe("presets are full states", () => {
     expect(ecology.enabled).toBe(false);
   });
 
+  it("Portrait gives way to the memory it holds, and only Portrait", () => {
+    expect(PRESET_DEFINITIONS.filter((d) => d.holdsFace).map((d) => d.name)).toEqual(["portrait"]);
+  });
+
   it("sections a preset does not mention return to their defaults", () => {
     const params = defaultEngineParams();
     const visual = defaultVisualSettings();

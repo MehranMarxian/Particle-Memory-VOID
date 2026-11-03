@@ -2,6 +2,23 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.14.1] - 2026-11-03
+
+### Fixed
+- **LET GO lets go of the face.** In 0.14.0 the Portrait look barely loosened,
+  and a pattern of cracks stayed in the face after either gesture, because the
+  memory cycle gave life its full strength back. Portrait now does what moving
+  bodies already did: while the memory holds, life goes nearly quiet, and it
+  returns as the memory goes. Held, the face is clean; let go, it dissolves into
+  beads of light inside its old outline; remembered, every particle comes home.
+
+### Changed
+- **The README opens on the piece:** one line, the live link, a clip of a face
+  forming and returning, current images of the studio and the phone, a first
+  minute, and browser support, privacy and license at a glance. The September
+  screenshots are gone. `docs/media/` holds the clip and images.
+- The research notes now say what shipped, what is planned and what is deferred.
+
 ## [0.14.0] - 2026-11-03
 
 First Minute: a phone visitor meets a face, can let it go and bring it back,

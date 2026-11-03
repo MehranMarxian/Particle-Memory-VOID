@@ -2584,7 +2584,7 @@ function declareGlobalHandle(): void {
         for (let s = 0; s < n; s++) {
           memory.update(FIXED_DT);
           memory.apply(params);
-          if (memory.active) params.life.forceScale = 6 * memory.lifeScale * (pendingHandle?.clip ? clipLifeYield(memory.blend, engine.count) : 1);
+          if (memory.active) params.life.forceScale = 6 * memory.lifeScale * lifeYield();
           if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
           engine.step(FIXED_DT, params, activeMatrix);
           stepEcology(FIXED_DT);
@@ -3086,6 +3086,12 @@ function frame(now: number): void {
   }
 }
 
+/** How far life gives way to what is being remembered: a moving body, or a held face. */
+function lifeYield(): number {
+  const holdsFace = PRESET_DEFINITIONS.find((d) => d.name === activePreset)?.holdsFace;
+  return pendingHandle?.clip || holdsFace ? clipLifeYield(memory.blend, engine.count) : 1;
+}
+
 function frameInner(now: number): void {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - lastTime) / 1000);
@@ -3117,7 +3123,7 @@ function frameInner(now: number): void {
     memory.apply(params);
     // The two systems compete: life yields while memory reconstructs.
     // (In MANUAL mode the user owns the Force slider directly.)
-    if (memory.active) params.life.forceScale = 6 * memory.lifeScale * (pendingHandle?.clip ? clipLifeYield(memory.blend, engine.count) : 1);
+    if (memory.active) params.life.forceScale = 6 * memory.lifeScale * lifeYield();
     if (memory.regain > 0) engine.regainMemory(FIXED_DT, memory.regain);
     engine.step(FIXED_DT, params, activeMatrix);
     stepEcology(FIXED_DT);
