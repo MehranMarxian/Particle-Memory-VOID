@@ -55,6 +55,12 @@ export interface PresetDefinition {
    */
   witness?: boolean;
   /**
+   * While the memory holds, life goes nearly quiet, and comes back as the
+   * memory goes: fine detail survives remembering, and letting go still
+   * scatters. Moving bodies already do this (clipLifeYield).
+   */
+  holdsFace?: boolean;
+  /**
    * A look that brings its own memory (0.13): a bundled sample
    * (public/samples), loaded when the look is chosen unless it is already
    * the memory. Walker brings its walking body.
@@ -213,12 +219,14 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     label: "Portrait",
     description: "Crisp, quiet reconstruction — a face remembered faithfully",
     // The memory holds and life only murmurs: stronger forces pull the swarm
-    // into a lattice, and the face is gone.
+    // into a lattice, and the face is gone. The reach stays wide, so that
+    // when the memory lets go there is force enough to scatter it.
+    holdsFace: true,
     memory: { strength: 14, decay: 0, reconstructionEase: 1.2 },
     life: {
       kernel: "pulse",
-      interactionRadius: 0.4,
-      coreRadius: 0.12,
+      interactionRadius: 0.7,
+      coreRadius: 0.3,
       forceScale: 0.6,
       friction: 0.9,
       attraction: 1,

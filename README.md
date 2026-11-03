@@ -1,15 +1,37 @@
 # VOID / PARTICLE MEMORY
-<img width="512" height="512" alt="void-512" src="https://github.com/user-attachments/assets/38a1f428-d149-47dd-bed6-66a57e6430df" />
+
+**A photograph held by a crowd of living particles.**
+
+**[Open the piece](https://mehran-ahmadi.com/Particle-Memory-VOID/)**, on a phone or a computer. There is nothing to install.
+
+<img width="400" alt="A freckled face forms from a swarm of particles, dissolves into beads, and returns" src="docs/media/void-first-minute.webp" />
+
+_A portrait being remembered, let go and remembered again. Captured from the piece at 12,000 particles. [Watch the vertical clip](docs/media/void-first-minute.mp4) (18 s, no sound)._
 
 _Developed by Mehran Ahmadi © 2026_
+
+## Your first minute
+
+1. **Open it.** On a phone you meet a face. On a computer, tap PORTRAIT on the YOUR MEMORY card.
+2. **Touch it.** Hold a finger still on the piece, or move your mouse, and the swarm leans toward you.
+3. **Let it go, then bring it back.** Tap LET GO, then REMEMBER. On a computer they are RELEASE and RECONSTRUCT.
+4. **Keep the moment.** CAPTURE saves the image, or offers it to your phone's share sheet.
+5. **Bring your own.** SOURCE takes a photo, a 3D model or a point cloud.
+
+<img width="620" alt="The VOID studio on a computer, with tools, properties and looks around a face made of particles" src="docs/media/void-desktop.jpg" /> <img width="200" alt="VOID on a phone: a face made of particles, with REMEMBER and LET GO above the bottom bar" src="docs/media/void-phone.jpg" />
+
+**Browsers:** needs WebGL2, which current phone and desktop browsers have. Without it the CPU engine takes over. A faster WebGPU engine is available as an option where the browser supports it.
+
+**Privacy:** nothing is uploaded or sent. Your last source is kept in your own browser only. The camera and microphone are used only when you turn on a feature that asks for them.
+
+**License:** free to experience and share, but not open source. See [License](#license).
+
+## What is VOID?
 
 A generative particle artwork. Give VOID a photograph, a 3D model, or a point
 cloud, and it becomes a living memory: thousands of particles that try to
 reconstruct the source while behaving like an organism of their own.
 
-<img width="2559" height="1439" alt="Screenshot 2026-09-14 005025" src="https://github.com/user-attachments/assets/f47fec9d-1733-4bbe-8218-38fb3ce1f4fb" />
-
-## What is VOID?
 
 A source becomes a memory. The swarm converges on it, lives with it, drifts
 away from it, forgets it almost completely, and then finds its way back.
@@ -44,7 +66,7 @@ boids (1987); Karl Sims' *Particle Dreams* (1988); Jeffrey Ventrella's
 `N`) is VOID's tribute to the first of them: a ring of fire spreads out from
 the heart of the memory, and the memory re-forms behind it.
 
-## Quick Start
+## Run it locally
 
 ```bash
 npm install
@@ -206,8 +228,6 @@ the video path on a CUDA card), the measurements, and the known limits.
 Press `?` at any time for the in-app guide, which groups every control by what
 it affects and explains the five memory states. On a first visit the guide opens
 itself once; after that it waits for `?`.
-
-<img width="899" height="561" alt="Screenshot 2026-09-14 025443" src="https://github.com/user-attachments/assets/67710bc3-9493-489d-bd9c-c09593eab07e" />
 
 | Keys | Does |
 |------|------|
@@ -440,8 +460,6 @@ couple into a shared heartbeat, stress and sleep hysteresis, Ornstein-Uhlenbeck
 wander, and a Physarum-style scent field the swarm writes, follows and slowly
 forgets. The FIELD section of the panel exposes all of it.
 
-<img width="2559" height="1249" alt="Screenshot 2026-09-14 013243" src="https://github.com/user-attachments/assets/86d0d6ab-0d24-47b9-8b11-f3f8e76e9893" />
-
 ## Sound
 
 VOID can listen while it remembers. Press `L`, or open the panel's SOUND
@@ -649,7 +667,7 @@ footer.
 
 The engine is framework-free: flat typed arrays, no Three.js in the
 simulation, so the logic is unit-testable and the buffers upload straight to
-the GPU. 337 tests cover the engine, grid, matrix, memory system, organism
+the GPU. The tests cover the engine, grid, matrix, memory system, organism
 layer, life cycle, the scent and heat fields, environment-modulated
 affinities, sources, persistence, samples, sound mapping and the soundscape,
 the pointer force and its ghost playback, the touch-gesture decisions, the

@@ -6,6 +6,31 @@
 > One correction: "ClusterLord" does not exist — the canonical ancestor is
 > Jeffrey Ventrella's **Clusters** (2016).
 
+## Status (0.14.1, November 2026)
+
+This document is the September research as written. What became of it:
+
+| Idea | Status |
+| --- | --- |
+| Physarum scent field (1) | Shipped |
+| Living interaction matrix (2) | Deferred |
+| Particle Lenia layer (3) | Deferred |
+| Hidden-state channels and hysteresis (4) | Shipped |
+| Screen-space fluid skin (5) | Planned for 0.15 |
+| Kuramoto phase clocks (6) | Shipped |
+| Velocity stretch and bokeh (7) | Shipped |
+| Soft-particle depth fade (7) | Deferred |
+| Differential growth / DLA (8) | Deferred |
+| Chladni recall mode (9) | Deferred |
+| Line-segment primitives (10) | Shipped, as ribbons |
+| Ornstein-Uhlenbeck wander, curl noise | Shipped |
+| HDR, tone mapping and dither | Shipped, with AgX as well as ACES |
+| WebGPU compute | Shipped, optional beside WebGL2 |
+| Offline matrix search (ASAL-style) | Shipped, as Discovery |
+| Reaction-diffusion | Shipped, as Gray-Scott scars in the medium |
+| Neural Particle Automata, learned rules | Deferred: no AI features or model downloads for now |
+| 3D stigmergy, Flow-Lenia, elastic filaments | Deferred |
+
 ## Field snapshot
 
 - Particle-life is moving to WebGPU compute: Nikita Lisitsa's May-2025 write-up
