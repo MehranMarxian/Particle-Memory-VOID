@@ -6,13 +6,15 @@
 export interface SampleSource {
   label: string;
   file: string;
+  /** A painted depth map beside it (white near, black far), when it has one. */
+  depth?: string;
 }
 
 /** A photograph by Mehran Ahmadi: what a first visit on a phone remembers. */
 export const PORTRAIT_SAMPLE = "void-portrait.webp";
 
 export const SAMPLES: readonly SampleSource[] = [
-  { label: "PORTRAIT", file: PORTRAIT_SAMPLE },
+  { label: "PORTRAIT", file: PORTRAIT_SAMPLE, depth: "void-portrait.depth.png" },
   { label: "FIGURE", file: "void-figure.png" },
   { label: "CLOUD", file: "void-cloud.ply" },
   { label: "SPHERE", file: "void-sphere.obj" },
@@ -22,4 +24,12 @@ export const SAMPLES: readonly SampleSource[] = [
 
 export function sampleUrl(file: string): string {
   return `${import.meta.env.BASE_URL}samples/${file}`;
+}
+
+/** The depth map that belongs to a bundled sample's URL, or null for anything else. */
+export function depthMapUrlFor(url: string): string | null {
+  const file = url.split(/[?#]/)[0].split("/").pop() ?? "";
+  if (!url.split(/[?#]/)[0].includes("/samples/")) return null;
+  const sample = SAMPLES.find((s) => s.file === file && s.depth);
+  return sample?.depth ? sampleUrl(sample.depth) : null;
 }

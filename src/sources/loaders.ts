@@ -2,6 +2,7 @@ import { isClipHeader, parsePly, parseSplat, normalizePly, plyHeaderText, plyToS
 import { clipSettings } from "./clipSettings";
 import { sampleImage, type ImageDataLike } from "./imageSampler";
 import { collectMeshes, sampleMesh } from "./meshSampler";
+import { depthMapUrlFor } from "./samples";
 import { TARGET_WORLD_SIZE, type FlatSource, type SourceHandle, type SourceKind } from "./types";
 
 /** Which extensions belong to which source kind. Adding a format later = one entry here. */
@@ -79,13 +80,19 @@ export const IMAGE_SAMPLE_DEFAULTS = {
  * the same pixels with the background made transparent, which keeps a link
  * back to this one so the background can be brought back.
  */
-export function imageHandle(name: string, img: ImageDataLike, original?: SourceHandle): SourceHandle {
+export function imageHandle(
+  name: string,
+  img: ImageDataLike,
+  original?: SourceHandle,
+  /** A painted depth map for this picture (0.15.1); without one, depth is brightness. */
+  depthMap?: ImageDataLike
+): SourceHandle {
   const handle: SourceHandle = {
     name,
     kind: "image",
-    detail: `${img.width}×${img.height} image${original ? " · cut out" : ""}`,
+    detail: `${img.width}×${img.height} image${original ? " · cut out" : ""}${depthMap ? " · sculpted" : ""}`,
     resample: (count, _seed, mode = "tone") =>
-      sampleImage(img, { count, planeSize: TARGET_WORLD_SIZE, ...IMAGE_SAMPLE_DEFAULTS, mode }),
+      sampleImage(img, { count, planeSize: TARGET_WORLD_SIZE, ...IMAGE_SAMPLE_DEFAULTS, mode, depthMap }),
     original,
   };
   if (!original) {
@@ -93,7 +100,7 @@ export function imageHandle(name: string, img: ImageDataLike, original?: SourceH
       // Loaded on demand: the graph-cut is not part of the page's first load.
       const { cutout, applyCutout } = await import("./cutout");
       const result = await cutout(img);
-      return result ? imageHandle(name, applyCutout(img, result.mask), handle) : null;
+      return result ? imageHandle(name, applyCutout(img, result.mask), handle, depthMap) : null;
     };
   }
   return handle;
@@ -106,7 +113,9 @@ export function imageHandle(name: string, img: ImageDataLike, original?: SourceH
 export async function loadSource(
   name: string,
   data: Blob,
-  kind?: SourceKind
+  kind?: SourceKind,
+  /** A picture's painted depth map, when it has one. */
+  depth?: Blob
 ): Promise<SourceHandle> {
   if (data.size > MAX_SOURCE_BYTES) {
     throw new Error(
@@ -126,7 +135,9 @@ export async function loadSource(
   }
 
   if (detected === "image") {
-    return imageHandle(name, await imageToData(data));
+    // A depth map that cannot be read is no reason to refuse the picture.
+    const depthMap = depth ? await imageToData(depth).catch(() => undefined) : undefined;
+    return imageHandle(name, await imageToData(data), undefined, depthMap);
   }
 
   if (detected === "video") {
@@ -222,6 +233,13 @@ export async function loadSourceFromUrl(url: string, count?: number): Promise<{
   if (!res.ok) throw new Error(`failed to fetch source ${url}: ${res.status}`);
   const name = sourceNameFromUrl(url);
   const blob = await res.blob();
-  const handle = await loadSource(name, blob);
+  // A bundled picture may bring its painted depth; any other URL is asked for nothing.
+  const depthUrl = depthMapUrlFor(url);
+  const depth = depthUrl
+    ? await fetch(depthUrl)
+        .then((r) => (r.ok ? r.blob() : undefined))
+        .catch(() => undefined)
+    : undefined;
+  const handle = await loadSource(name, blob, undefined, depth);
   return { handle, sample: handle.resample(count ?? 12000) };
 }

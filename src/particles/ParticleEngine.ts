@@ -6,6 +6,7 @@ import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
 import { hash01, sampleLife } from "./lifeCycle";
+import { lifeDensityScale } from "./lifeDensity";
 
 /**
  * Particle Life engine.
@@ -161,8 +162,9 @@ export class ParticleEngine {
     // --- Spatial grid ---------------------------------------------------
     this.grid.build(positions, n);
 
-    const { attraction, repulsion, interactionRadius, forceScale, coreRadius, maxSpeed } =
-      params.life;
+    const { attraction, repulsion, interactionRadius, coreRadius, maxSpeed } = params.life;
+    // The same total force at any density (lifeDensity.ts).
+    const forceScale = params.life.forceScale * lifeDensityScale(n);
     const coreR = interactionRadius * coreRadius;
     // Kernel selection: 0 = pulse, 1 = inverse, 2 = linear (see types).
     const kernel =

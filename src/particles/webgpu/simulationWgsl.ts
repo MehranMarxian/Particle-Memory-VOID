@@ -17,7 +17,6 @@
  * bounded grid. Within the interaction radius the two find the same set.
  */
 
-import { FULL_SCAN_COUNT } from "./hashGrid";
 
 /** Float slots of the Sim uniform (512 bytes). WebGpuParticleEngine writes these. */
 export const SIM = {
@@ -363,9 +362,9 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
         let k = cellKey(cc);
         let end = starts[k + 1u];
         let stride = strideFor(end - starts[k]);
-        // Each sample stands for stride entries; above WebGL2's ceiling the
-        // sum is also density-compensated (hashGrid.ts densityCompensation).
-        let weightS = f32(stride) * min(1.0, ${FULL_SCAN_COUNT}.0 / f32(sim.count));
+        // Each sample stands for stride entries. Density is compensated in
+        // forceScale, the same in every engine (lifeDensity.ts).
+        let weightS = f32(stride);
         for (var e = starts[k] + strideOffset(i, k, stride); e < end; e += stride) {
           let j = sorted[e];
           if (j == i) { continue; }

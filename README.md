@@ -126,6 +126,14 @@ Samples live in `public/samples/` (`void-figure.png`, `void-cloud.ply`,
 The empty card offers them directly (PORTRAIT / FIGURE / CLOUD / SPHERE /
 WALKER), so you can see the piece working before you have a file of your own.
 
+**Depth.** A picture is flat, so VOID gives it depth from its brightness: light
+comes forward, dark falls back. That reads well head-on but breaks from the side,
+where a shadowed nose becomes a trench. A picture can bring a painted depth map
+instead (white near, black far, any size, the same framing), and the portrait
+does: `public/samples/void-portrait.depth.png`, a starter sculpted from simple
+forms by `scripts/depth/portrait-depth.py`. Paint over it in any image editor and
+reload. For now only the bundled portrait looks for one.
+
 ## Use a moving memory
 
 A photograph is one moment. A body that moves is many, and VOID can hold
@@ -287,7 +295,7 @@ piece and the sheet goes away. A first visit on a phone opens on a portrait in
 the Portrait look, with one line of help instead of the guide (HELP is under
 MORE). CAPTURE on a phone offers the moment to the share sheet.
 
-Twenty-three authored looks ship with the piece: **Mercury** (the swarm condensed into a liquid surface while the memory holds), Moon Dust, **Genesis** (the ring
+Twenty-two authored looks ship with the piece: Moon Dust, **Genesis** (the ring
 of fire, a look since 0.13; `N` still lights it anywhere), **Walker** (a body
 that moves, brought with its clip), **Grain** (a memory drawn in single pixels
 of light), Portrait, Organic, Scan,

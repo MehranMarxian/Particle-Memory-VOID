@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { windMemory, windPush, windTurbulence } from "@/input/wind";
 import { GPUComputationRenderer } from "three/examples/jsm/misc/GPUComputationRenderer.js";
 import { SpatialGrid } from "../SpatialGrid";
+import { lifeDensityScale } from "../lifeDensity";
 import type { InteractionMatrix } from "../InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { gpuPositionShader, gpuStateShader, gpuVelocityShader } from "./simulationShader";
@@ -614,7 +615,7 @@ export class GpuParticleEngine {
     u["uAttraction"].value = L.attraction;
     u["uRepulsion"].value = L.repulsion;
     u["uInteractionRadius"].value = L.interactionRadius;
-    u["uForceScale"].value = L.forceScale;
+    u["uForceScale"].value = L.forceScale * lifeDensityScale(this.count);
     u["uCoreRadius"].value = L.coreRadius;
     u["uMaxSpeed"].value = L.maxSpeed;
     u["uFriction"].value = L.friction;

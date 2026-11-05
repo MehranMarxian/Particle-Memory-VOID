@@ -6,7 +6,7 @@
 > One correction: "ClusterLord" does not exist — the canonical ancestor is
 > Jeffrey Ventrella's **Clusters** (2016).
 
-## Status (0.15.0, November 2026)
+## Status (0.15.2, November 2026)
 
 This document is the September research as written. What became of it:
 
@@ -16,7 +16,7 @@ This document is the September research as written. What became of it:
 | Living interaction matrix (2) | Deferred |
 | Particle Lenia layer (3) | Deferred |
 | Hidden-state channels and hysteresis (4) | Shipped |
-| Screen-space fluid skin (5) | Shipped on WebGL2 and CPU, not yet on WebGPU; a bilateral filter in place of curvature flow |
+| Screen-space fluid skin (5) | Tried in 0.15.0 and removed in 0.15.2: a surface is not a swarm, and it did not look right |
 | Kuramoto phase clocks (6) | Shipped |
 | Velocity stretch and bokeh (7) | Shipped |
 | Soft-particle depth fade (7) | Deferred |

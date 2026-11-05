@@ -2,6 +2,48 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.15.2] - 2026-11-06
+
+Particles first: every look holds its shape at any density, and reads as what it
+was made to be.
+
+### Fixed
+- **Density-true life, in all three engines.** A particle felt the sum of every
+  neighbour in reach, so at 50,000 particles a look tuned at 12,000 felt about four
+  times its forces, and the swarm collapsed into tight beads in rows. Above 12,000
+  each neighbour's force now shrinks in proportion, and the pull a particle feels
+  stays what its look was tuned to (measured: 4.1 times without, within 20% with).
+  Below 12,000 nothing changes. The WebGPU engine's own compensation above 50,000
+  is folded into the same rule.
+- **Choosing a look starts its memory whole.** A look with forgetting in it (Void,
+  Chaos, Scan, Predator, Murmuration, Kin) left each particle's memory faded, and
+  every look chosen after it inherited a swarm that had already forgotten, until
+  RECONSTRUCT. A look still forgets; it now forgets from the beginning.
+- **Sixteen looks no longer bead.** Since the species matrix began to act on WebGL2
+  in 0.12, the looks tuned before it pulled their swarms into chains of beads. Their
+  attraction is now 15% of what it was, as Moon Dust's was set to zero then for the
+  same reason: Portrait, Organic, Scan, Architecture, Void, Chaos, Predator,
+  Fireworks, Hearth, Traces, Exhale, Witness, Murmuration, Aurora, Sketch and Wake.
+  Galaxy and Kin keep theirs: gathering into stars, and sorting by kind, is what they
+  are about.
+
+### Removed
+- **The liquid skin and the Mercury look** (0.15.0). A surface is not a swarm, and
+  it did not look right. The Skin slider is gone; a saved look that had one is
+  unaffected.
+
+### Added
+- **A picture can carry its own depth.** A depth map (white near, black far) beside
+  a picture decides how far each part of it stands out, instead of its brightness.
+  Without one, a dark shadow beside a nose became a trench and a bright cheek stood
+  out as far as the nose, which shows from the side. With one, the nose, lips and
+  chin stand out.
+- **The portrait has one:** `void-portrait.depth.png`, a starter map sculpted from
+  simple forms placed by hand on the photograph (`scripts/depth/portrait-depth.py`),
+  not estimated by any model. Paint over it, keeping its size and white-near, and
+  the piece uses the painting. Only the bundled portrait looks for a depth map so
+  far; any other picture keeps its depth from brightness.
+
 ## [0.15.0] - 2026-11-03
 
 The memory materializes.
