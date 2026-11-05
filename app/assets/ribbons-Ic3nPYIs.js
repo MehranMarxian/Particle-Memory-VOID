@@ -1,0 +1,1 @@
+const a=12,c=3,r=2.5,O=1.4;function R(o=12){const t=[];for(let s=0;s<o-1;s++){const n=[s,-1,s,1,s+1,-1],B=[s+1,-1,s,1,s+1,1];t.push(...n,...B)}return new Float32Array(t)}export{a as R,c as a,O as b,r as c,R as r};

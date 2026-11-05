@@ -1,0 +1,87 @@
+THE VOID LICENSE
+Free to experience. All rights reserved.
+
+VOID / PARTICLE MEMORY
+Copyright (c) 2026 Mehran Ahmadi. All rights reserved.
+
+VOID is an artwork, not a template. This is not an open source licence: it
+gives everyone the freedom to experience VOID, and gives no one the right to
+copy it, change it, or build on it. Those rights stay with the author alone.
+
+--------------------------------------------------------------------------
+YOU MAY, free of charge, for as long as you follow these terms:
+--------------------------------------------------------------------------
+
+1. EXPERIENCE IT. View, run and interact with VOID in its original,
+   unmodified form, for as long as you like, as many times as you like.
+
+2. SHARE THE DOOR. Link to it, quote it, write about it, teach with it, or
+   show the official page, in private, public, educational, journalistic or
+   commercial settings - as long as what people see is the original work and
+   the credit below is intact.
+
+3. CREDIT IT. Any permitted display carries the credit
+   "VOID / PARTICLE MEMORY by Mehran Ahmadi"
+   with a link to https://mehran-ahmadi.com/Particle-Memory-VOID/
+
+--------------------------------------------------------------------------
+YOU MAY NOT, without the author's prior written permission:
+--------------------------------------------------------------------------
+
+1. REPRODUCE IT. Copy, mirror, redistribute, republish or otherwise make the
+   source code, the artwork files, the shaders, the systems, the presets or
+   any substantial part of them available to others, in any form, modified or
+   not, in any medium.
+
+2. BUILD ON IT. Create derivative works from it: modify, adapt, translate,
+   remix, re-skin, extend, port or fork it for release, or reuse any part of
+   its code, shaders, systems, presets or assets in another project or
+   product.
+
+3. SELL IT. Sell, license, rent, or otherwise commercialise VOID or its
+   materials themselves, or present the work, or a version of it, as your
+   own.
+
+4. FEED IT TO MACHINES. Use VOID, or its code, source material, imagery or
+   outputs, to train, fine-tune or evaluate any machine learning or
+   generative model, or to mass-produce material by automated means.
+
+5. STRIP IT. Remove, obscure or alter this notice, the credits, the version
+   mark, or any authorship information.
+
+--------------------------------------------------------------------------
+RESERVED TO THE AUTHOR
+--------------------------------------------------------------------------
+
+Improvement is the author's alone. The right to modify, extend, correct,
+improve, re-release, re-license and commercialise VOID, and to author any
+version or derivative of it, belongs exclusively to Mehran Ahmadi. No one
+else may produce a version of VOID.
+
+--------------------------------------------------------------------------
+THIRD PARTY
+--------------------------------------------------------------------------
+
+VOID bundles third party libraries that keep their own licences; those
+licences govern their parts, and nothing here restricts the rights they grant
+in their own code. See package.json and each package for details.
+
+--------------------------------------------------------------------------
+NO WARRANTY
+--------------------------------------------------------------------------
+
+VOID is provided "as is", without warranty of any kind, express or implied.
+To the fullest extent permitted by law, the author is not liable for any
+claim, damage or loss arising from it or from its use.
+
+--------------------------------------------------------------------------
+TERMINATION
+--------------------------------------------------------------------------
+
+The permissions above end automatically if you breach any term, and continued
+use after a breach is not authorised. The author can grant exceptions in
+writing, at any time, for anyone, without giving up any other right.
+
+--------------------------------------------------------------------------
+To ask for permission beyond what is granted here, contact the author:
+https://mehran-ahmadi.com/
