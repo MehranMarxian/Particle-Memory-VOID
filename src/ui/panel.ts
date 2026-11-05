@@ -1199,6 +1199,7 @@ export function createPanel(opts: {
 
   const lifeBody = section("LIFE", "life");
   addObjSlider(lifeBody, "Attraction", params.life, "attraction", 0, 2, 0.01, num, "How strongly compatible particles gather.");
+  addObjSlider(lifeBody, "Flocking", params.life, "alignment", 0, 2, 0.01, num, "Each particle turns toward its neighbours' heading, as starlings do.");
   addObjSlider(lifeBody, "Repulsion", params.life, "repulsion", 0, 2, 0.01, num, "How strongly particles push apart.");
   addObjSlider(lifeBody, "Radius", params.life, "interactionRadius", 0.2, 2, 0.01, num, "How far particles sense each other.");
   addObjSlider(lifeBody, "Force", params.life, "forceScale", 0, 14, 0.1, (v) => v.toFixed(1), "Overall strength of the life forces.");

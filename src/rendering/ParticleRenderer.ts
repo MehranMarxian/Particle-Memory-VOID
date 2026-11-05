@@ -224,7 +224,9 @@ export class ParticleRenderer {
           float sizeAtten =
             (1.0 + uDof * defocus) * breathe * bloom * (0.35 + 0.65 * min(lifeM, 1.15));
           gl_PointSize = uSize * uPixelRatio * (42.0 / dist) * sizeAtten;
-          float fog = exp(-uFogDensity * dist);
+          // A particle at the lens fades out: a near one drew as a disc that filled
+          // the middle of the frame (the near fade, 0.15.3).
+          float fog = exp(-uFogDensity * dist) * smoothstep(0.8, 3.0, dist);
           // DOF bokeh: energy conserved as defocused sprites grow.
           float coc = 1.0 + uDof * defocus;
           vFade = fog / (coc * coc);

@@ -28,6 +28,12 @@ export interface LifeParams {
   forceScale: number;
   /** Core radius as a fraction of interactionRadius (0..1). Used by pulse/linear. */
   coreRadius: number;
+  /**
+   * Flocking (0.15.3): each particle steers toward its neighbours' mean
+   * velocity, the alignment rule of Reynolds' boids and the Vicsek model.
+   * 0 = none. An average, so the same at any density.
+   */
+  alignment: number;
   kernel: ForceKernel;
   /**
    * Who belongs to which species (v0.11.2). MIXED deals them round-robin,
@@ -280,6 +286,7 @@ export const defaultLifeParams = (): LifeParams => ({
   maxSpeed: 4.0,
   forceScale: 6.0,
   coreRadius: 0.3,
+  alignment: 0,
   kernel: "pulse",
   species: "mixed",
 });

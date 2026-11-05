@@ -17,3 +17,12 @@ export const AUTHORED_COUNT = 12000;
 export function lifeDensityScale(count: number): number {
   return count <= AUTHORED_COUNT ? 1 : AUTHORED_COUNT / count;
 }
+
+/** How fast flocking turns a particle toward its neighbours' heading, per unit of alignment (1/s). */
+export const ALIGN_RATE = 4;
+/**
+ * A flock is self-propelled (Vicsek): each bird keeps flying while it turns.
+ * It steers toward the group's heading at this fraction of its top speed;
+ * without it, matching velocities only brings everyone to rest together.
+ */
+export const CRUISE_FRACTION = 0.5;

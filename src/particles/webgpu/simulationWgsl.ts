@@ -1,3 +1,4 @@
+import { ALIGN_RATE, CRUISE_FRACTION } from "../lifeDensity";
 /**
  * WGSL for the WebGPU engine (0.12 slice 2): the WebGL2 engine's GLSL
  * (gpu/simulationShader.ts), ported line for line, plus the GPU hash grid
@@ -71,8 +72,9 @@ export const SIM = {
   scarSteer: 129,
   mediumN: 130,
   mediumExtent: 131,
+  alignment: 132,
   /** Total floats. */
-  size: 132,
+  size: 136,
 } as const;
 
 export const SIM_STRUCT = /* wgsl */ `
@@ -92,6 +94,7 @@ struct Sim {
   ripples: array<vec4f, 4>,
   matrix: array<vec4f, 16>,
   mediumDrag: f32, scarSteer: f32, mediumN: f32, mediumExtent: f32,
+  alignment: f32, _a0: f32, _a1: f32, _a2: f32,
 }
 @group(0) @binding(0) var<uniform> sim: Sim;
 
@@ -355,6 +358,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   // --- LIFE: species interactions over the hash grid -----------------
   let cell = cellOf(p);
   var force = vec3f(0.0);
+  var alignSum = vec3f(0.0);
+  var alignN = 0.0;
   for (var dz = -1; dz <= 1; dz++) {
     for (var dy = -1; dy <= 1; dy++) {
       for (var dx = -1; dx <= 1; dx++) {
@@ -398,8 +403,22 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
           }
           if (f > 0.0) { f = f * sim.attraction; } else { f = f * sim.repulsion; }
           force += d * (f / dist) * weightS;
+          if (sim.alignment > 0.0) {
+            // Read in place: a neighbour's heading may already be this step's. An average does not mind.
+            alignSum += vel[j].xyz * weightS;
+            alignN += weightS;
+          }
         }
       }
+    }
+  }
+
+  // Flocking: fly the group's heading at cruising speed (ParticleEngine mirrors it).
+  if (alignN > 0.0) {
+    let heading = alignSum + vel4.xyz;
+    let hl = length(heading);
+    if (hl > 1e-6) {
+      force += (heading * (sim.maxSpeed * ${CRUISE_FRACTION.toFixed(2)} / hl) - vel4.xyz) * sim.alignment * ${ALIGN_RATE.toFixed(1)};
     }
   }
 

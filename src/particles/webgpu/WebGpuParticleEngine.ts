@@ -581,6 +581,7 @@ export class WebGpuParticleEngine {
     if (!(f[SIM.cellSize] > 0)) f[SIM.cellSize] = Math.max(0.05, L.interactionRadius);
     f[SIM.phaseK] = params.phaseCoupling;
     f[SIM.attraction] = L.attraction;
+    f[SIM.alignment] = L.alignment ?? 0;
     f[SIM.repulsion] = L.repulsion;
     f[SIM.radius] = L.interactionRadius;
     f[SIM.forceScale] = L.forceScale * lifeDensityScale(this.count);

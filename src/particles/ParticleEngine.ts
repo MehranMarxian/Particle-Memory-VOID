@@ -6,7 +6,7 @@ import type { InteractionMatrix } from "./InteractionMatrix";
 import type { EngineParams } from "@/types";
 import { exponentialDamp, mulberry32 } from "@/utils/math";
 import { hash01, sampleLife } from "./lifeCycle";
-import { lifeDensityScale } from "./lifeDensity";
+import { ALIGN_RATE, CRUISE_FRACTION, lifeDensityScale } from "./lifeDensity";
 
 /**
  * Particle Life engine.
@@ -163,6 +163,7 @@ export class ParticleEngine {
     this.grid.build(positions, n);
 
     const { attraction, repulsion, interactionRadius, coreRadius, maxSpeed } = params.life;
+    const alignment = params.life.alignment ?? 0;
     // The same total force at any density (lifeDensity.ts).
     const forceScale = params.life.forceScale * lifeDensityScale(n);
     const coreR = interactionRadius * coreRadius;
@@ -202,6 +203,7 @@ export class ParticleEngine {
       let fz = 0;
       let phaseAcc = 0;
       let phaseN = 0;
+      let alignX = 0, alignY = 0, alignZ = 0, alignN = 0;
       const st = this.renderState;
       const myPhase = st[i * 4];
 
@@ -256,6 +258,12 @@ export class ParticleEngine {
               fx += dx * s;
               fy += dy * s;
               fz += dz * s;
+              if (alignment > 0) {
+                alignX += velocities[j * 3];
+                alignY += velocities[j * 3 + 1];
+                alignZ += velocities[j * 3 + 2];
+                alignN++;
+              }
               // Kuramoto-lite: neighbors drag this particle's clock.
               phaseAcc += Math.sin(st[j * 4] - myPhase);
               phaseN++;
@@ -277,6 +285,20 @@ export class ParticleEngine {
         const fieldS = params.scent.enabled ? this.scent.sample(ex, ey, ez) : 0;
         const fieldH = params.heat.enabled ? this.heat.sample(ex, ey, ez) : 0;
         envMod = Math.min(3, Math.max(0.05, 1 + envScent * fieldS + envHeat * fieldH));
+      }
+      // Flocking: fly the group's heading (its own included) at cruising speed.
+      // The gpu shaders mirror it.
+      if (alignN > 0) {
+        const vix = velocities[i * 3], viy = velocities[i * 3 + 1], viz = velocities[i * 3 + 2];
+        const hx = alignX + vix, hy = alignY + viy, hz = alignZ + viz;
+        const hl = Math.sqrt(hx * hx + hy * hy + hz * hz);
+        if (hl > 1e-6) {
+          const k = alignment * ALIGN_RATE;
+          const cruise = (maxSpeed * CRUISE_FRACTION) / hl;
+          fx += (hx * cruise - vix) * k;
+          fy += (hy * cruise - viy) * k;
+          fz += (hz * cruise - viz) * k;
+        }
       }
       ax[i] = fx * envMod;
       ay[i] = fy * envMod;

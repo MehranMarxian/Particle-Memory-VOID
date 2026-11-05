@@ -200,6 +200,7 @@ export class GpuParticleEngine {
     vu["uRestore"] = { value: 0 };
     for (const name of [
       "uAttraction",
+      "uAlignment",
       "uRepulsion",
       "uInteractionRadius",
       "uForceScale",
@@ -613,6 +614,7 @@ export class GpuParticleEngine {
     const L = params.life;
     const M = params.memory;
     u["uAttraction"].value = L.attraction;
+    u["uAlignment"].value = L.alignment ?? 0;
     u["uRepulsion"].value = L.repulsion;
     u["uInteractionRadius"].value = L.interactionRadius;
     u["uForceScale"].value = L.forceScale * lifeDensityScale(this.count);
