@@ -44,6 +44,31 @@ export interface ImageSampleOptions {
   mode?: ImageSampleMode;
   /** LINE only: the pen's half-width in source pixels. Default 1.2. */
   lineWidth?: number;
+  /**
+   * A painted depth map (0.15.1): white is near, black is far, read from its
+   * red channel at the same place in the picture, whatever its own size. When
+   * given, depth comes from it instead of from brightness, so a nose stands
+   * out from a face however dark its shadow.
+   */
+  depthMap?: ImageDataLike;
+  /** How deep the depth map reaches, as a fraction of the picture's height. */
+  depthMapScale?: number;
+}
+
+/** A depth map's value at uv (0..1, y down), bilinear: 8 bits must not read as terraces. */
+export function depthAt(map: ImageDataLike, u: number, v: number): number {
+  const x = Math.min(map.width - 1, Math.max(0, u * map.width - 0.5));
+  const y = Math.min(map.height - 1, Math.max(0, v * map.height - 0.5));
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.min(map.width - 1, x0 + 1);
+  const y1 = Math.min(map.height - 1, y0 + 1);
+  const fx = x - x0;
+  const fy = y - y0;
+  const at = (px: number, py: number) => map.data[(py * map.width + px) * 4] / 255;
+  const top = at(x0, y0) * (1 - fx) + at(x1, y0) * fx;
+  const bottom = at(x0, y1) * (1 - fx) + at(x1, y1) * fx;
+  return top * (1 - fy) + bottom * fy;
 }
 
 export function sampleImage(
@@ -61,6 +86,8 @@ export function sampleImage(
     seed = 17,
     mode = "tone",
     lineWidth = 1.2,
+    depthMap,
+    depthMapScale = 0.55,
   } = opts;
 
   const W = img.width;
@@ -166,7 +193,9 @@ export function sampleImage(
 
     out.positions[k * 3] = (jx - 0.5) * worldW;
     out.positions[k * 3 + 1] = (0.5 - jy) * worldH;
-    out.positions[k * 3 + 2] = (lum[i] - 0.5) * depth * worldH * 0.9;
+    out.positions[k * 3 + 2] = depthMap
+      ? (depthAt(depthMap, jx, jy) - 0.5) * depthMapScale * worldH
+      : (lum[i] - 0.5) * depth * worldH * 0.9;
 
     out.colors[k * 3] = px[i * 4] / 255;
     out.colors[k * 3 + 1] = px[i * 4 + 1] / 255;

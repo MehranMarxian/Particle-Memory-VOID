@@ -19,26 +19,19 @@ export const RENDER_SCALES: readonly number[] = [1, 0.85, 0.7, 0.55];
 export interface LightInUse {
   medium: boolean;
   bloom: boolean;
-  skin?: boolean;
 }
 
 interface Rung {
   scale: number;
   medium: boolean;
   bloom: boolean;
-  skin: boolean;
 }
 
-/**
- * The full ladder, top first: the light, then the resolution, then the liquid
- * skin. The skin goes last: it is the look itself, where bloom only decorates
- * one, and a lower resolution already makes it cheaper.
- */
+/** The full ladder, top first: the light, then the resolution. */
 const LADDER: readonly Rung[] = [
-  { scale: 1, medium: true, bloom: true, skin: true },
-  { scale: 1, medium: false, bloom: true, skin: true },
-  ...RENDER_SCALES.map((scale) => ({ scale, medium: false, bloom: false, skin: true })),
-  { scale: RENDER_SCALES[RENDER_SCALES.length - 1], medium: false, bloom: false, skin: false },
+  { scale: 1, medium: true, bloom: true },
+  { scale: 1, medium: false, bloom: true },
+  ...RENDER_SCALES.map((scale) => ({ scale, medium: false, bloom: false })),
 ];
 
 /** A device pixel ratio capped for pixel density: 2× is where DPR stops paying. */
@@ -82,15 +75,10 @@ export class QualityGovernor {
     return LADDER[this.index].bloom;
   }
 
-  /** Whether the liquid skin may run at this rung. */
-  get allowSkin(): boolean {
-    return LADDER[this.index].skin;
-  }
-
   /** What a rung actually renders, given the light in use. */
   private effect(i: number): string {
     const r = LADDER[i];
-    return `${r.scale}|${r.medium && this.light.medium}|${r.bloom && this.light.bloom}|${r.skin && !!this.light.skin}`;
+    return `${r.scale}|${r.medium && this.light.medium}|${r.bloom && this.light.bloom}`;
   }
 
   /** The next rung in `dir` that changes what is rendered, or -1. */

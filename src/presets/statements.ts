@@ -12,7 +12,6 @@
 export const LOOK_STATEMENTS: Readonly<Record<string, string>> = {
   moon: "What the hand disturbs, the memory forgives. It always comes home.",
   portrait: "A face, held still by thousands of small things that do not know it is a face.",
-  mercury: "Held closely enough, a crowd forgets it is a crowd, and becomes a surface.",
   organic: "Remembering is not storage. It is a body, breathing around what it keeps.",
   scan: "Looked at closely enough, anything becomes evidence.",
   architecture: "Some memories bear weight. Take one away and the others lean.",

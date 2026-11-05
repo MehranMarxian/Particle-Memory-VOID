@@ -1,7 +1,6 @@
 import * as THREE from "three";
 // Type only: the light chain is a lazy chunk, loaded when a look asks for it.
 import type { LightChain } from "./LightChain";
-import type { LiquidSkin, SkinSource } from "./LiquidSkin";
 
 /**
  * AgX (Troy Sobotka's view transform), the polynomial fit by Benjamin
@@ -106,13 +105,6 @@ export class TrailPass {
   medium: THREE.Texture | null = null;
   private chain: LightChain | null = null;
   private chainLoading = false;
-  // --- The liquid skin (0.15): off by default, and a lazy chunk when on.
-  /** How much of the swarm's surface to show over its particles (0 = none). */
-  skinAmount = 0;
-  /** The swarm the skin is made from, and how many of it are drawn. */
-  skinSource: { source: SkinSource; count: number } | null = null;
-  private skin: LiquidSkin | null = null;
-  private skinLoading = false;
   private readonly black = new THREE.DataTexture(new Uint8Array(4), 1, 1);
 
   constructor(
@@ -163,8 +155,6 @@ export class TrailPass {
         tFog: { value: null },
         uFog: { value: 0 },
         uAgx: { value: 0 },
-        tSkin: { value: null },
-        uSkin: { value: 0 },
       },
       vertexShader: quadVert,
       fragmentShader: /* glsl */ `
@@ -176,8 +166,6 @@ export class TrailPass {
         uniform sampler2D tFog;
         uniform float uFog;
         uniform float uAgx;
-        uniform sampler2D tSkin;
-        uniform float uSkin;
         varying vec2 vUv;
         ${AGX_GLSL}
         vec3 aces(vec3 x) {
@@ -189,13 +177,7 @@ export class TrailPass {
         void main() {
           // The frame, the medium's own light (not fed back into the trails),
           // and the bloom (already exposed by its prefilter).
-          // The skin, when there is one, stands over the particles it condensed from.
-          vec3 frame = texture2D(tDiffuse, vUv).rgb;
-          if (uSkin > 0.0) {
-            vec4 skin = texture2D(tSkin, vUv);
-            frame = mix(frame, skin.rgb, skin.a * uSkin);
-          }
-          vec3 c = (frame + texture2D(tFog, vUv).rgb * uFog) * uExposure
+          vec3 c = (texture2D(tDiffuse, vUv).rgb + texture2D(tFog, vUv).rgb * uFog) * uExposure
                  + texture2D(tBloom, vUv).rgb * uBloom;
           c = uAgx > 0.5 ? agx(c) : aces(c);
           // Blue-noise-ish dither kills additive banding.
@@ -270,23 +252,6 @@ export class TrailPass {
     }
     cu.uAgx.value = this.toneMap === "agx" ? 1 : 0;
 
-    // The skin (lazy): the swarm's surface, for the present to mix in.
-    const wantSkin = this.skinAmount > 0 && this.skinSource !== null && this.hdr;
-    if (wantSkin && !this.skin && !this.skinLoading) {
-      this.skinLoading = true;
-      void import("./LiquidSkin").then((m) => {
-        this.skin = new m.LiquidSkin(this.renderer);
-      });
-    }
-    cu.tSkin.value = this.black;
-    cu.uSkin.value = 0;
-    if (wantSkin && this.skin) {
-      this.skin.setSize(this.rtA.width, this.rtA.height);
-      const { source, count } = this.skinSource!;
-      cu.tSkin.value = this.skin.render(source, camera as THREE.PerspectiveCamera, count);
-      cu.uSkin.value = this.skinAmount;
-    }
-
     // Present (tone-mapped, dithered).
     this.copyMat.uniforms.tDiffuse.value = this.rtA.texture;
     this.copyMat.uniforms.uExposure.value = this.exposure;
@@ -304,7 +269,6 @@ export class TrailPass {
 
   dispose(): void {
     this.chain?.dispose();
-    this.skin?.dispose();
     this.black.dispose();
     this.rtA.dispose();
     this.rtB.dispose();

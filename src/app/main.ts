@@ -76,7 +76,6 @@ import { Evolver } from "@/presets/evolver";
 import { ghostLissajous, PointerInfluence, PointerTrack } from "@/input/pointerForce";
 import { GestureTracker } from "@/input/touchGestures";
 import { deliverMoment } from "@/app/saveMoment";
-import { skinAmount } from "@/rendering/skin";
 import { sampleLife } from "@/particles/lifeCycle";
 import { hasSeenIntro, loadConfig, markIntroSeen, saveConfig, toStoredConfig } from "@/presets/storage";
 import { ScreensaverMode, attachIdleCursorHiding } from "@/screensaver/ScreensaverMode";
@@ -2709,6 +2708,10 @@ function applyLookByName(name: string, captionSeconds = 9): void {
   // A preset owns the matrix: an alternate (H) yields.
   activeMatrix = matrix;
   engine.configureGrid(params);
+  // A look starts from a whole memory. What a look with forgetting in it
+  // forgets is its own: without this, a swarm that forgot in Void stayed
+  // forgotten in every look after it until RECONSTRUCT.
+  engine.restoreMemory();
   if (def.witness) beginWitness(statementFor("witness") ?? def.description);
   else endWitness();
   applyLook();
@@ -3283,13 +3286,8 @@ function frameInner(now: number): void {
   // needs a medium to draw from.
   // Under sustained pressure the governor sheds it before any resolution.
   const mediumOn = params.medium.enabled || params.scar.enabled;
-  const skinView = particleRenderer instanceof ParticleRenderer ? particleRenderer : null;
-  quality.light = { medium: mediumOn && effective.mediumLight > 0, bloom: effective.bloom > 0, skin: !!skinView && effective.skin > 0 };
+  quality.light = { medium: mediumOn && effective.mediumLight > 0, bloom: effective.bloom > 0 };
   trailPass.bloom = quality.allowBloom ? effective.bloom : 0;
-  // The skin (0.15, WebGL2 and the CPU engine): a surface while the memory
-  // holds, the particles again as it goes.
-  trailPass.skinAmount = quality.allowSkin ? skinAmount(effective.skin, params.medium.agitation) : 0;
-  trailPass.skinSource = skinView && trailPass.skinAmount > 0 ? skinView.skinSource : null;
   trailPass.toneMap = effective.toneMap;
   trailPass.mediumLight = mediumOn && quality.allowMedium ? effective.mediumLight : 0;
   trailPass.medium =

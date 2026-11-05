@@ -1,4 +1,3 @@
-import type { SkinSource } from "./LiquidSkin";
 import * as THREE from "three";
 import {
   clampVisualSettings,
@@ -73,7 +72,6 @@ export class ParticleRenderer {
   private readonly refBuffer: Float32Array;
   /** Placeholder sampler value so the CPU path binds a valid texture. */
   private readonly placeholderTex: THREE.DataTexture;
-  private skinLend: SkinSource | null = null;
 
   constructor(
     count: number,
@@ -399,19 +397,6 @@ export class ParticleRenderer {
   setCount(count: number): void {
     this.geometry.setDrawRange(0, count);
     this.ribbons?.setCount(count);
-  }
-
-  /** What the liquid skin needs to draw this same swarm its own way. */
-  get skinSource(): { source: SkinSource; count: number } {
-    this.skinLend ??= {
-      geometry: this.geometry,
-      uniforms: {
-        uCompute: this.material.uniforms.uCompute,
-        uComputePos: this.material.uniforms.uComputePos,
-        uMonochrome: this.material.uniforms.uMonochrome,
-      },
-    };
-    return { source: this.skinLend, count: this.geometry.drawRange.count };
   }
 
   /**

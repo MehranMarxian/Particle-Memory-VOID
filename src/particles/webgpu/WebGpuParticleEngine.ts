@@ -1,3 +1,4 @@
+import { lifeDensityScale } from "../lifeDensity";
 import { windMemory, windPush, windTurbulence } from "@/input/wind";
 import { RippleField } from "@/input/ripples";
 import type { InteractionMatrix } from "../InteractionMatrix";
@@ -582,7 +583,7 @@ export class WebGpuParticleEngine {
     f[SIM.attraction] = L.attraction;
     f[SIM.repulsion] = L.repulsion;
     f[SIM.radius] = L.interactionRadius;
-    f[SIM.forceScale] = L.forceScale;
+    f[SIM.forceScale] = L.forceScale * lifeDensityScale(this.count);
     f[SIM.coreRadius] = L.coreRadius;
     f[SIM.maxSpeed] = L.maxSpeed;
     f[SIM.friction] = L.friction;
