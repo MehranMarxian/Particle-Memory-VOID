@@ -2,6 +2,24 @@
 
 Same shape as the piece itself: memory first, then life.
 
+## [0.15.3] - 2026-11-06
+
+### Added
+- **Flocking** (LIFE > Flocking), in all three engines. Each particle flies its
+  neighbours' heading at a cruising speed: the alignment rule of Reynolds' boids,
+  self-propelled as in the Vicsek model. Without the cruising speed, matching
+  velocities only brings a crowd to rest together. Off by default, so no other look
+  changes. A test measures the flock's order parameter: random headings stay below
+  0.2, and flocking turns them into one flock above 0.8 in four seconds.
+- **Murmuration is a flock.** It flies with flocking on, held over the memory, with
+  no species attraction and no scent steering: either one packed the birds into
+  tight balls.
+
+### Fixed
+- **A particle at the lens fades out.** One that came within a few units of the
+  camera was drawn as a disc that filled the middle of the frame: the bright balls
+  in Aurora, Fireworks and Wake. Both renderers fade it out now.
+
 ## [0.15.2] - 2026-11-06
 
 Particles first: every look holds its shape at any density, and reads as what it

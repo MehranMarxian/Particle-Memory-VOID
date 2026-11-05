@@ -666,23 +666,28 @@ export const PRESET_DEFINITIONS: PresetDefinition[] = [
     label: "Murmuration",
     description: "Starlings at dusk - one body of thousands, folding over the memory and pouring back",
     speciesCount: 2,
-    // Two flocks that court each other: each chases the other a little
-    // harder than it holds itself, so the body folds instead of settling.
+    // Two kinds for colour. Since 0.15.3 the body is shaped by flocking and
+    // memory, not by species pulls (attraction 0 below).
     matrix: [0.7, 0.9, 0.85, 0.6],
-    memory: { strength: 1.4, decay: 0.02, reconstructionEase: 1.4 },
+    // A real flock (0.15.3): every bird flies its neighbours' heading at a
+    // cruising speed, and the memory folds the body back over the picture.
+    // No attraction and no scent steering: with a flock, either one packs
+    // the birds into tight balls.
+    memory: { strength: 3.5, decay: 0, reconstructionEase: 1.4 },
     life: {
       kernel: "pulse",
       interactionRadius: 1.2,
       coreRadius: 0.22,
       forceScale: 9,
       friction: 0.9,
-      attraction: 0.18,
-      repulsion: 0.8,
+      attraction: 0,
+      repulsion: 1.2,
       chaos: 0.05,
       maxSpeed: 7,
+      alignment: 0.6,
     },
-    field: { turbulence: 0.22, drift: 0.2, gravity: 0, wander: 0.12, phaseCoupling: 2.4 },
-    scent: { enabled: true, deposit: 0.5, decay: 0.5, steer: 1.4 },
+    field: { turbulence: 0.12, drift: 0.04, gravity: 0, wander: 0.08, phaseCoupling: 2.4 },
+    scent: { enabled: false },
     heat: { enabled: false },
     visual: {
       colorMode: "gradient",

@@ -1,3 +1,4 @@
+import { ALIGN_RATE, CRUISE_FRACTION } from "../lifeDensity";
 /**
  * GLSL for the GPU particle-life computation.
  *
@@ -151,6 +152,7 @@ export const gpuVelocityShader = /* glsl */ `
   uniform vec2 uCellStartRes;
 
   uniform float uAttraction;
+  uniform float uAlignment;
   uniform float uRepulsion;
   uniform float uInteractionRadius;
   uniform float uForceScale;
@@ -338,6 +340,8 @@ export const gpuVelocityShader = /* glsl */ `
     // --- LIFE: species interactions over the spatial grid -------------
     vec3 cell = clamp(floor((pos - uGridMin) / uCellSize), vec3(0.0), uGridDims - 1.0);
     vec3 force = vec3(0.0);
+    vec3 alignSum = vec3(0.0);
+    float alignN = 0.0;
 
     for (int dz = -1; dz <= 1; dz++) {
       for (int dy = -1; dy <= 1; dy++) {
@@ -379,8 +383,21 @@ export const gpuVelocityShader = /* glsl */ `
             }
             f *= f > 0.0 ? uAttraction : uRepulsion;
             force += d * (f / dist);
+            if (uAlignment > 0.0) {
+              alignSum += texture2D(textureVelocity, indexToUv(j, resolution)).xyz;
+              alignN += 1.0;
+            }
           }
         }
+      }
+    }
+
+    // Flocking: fly the group's heading at cruising speed (ParticleEngine mirrors it).
+    if (alignN > 0.0) {
+      vec3 heading = alignSum + vel;
+      float hl = length(heading);
+      if (hl > 1e-6) {
+        force += (heading * (uMaxSpeed * ${CRUISE_FRACTION.toFixed(2)} / hl) - vel) * uAlignment * ${ALIGN_RATE.toFixed(1)};
       }
     }
 

@@ -92,7 +92,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) i: u32) -> Out {
   let lifeM = clamp(ls.x, 0.0, 1.4);
   let sizeAtten = (1.0 + v.dof * defocus) * breathe * bloom * (0.35 + 0.65 * min(lifeM, 1.15));
   var pointSize = v.size * v.pixelRatio * (42.0 / dist) * sizeAtten;
-  let fog = exp(-v.fogDensity * dist);
+  // A particle at the lens fades out (the near fade, ParticleRenderer mirrors it).
+  let fog = exp(-v.fogDensity * dist) * smoothstep(0.8, 3.0, dist);
   let coc = 1.0 + v.dof * defocus;
   var fade = fog / (coc * coc);
   var cls = 0.0;
